@@ -122,6 +122,9 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap">
                                 Quantité
                             </th>
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-emerald-50">
+                                Spare (+5%)
+                            </th>
                             <th className="w-10" />
                             <th className="w-full" />
                         </tr>
@@ -132,7 +135,6 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             const editable = r.kind === "empty" || r.kind === "manual";
                             let rowClass = displayIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
                             if (r.kind === "header") rowClass = "row-total";
-                            else if (r.kind === "spare") rowClass = "row-spare";
                             else if (r.kind === "inclineur") rowClass = "row-inclineur";
                             else if (r.kind === "empty") rowClass = "row-empty";
                             else if (r.kind === "manual") rowClass = "bg-emerald-50/30";
@@ -149,6 +151,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                         <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data whitespace-nowrap">{r.reference}</td>
                                         <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.designation}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap">{fmtNum(r.quantite)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-emerald-50/40">{fmtNum(r.spare)}</td>
                                         <td />
                                         <td />
                                     </tr>
@@ -166,21 +169,21 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                         <EditableCell
                                             value={r.type}
                                             placeholder="Type"
-                                            onCommit={(v) => onUpdateRow(i, { type: v, reference: r.reference, designation: r.designation, quantite: r.quantite })}
+                                            onCommit={(v) => onUpdateRow(i, { type: v, reference: r.reference, designation: r.designation, quantite: r.quantite, spare: r.spare })}
                                         />
                                     </td>
                                     <td className="p-0 border-r border-gray-200 align-middle">
                                         <EditableCell
                                             value={r.reference}
                                             placeholder="Référence"
-                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: v, designation: r.designation, quantite: r.quantite })}
+                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: v, designation: r.designation, quantite: r.quantite, spare: r.spare })}
                                         />
                                     </td>
                                     <td className="p-0 border-r border-gray-200 align-middle">
                                         <EditableCell
                                             value={r.designation}
                                             placeholder="Désignation"
-                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: v, quantite: r.quantite })}
+                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: v, quantite: r.quantite, spare: r.spare })}
                                         />
                                     </td>
                                     <td className="p-0 border-r border-gray-200 align-middle">
@@ -189,7 +192,16 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                             placeholder="Qté"
                                             type="number"
                                             align="right"
-                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: r.designation, quantite: v })}
+                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: r.designation, quantite: v, spare: r.spare })}
+                                        />
+                                    </td>
+                                    <td className="p-0 border-r border-gray-200 align-middle bg-emerald-50/40">
+                                        <EditableCell
+                                            value={r.spare}
+                                            placeholder="Spare"
+                                            type="number"
+                                            align="right"
+                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: r.designation, quantite: r.quantite, spare: v })}
                                         />
                                     </td>
                                     <td className="p-0 text-center align-middle">
@@ -208,7 +220,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         })}
                         {filtered.length === 0 && (
                             <tr>
-                                <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-500">
+                                <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">
                                     Aucun résultat
                                 </td>
                             </tr>
@@ -223,13 +235,10 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         <span className="w-3 h-3 rounded-sm" style={{ background: "#FEF3C7" }} /> Total
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm" style={{ background: "#D1FAE5" }} /> Spare (+5%)
-                    </span>
-                    <span className="flex items-center gap-1">
                         <span className="w-3 h-3 rounded-sm" style={{ background: "#DBEAFE" }} /> Inclineur
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Ajouts manuels
+                        <span className="w-3 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Colonne Spare / Ajouts manuels
                     </span>
                 </span>
             </div>

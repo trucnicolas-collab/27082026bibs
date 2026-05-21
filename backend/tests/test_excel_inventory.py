@@ -65,24 +65,28 @@ class TestUploadExcel:
         assert len(eeg_total) == 1, f"Expected 1 TOTAL EEG header, got {len(eeg_total)}"
         assert eeg_total[0]["quantite"] == 76366, f"Expected EEG total 76366, got {eeg_total[0]['quantite']}"
 
-    def test_recap_spare_lines(self, upload_response):
+    def test_recap_spare_column(self, upload_response):
         recap = upload_response["data"]["recap"]
-        # Une ligne Spare est désormais générée après chaque produit (kind='product')
-        products = [r for r in recap if r["kind"] == "product"]
-        spares = [r for r in recap if r["kind"] == "spare"]
-        assert len(spares) == len(products), f"Expected one spare per product: {len(products)} products vs {len(spares)} spares"
+        # Plus de lignes 'spare' séparées : Spare est désormais une colonne sur chaque ligne produit
+        spare_lines = [r for r in recap if r["kind"] == "spare"]
+        assert len(spare_lines) == 0, f"No 'spare' kind lines expected, got {len(spare_lines)}"
 
-        # Vérification : la somme des spares EEG = somme ceil(qty*0.05) par produit EEG
+        # Chaque produit doit avoir un champ 'spare' = ceil(quantite * 0.05)
         import math
-        eeg_products = [r for r in recap if r["kind"] == "product" and r["type"] == "EEG"]
-        expected_eeg_total = sum(math.ceil(p["quantite"] * 0.05) for p in eeg_products)
-        eeg_spares = [r for r in recap if r["kind"] == "spare" and r["type"] == "EEG"]
-        actual_eeg_total = sum(s["quantite"] for s in eeg_spares)
-        assert actual_eeg_total == expected_eeg_total, f"EEG spares sum {actual_eeg_total} != expected {expected_eeg_total}"
+        products = [r for r in recap if r["kind"] == "product"]
+        assert len(products) > 0, "No products in recap"
+        for p in products:
+            assert "spare" in p, f"Missing spare field on product: {p}"
+            expected = math.ceil(p["quantite"] * 0.05)
+            assert p["spare"] == expected, f"Spare for {p['designation']} expected {expected}, got {p['spare']}"
 
-        # Pour chaque spare on doit avoir une référence non vide (héritée du produit)
-        for s in spares:
-            assert s["designation"].startswith("Spare (+5%)"), f"Bad designation: {s['designation']}"
+        # Le header TOTAL doit avoir un spare = somme des spares produits
+        eeg_total = [r for r in recap if r["kind"] == "header" and r["type"] == "EEG"][0]
+        eeg_products = [r for r in recap if r["kind"] == "product" and r["type"] == "EEG"]
+        expected_eeg_spare_total = sum(p["spare"] for p in eeg_products)
+        assert eeg_total["spare"] == expected_eeg_spare_total, (
+            f"TOTAL EEG spare {eeg_total['spare']} != sum of product spares {expected_eeg_spare_total}"
+        )
 
     def test_recap_inclineur_rail_9669(self, upload_response):
         recap = upload_response["data"]["recap"]

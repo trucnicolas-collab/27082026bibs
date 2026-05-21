@@ -95,7 +95,7 @@ class TestPatchRecapRow:
         assert r.status_code == 200
         assert r.json()["row"]["kind"] == "empty"
 
-    @pytest.mark.parametrize("kind_to_test", ["header", "spare", "inclineur", "product"])
+    @pytest.mark.parametrize("kind_to_test", ["header", "inclineur", "product"])
     def test_patch_non_editable_returns_400(self, upload_id, kind_to_test):
         recap = _get_recap(upload_id)
         idx = _find_index_by_kind(recap, kind_to_test)
@@ -177,7 +177,7 @@ class TestDeleteRecapRow:
         assert r.status_code == 200
         assert r.json()["ok"] is True
 
-    @pytest.mark.parametrize("kind_to_test", ["header", "spare", "inclineur", "product"])
+    @pytest.mark.parametrize("kind_to_test", ["header", "inclineur", "product"])
     def test_delete_non_deletable_returns_400(self, upload_id, kind_to_test):
         recap = _get_recap(upload_id)
         idx = _find_index_by_kind(recap, kind_to_test)

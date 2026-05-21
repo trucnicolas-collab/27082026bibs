@@ -170,12 +170,11 @@ def classify_eeg(designation: str) -> Optional[str]:
 
 def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     """
-    Construit le récapitulatif :
+    Construit le récapitulatif avec une colonne Spare (+5%) à côté de Quantité :
       Pour chaque Type (EEG, Fixation, Rail, Caméra) :
-        - Ligne header "TOTAL <Type>"
-        - Une ligne par (Référence, Désignation) avec somme Quantité
-        - Ligne "SPARE (+5%)" = 5% du grand total du Type
-        - Ligne "INCLINEUR" calculée (seulement pour Rail)
+        - Ligne header "TOTAL <Type>" (total Quantité, total Spare)
+        - Une ligne par (Référence, Désignation) avec Quantité et Spare = ceil(qty*0.05)
+        - Ligne "INCLINEUR" (seulement pour Rail) avec Quantité (pas de Spare)
       + 3 lignes vides en fin
     """
     rows: list[dict] = []
@@ -204,6 +203,7 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
             .sort_values(by=desig_col, kind="stable")
         )
         type_total = float(grouped[qty_col].sum())
+        type_spare_total = int(sum(math.ceil(float(q) * 0.05) for q in grouped[qty_col]))
 
         # Header total
         rows.append({
@@ -212,8 +212,9 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
             "reference": "",
             "designation": f"TOTAL {tp}",
             "quantite": type_total,
+            "spare": type_spare_total,
         })
-        # Lignes produits avec Spare (+5%) après chaque produit
+        # Une ligne par produit avec Quantité ET Spare (+5%) en colonne
         for _, r in grouped.iterrows():
             ref = "" if pd.isna(r[ref_col]) else str(r[ref_col])
             desig = "" if pd.isna(r[desig_col]) else str(r[desig_col])
@@ -224,15 +225,9 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "reference": ref,
                 "designation": desig,
                 "quantite": qty,
+                "spare": math.ceil(qty * 0.05),
             })
-            rows.append({
-                "kind": "spare",
-                "type": tp,
-                "reference": ref,
-                "designation": f"Spare (+5%) {desig}" if desig else "Spare (+5%)",
-                "quantite": math.ceil(qty * 0.05),
-            })
-        # Inclineur (uniquement pour Rail)
+        # Inclineur (uniquement pour Rail) — sans Spare car déjà calculé sur les rails
         if tp.lower() == "rail":
             mask = sub[desig_col].apply(is_inclineur_rail)
             inclineur_total = float(sub.loc[mask, qty_col].sum())
@@ -242,11 +237,12 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "reference": "",
                 "designation": "Inclineur (1 par rail 1320/1240/990/1187/908/650/535mm)",
                 "quantite": inclineur_total,
+                "spare": "",
             })
 
     # 3 lignes vides
     for _ in range(3):
-        rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": ""})
+        rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": ""})
 
     return rows
 
@@ -413,6 +409,7 @@ class RecapRowUpdate(BaseModel):
     reference: Optional[str] = ""
     designation: Optional[str] = ""
     quantite: Optional[Union[str, float, int]] = ""  # accepte str ou nombre, on convertit
+    spare: Optional[Union[str, float, int]] = ""  # accepte str ou nombre, on convertit
 
 
 def _parse_quantite(v):
@@ -448,13 +445,19 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     new_ref = (payload.reference or "").strip()
     new_desig = (payload.designation or "").strip()
     new_qty = _parse_quantite(payload.quantite)
+    new_spare = _parse_quantite(payload.spare)
 
     # Si toutes les valeurs sont vides, on remet kind='empty'
-    is_empty = not new_type and not new_ref and not new_desig and (new_qty == "" or new_qty == 0)
+    is_empty = (
+        not new_type and not new_ref and not new_desig
+        and (new_qty == "" or new_qty == 0)
+        and (new_spare == "" or new_spare == 0)
+    )
     row["type"] = new_type
     row["reference"] = new_ref
     row["designation"] = new_desig
     row["quantite"] = new_qty
+    row["spare"] = new_spare
     row["kind"] = "empty" if is_empty else "manual"
     # Re-persister
     try:
@@ -471,7 +474,7 @@ async def add_recap_row(upload_id: str):
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
-    new_row = {"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": ""}
+    new_row = {"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": ""}
     rows.append(new_row)
     try:
         await persist_recap_rows(upload_id, rows)
@@ -542,15 +545,13 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             recap = d["recap_rows"]
             ws = workbook.add_worksheet("Récapitulatif")
             writer.sheets["Récapitulatif"] = ws
-            headers = ["Type", "Référence", "Désignation", "Quantité"]
+            headers = ["Type", "Référence", "Désignation", "Quantité", "Spare (+5%)"]
             for col_i, h in enumerate(headers):
                 ws.write(0, col_i, h, fmt_header)
             for row_i, r in enumerate(recap, start=1):
                 kind = r["kind"]
                 if kind == "header":
                     fmt = fmt_total
-                elif kind == "spare":
-                    fmt = fmt_spare
                 elif kind == "inclineur":
                     fmt = fmt_inclineur
                 else:
@@ -559,12 +560,14 @@ async def export_excel(upload_id: str, sheet: str = "all"):
                 ws.write(row_i, 1, r["reference"], fmt)
                 ws.write(row_i, 2, r["designation"], fmt)
                 ws.write(row_i, 3, r["quantite"] if r["quantite"] != "" else "", fmt)
+                ws.write(row_i, 4, r.get("spare", "") if r.get("spare", "") != "" else "", fmt)
             ws.set_column(0, 0, 12)
             ws.set_column(1, 1, 14)
             ws.set_column(2, 2, 50)
             ws.set_column(3, 3, 12)
+            ws.set_column(4, 4, 14)
             if len(recap) > 0:
-                ws.autofilter(0, 0, len(recap), 3)
+                ws.autofilter(0, 0, len(recap), 4)
                 ws.freeze_panes(1, 0)
 
         if sheet in ("all", "secteur"):
