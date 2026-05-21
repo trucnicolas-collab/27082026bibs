@@ -7,11 +7,14 @@ Reçoit un fichier Excel, le traite et génère :
 """
 from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
+from starlette.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import io
+import json
+import gzip
 import math
 import logging
 import uuid
@@ -20,6 +23,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Union, Any
 from pydantic import BaseModel
+from bson.binary import Binary
 
 import pandas as pd
 
@@ -34,8 +38,73 @@ db = client[os.environ['DB_NAME']]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-# In-memory store of processed datasets keyed by upload_id (data too large for Mongo doc)
+# Compression gzip automatique des réponses > 1KB
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# Cache local par pod ; source de vérité = MongoDB (datasets collection)
 DATASTORE: dict[str, dict] = {}
+
+
+async def persist_dataset(upload_id: str, data: dict):
+    """Stocke le dataset complet en MongoDB (gzippé) pour qu'il soit accessible
+    depuis n'importe quel replica K8s."""
+    payload = {
+        "filename": data["filename"],
+        "uploaded_at": data["uploaded_at"],
+        "columns": data["columns"],
+        "detected_cols": data["detected_cols"],
+        "raw_records": data["raw_records"],
+        "recap_rows": data["recap_rows"],
+        "secteur_rows": data["secteur_rows"],
+    }
+    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    await db.datasets.replace_one(
+        {"upload_id": upload_id},
+        {
+            "upload_id": upload_id,
+            "filename": data["filename"],
+            "uploaded_at": data["uploaded_at"],
+            "row_count": len(data["raw_records"]),
+            "size_bytes": len(raw_bytes),
+            "compressed_bytes": len(compressed),
+            "payload": Binary(compressed),
+        },
+        upsert=True,
+    )
+
+
+async def persist_recap_rows(upload_id: str, recap_rows: list[dict]):
+    """Met à jour uniquement les recap_rows en base après une édition manuelle."""
+    if upload_id not in DATASTORE:
+        return
+    # Recharger payload existant, mettre à jour recap_rows, réenregistrer.
+    doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
+    if not doc:
+        # Pas en base ? Re-persister entièrement depuis le cache mémoire.
+        await persist_dataset(upload_id, DATASTORE[upload_id])
+        return
+    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
+    payload["recap_rows"] = recap_rows
+    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    await db.datasets.update_one(
+        {"upload_id": upload_id},
+        {"$set": {"payload": Binary(compressed), "size_bytes": len(raw_bytes), "compressed_bytes": len(compressed)}},
+    )
+
+
+async def load_dataset(upload_id: str) -> Optional[dict]:
+    """Récupère un dataset : d'abord en cache mémoire, sinon depuis MongoDB."""
+    if upload_id in DATASTORE:
+        return DATASTORE[upload_id]
+    doc = await db.datasets.find_one({"upload_id": upload_id}, {"_id": 0})
+    if not doc:
+        return None
+    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
+    DATASTORE[upload_id] = payload
+    return payload
+
 
 # Longueurs de rails qui comptent pour 1 inclineur
 INCLINEUR_LENGTHS = ["1320mm", "1240mm", "990mm", "1187mm", "908mm", "650mm", "535mm"]
@@ -298,16 +367,11 @@ async def upload_excel(file: UploadFile = File(...)):
         "secteur_rows": secteur_rows,
     }
 
-    # Persister métadonnée légère dans Mongo
+    # Persister le dataset complet en MongoDB (gzippé) pour multi-replica
     try:
-        await db.uploads.insert_one({
-            "upload_id": upload_id,
-            "filename": file.filename,
-            "uploaded_at": DATASTORE[upload_id]["uploaded_at"],
-            "row_count": len(raw_records),
-        })
+        await persist_dataset(upload_id, DATASTORE[upload_id])
     except Exception as e:
-        logger.warning(f"Mongo insert failed: {e}")
+        logger.warning(f"Mongo persist failed: {e}")
 
     return {
         "upload_id": upload_id,
@@ -329,9 +393,9 @@ async def upload_excel(file: UploadFile = File(...)):
 
 @api_router.get("/dataset/{upload_id}")
 async def get_dataset(upload_id: str):
-    if upload_id not in DATASTORE:
+    d = await load_dataset(upload_id)
+    if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    d = DATASTORE[upload_id]
     return {
         "upload_id": upload_id,
         "filename": d["filename"],
@@ -370,9 +434,10 @@ def _parse_quantite(v):
 @api_router.patch("/dataset/{upload_id}/recap-row/{index}")
 async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     """Met à jour une ligne du récapitulatif. Réservé aux lignes éditables (kind='empty' ou 'manual')."""
-    if upload_id not in DATASTORE:
+    d = await load_dataset(upload_id)
+    if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    rows = DATASTORE[upload_id]["recap_rows"]
+    rows = d["recap_rows"]
     if index < 0 or index >= len(rows):
         raise HTTPException(status_code=404, detail="Ligne introuvable")
     row = rows[index]
@@ -391,31 +456,46 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     row["designation"] = new_desig
     row["quantite"] = new_qty
     row["kind"] = "empty" if is_empty else "manual"
+    # Re-persister
+    try:
+        await persist_recap_rows(upload_id, rows)
+    except Exception as e:
+        logger.warning(f"Mongo persist recap failed: {e}")
     return {"row": row, "index": index}
 
 
 @api_router.post("/dataset/{upload_id}/recap-row")
 async def add_recap_row(upload_id: str):
     """Ajoute une nouvelle ligne vide à la fin du récapitulatif."""
-    if upload_id not in DATASTORE:
+    d = await load_dataset(upload_id)
+    if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    rows = DATASTORE[upload_id]["recap_rows"]
+    rows = d["recap_rows"]
     new_row = {"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": ""}
     rows.append(new_row)
+    try:
+        await persist_recap_rows(upload_id, rows)
+    except Exception as e:
+        logger.warning(f"Mongo persist recap failed: {e}")
     return {"row": new_row, "index": len(rows) - 1}
 
 
 @api_router.delete("/dataset/{upload_id}/recap-row/{index}")
 async def delete_recap_row(upload_id: str, index: int):
     """Supprime une ligne manuelle ou vide du récapitulatif."""
-    if upload_id not in DATASTORE:
+    d = await load_dataset(upload_id)
+    if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    rows = DATASTORE[upload_id]["recap_rows"]
+    rows = d["recap_rows"]
     if index < 0 or index >= len(rows):
         raise HTTPException(status_code=404, detail="Ligne introuvable")
     if rows[index]["kind"] not in ("empty", "manual"):
         raise HTTPException(status_code=400, detail="Seules les lignes manuelles peuvent être supprimées")
     rows.pop(index)
+    try:
+        await persist_recap_rows(upload_id, rows)
+    except Exception as e:
+        logger.warning(f"Mongo persist recap failed: {e}")
     return {"ok": True, "remaining": len(rows)}
 
 
@@ -425,10 +505,10 @@ async def export_excel(upload_id: str, sheet: str = "all"):
 
     sheet : 'all' | 'raw' | 'recap' | 'secteur'
     """
-    if upload_id not in DATASTORE:
+    d = await load_dataset(upload_id)
+    if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
 
-    d = DATASTORE[upload_id]
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
