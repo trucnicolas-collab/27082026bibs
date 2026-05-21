@@ -18,7 +18,7 @@ import uuid
 import re
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Union, Any
 from pydantic import BaseModel
 
 import pandas as pd
@@ -347,7 +347,7 @@ class RecapRowUpdate(BaseModel):
     type: Optional[str] = ""
     reference: Optional[str] = ""
     designation: Optional[str] = ""
-    quantite: Optional[str] = ""  # accepté en str ou nombre, on convertit
+    quantite: Optional[Union[str, float, int]] = ""  # accepte str ou nombre, on convertit
 
 
 def _parse_quantite(v):

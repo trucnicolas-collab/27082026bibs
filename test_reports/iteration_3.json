@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 3 backend retest after fix on RecapRowUpdate.quantite (Optional[Union[str, float, int]]). All 25 tests in test_recap_row_edit.py pass (including the 2 previously failing numeric cases) + 16 regression tests in test_excel_inventory.py. Bonus ad-hoc check: '1 234,5' (FR string with thousand-space + decimal comma) -> 1234.5 OK. Total 41/41 (100%).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DATASTORE", "issue": "Manual recap-row edits persist only in-memory; a backend restart wipes them. Pre-existing, acceptable for MVP."},
+      {"endpoint": "PATCH recap-row", "issue": "A manual row with all-empty fields + quantite==0 is silently transitioned to kind='empty' (truthiness-based rule). Pre-existing behaviour, worth documenting."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_recap_row_edit.py",
+    "/app/backend/tests/test_excel_inventory.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix confirmed: RecapRowUpdate.quantite typed Optional[Union[str, float, int]] = '' correctly accepts JSON numbers (int/float) AND strings; _parse_quantite handles conversion to float (including FR thousand-space + decimal-comma like '1 234,5' -> 1234.5).",
+    "Pre-existing (not in scope): DATASTORE is in-memory only; consider persisting manual recap edits to Mongo for durability."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (41/41)", "frontend": "N/A (not in scope)"},
+  "test_credentials": "N/A - no auth",
+  "seed_data_creation": "Reused /tmp/sample.xlsx (19780 rows). Tests add/edit/delete recap rows transactionally with cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All recap-row edition and quantite parsing tests are green. Numeric (int/float) and string inputs (incl. FR locale '1 234,5') accepted. No further bugs in this scope.",
+  "rca of the issue": "Previous 422 was caused by Pydantic v2 strict type validation on quantite: Optional[str] rejecting JSON numbers before reaching _parse_quantite. Fix: changed to Optional[Union[str, float, int]] = '' at server.py:350. _parse_quantite already handled int/float -> float. Confirmed via parametrized tests (42 int, 42.5 float, '42' str, '42.5' str, '42,5' str, '1 000' str) and ad-hoc curl for '1 234,5' -> 1234.5."
+}
