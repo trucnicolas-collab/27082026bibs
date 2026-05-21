@@ -1,0 +1,85 @@
+{
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "global_rules": {
+    "spacing": "Dense and compact. p-1, p-2 for table cells. No wasted space.",
+    "accessibility": "Ensure high contrast. Include data-testid on all interactive elements.",
+    "typography_rules": "Avoid Inter/Roboto for headings. Use IBM Plex Sans for UI and IBM Plex Mono for tables."
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#F9FAFB",
+    "border": "#D1D5DB",
+    "primary": "#056839",
+    "primary_hover": "#04502b",
+    "text_primary": "#111827",
+    "text_secondary": "#4B5563",
+    "accent_highlight": "#E0F2FE",
+    "row_even": "#FFFFFF",
+    "row_odd": "#F9FAFB",
+    "row_special_total": "#FEF3C7",
+    "row_special_spare": "#D1FAE5",
+    "row_special_inclineur": "#DBEAFE"
+  },
+  "typography": {
+    "font_family_headings": "IBM Plex Sans, sans-serif",
+    "font_family_body": "IBM Plex Sans, sans-serif",
+    "font_family_mono": "IBM Plex Mono, monospace",
+    "h1": "text-2xl font-bold tracking-tight text-gray-900",
+    "h2": "text-xl font-semibold tracking-tight text-gray-800",
+    "body": "text-sm text-gray-700 leading-tight",
+    "table_data": "text-sm font-mono tabular-nums text-gray-800"
+  },
+  "layout": {
+    "app_container": "h-screen w-screen flex flex-col overflow-hidden bg-white",
+    "header": "h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0",
+    "main_content": "flex-1 overflow-hidden relative flex flex-col",
+    "table_container": "flex-1 overflow-auto bg-white",
+    "bottom_tab_bar": "h-10 border-t border-gray-300 bg-gray-100 flex items-center flex-shrink-0 overflow-x-auto px-2"
+  },
+  "components": {
+    "upload_zone": {
+      "wrapper": "border-2 border-dashed border-gray-300 rounded-lg p-12 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors mx-4 my-8 cursor-pointer",
+      "text": "text-lg text-gray-600 mb-2 font-medium",
+      "subtext": "text-sm text-gray-500"
+    },
+    "data_table": {
+      "table": "w-full border-collapse text-left",
+      "thead": "sticky top-0 z-10 bg-gray-100 shadow-[0_1px_0_0_#D1D5DB]",
+      "th": "px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 last:border-r-0 whitespace-nowrap",
+      "tbody": "bg-white divide-y divide-gray-200",
+      "tr_even": "bg-white hover:bg-blue-50 transition-colors",
+      "tr_odd": "bg-gray-50 hover:bg-blue-50 transition-colors",
+      "td": "px-3 py-1.5 text-sm whitespace-nowrap border-r border-gray-200 last:border-r-0 font-mono tabular-nums",
+      "special_row_total": "bg-yellow-50 font-semibold text-yellow-900",
+      "special_row_spare": "bg-green-50 font-medium text-green-900",
+      "special_row_inclineur": "bg-blue-50 font-medium text-blue-900"
+    },
+    "bottom_tabs": {
+      "tab_button_active": "h-full px-4 border-t-2 border-primary bg-white text-primary font-medium text-sm flex items-center shadow-sm -mt-[1px]",
+      "tab_button_inactive": "h-full px-4 border-t-2 border-transparent bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm flex items-center transition-colors"
+    },
+    "controls": {
+      "search_input": "h-8 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-primary focus:border-primary px-3",
+      "export_button": "h-8 px-3 bg-primary text-white text-sm rounded hover:bg-primary_hover flex items-center gap-2 transition-colors font-medium shadow-sm"
+    }
+  },
+  "interactions": {
+    "hover": "Subtle background shifts on rows (e.g., bg-blue-50) to help track long lines of data visually.",
+    "focus": "High contrast ring (ring-2 ring-primary ring-offset-1) on all inputs and buttons."
+  },
+  "image_urls": [],
+  "instructions_to_main_agent": [
+    "Implement a full-screen application layout (100vh) without page scrolling; scrolling should only happen inside the table container.",
+    "Use react-dropzone for the Excel upload feature in the center of the screen when no data is loaded.",
+    "The table MUST use virtualization (e.g. @tanstack/react-virtual or react-window) because 20,000 rows will crash standard DOM rendering.",
+    "Headers of the table must be sticky (top-0).",
+    "Bottom tabs should mimic Excel behavior: fixed at the bottom, switching the active view/dataset.",
+    "Numeric data columns must use tabular-nums (font-variant-numeric) or a monospace font like IBM Plex Mono to align perfectly.",
+    "Highlight specific rows programmatically: 'Total' rows, 'Spare' (+5%) rows, and 'Inclineur' rows with distinct subtle background colors.",
+    "Include export functionality (Excel/CSV) via a prominent button in the header toolbar.",
+    "Ensure all interactive elements have data-testid attributes (e.g., data-testid='upload-dropzone', data-testid='tab-summary', data-testid='export-button').",
+    "All text and labels must be in French as requested.",
+    "Use lucide-react for UI icons (upload, download, search, etc.)."
+  ]
+}
