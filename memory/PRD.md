@@ -42,6 +42,13 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 - [x] Tests backend : 16/16 pytest passés
 - [x] Validé E2E par screenshots : 3 onglets affichent les données correctes
 
+## Feature additions (22/02/2026)
+- [x] Édition inline des lignes vides/manuelles du récapitulatif (endpoints PATCH/POST/DELETE)
+- [x] Bouton "+ Ajouter une ligne" et suppression via icône poubelle
+- [x] Conversion robuste de Quantité : int, float, "42", "42,5", "1 234,5" (FR locale)
+- [x] Ré-export Excel inclut les lignes manuelles ajoutées
+- [x] Tests backend : 41/41 (100%)
+
 ## Validations métier (sur fichier de référence 19 780 lignes)
 - Total EEG = 76 366 ; Spare (+5%) EEG = 3 819
 - Total Fixation = 41 806 ; Spare = 2 091
