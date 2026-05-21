@@ -1,34 +1,35 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
-}
+/* App-specific styles (most styles use Tailwind directly) */
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
+.app-root {
+    height: 100vh;
+    width: 100vw;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+    overflow: hidden;
+    background: #ffffff;
 }
 
-.App-link {
-    color: #61dafb;
+/* Row highlights */
+.row-total {
+    background-color: var(--color-row-total) !important;
+    font-weight: 600;
+    color: #92400e;
+}
+.row-spare {
+    background-color: var(--color-row-spare) !important;
+    font-weight: 500;
+    color: #065f46;
+}
+.row-inclineur {
+    background-color: var(--color-row-inclineur) !important;
+    font-weight: 500;
+    color: #1e40af;
+}
+.row-empty {
+    background-color: #fafafa !important;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Sticky header shadow */
+.thead-sticky {
+    box-shadow: 0 1px 0 0 #d1d5db;
 }

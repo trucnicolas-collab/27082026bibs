@@ -1,54 +1,113 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import React, { useState, useMemo, useCallback } from "react";
 import axios from "axios";
+import { Toaster, toast } from "sonner";
+import UploadZone from "./components/UploadZone";
+import Header from "./components/Header";
+import BottomTabs from "./components/BottomTabs";
+import RawTable from "./components/RawTable";
+import RecapTable from "./components/RecapTable";
+import SecteurTable from "./components/SecteurTable";
+import "./App.css";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+export default function App() {
+    const [dataset, setDataset] = useState(null);
+    const [activeTab, setActiveTab] = useState("recap");
+    const [search, setSearch] = useState("");
+    const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+    const handleUpload = useCallback(async (file) => {
+        setLoading(true);
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+            const res = await axios.post(`${API}/upload-excel`, formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+                timeout: 120000,
+            });
+            setDataset(res.data);
+            setActiveTab("recap");
+            toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
+        } catch (err) {
+            const msg = err.response?.data?.detail || err.message;
+            toast.error(`Erreur : ${msg}`);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+    const handleExport = useCallback(async () => {
+        if (!dataset?.upload_id) return;
+        try {
+            const res = await axios.get(`${API}/export/${dataset.upload_id}?sheet=all`, {
+                responseType: "blob",
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement("a");
+            link.href = url;
+            const base = dataset.filename.replace(/\.xlsx?$/i, "");
+            link.setAttribute("download", `${base}_traité.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast.success("Export téléchargé");
+        } catch (err) {
+            toast.error(`Erreur d'export : ${err.message}`);
+        }
+    }, [dataset]);
 
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+    const handleReset = useCallback(() => {
+        setDataset(null);
+        setSearch("");
+        setActiveTab("recap");
+    }, []);
+
+    const tabs = useMemo(() => {
+        if (!dataset) return [];
+        return [
+            { id: "recap", label: "Récapitulatif Produits", count: dataset.data.recap.length },
+            { id: "secteur", label: "Par Secteur / Allée", count: dataset.data.secteur.length },
+            { id: "raw", label: "Données Brutes", count: dataset.data.raw.length },
+        ];
+    }, [dataset]);
+
+    return (
+        <div className="app-root" data-testid="app-root">
+            <Toaster position="top-right" richColors />
+            <Header
+                dataset={dataset}
+                search={search}
+                onSearchChange={setSearch}
+                onExport={handleExport}
+                onReset={handleReset}
+            />
+
+            <main className="flex-1 overflow-hidden flex flex-col">
+                {!dataset ? (
+                    <UploadZone onUpload={handleUpload} loading={loading} />
+                ) : (
+                    <>
+                        <div className="flex-1 overflow-hidden">
+                            {activeTab === "raw" && (
+                                <RawTable
+                                    rows={dataset.data.raw}
+                                    columns={dataset.columns}
+                                    search={search}
+                                />
+                            )}
+                            {activeTab === "recap" && (
+                                <RecapTable rows={dataset.data.recap} search={search} />
+                            )}
+                            {activeTab === "secteur" && (
+                                <SecteurTable rows={dataset.data.secteur} search={search} />
+                            )}
+                        </div>
+                        <BottomTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+                    </>
+                )}
+            </main>
+        </div>
+    );
 }
-
-export default App;
