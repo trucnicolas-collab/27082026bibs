@@ -64,6 +64,79 @@ export default function App() {
         setActiveTab("recap");
     }, []);
 
+    const updateRecapRow = useCallback(async (index, patch) => {
+        if (!dataset?.upload_id) return;
+        // Optimistic update
+        const prev = dataset.data.recap[index];
+        const optimistic = { ...prev, ...patch };
+        // Détermine kind localement
+        const isEmpty =
+            !optimistic.type &&
+            !optimistic.reference &&
+            !optimistic.designation &&
+            (optimistic.quantite === "" || optimistic.quantite === 0 || optimistic.quantite === null);
+        optimistic.kind = isEmpty ? "empty" : "manual";
+
+        setDataset((d) => {
+            const next = { ...d, data: { ...d.data, recap: [...d.data.recap] } };
+            next.data.recap[index] = optimistic;
+            return next;
+        });
+
+        try {
+            const res = await axios.patch(`${API}/dataset/${dataset.upload_id}/recap-row/${index}`, patch);
+            setDataset((d) => {
+                const next = { ...d, data: { ...d.data, recap: [...d.data.recap] } };
+                next.data.recap[index] = res.data.row;
+                return next;
+            });
+        } catch (err) {
+            // Rollback
+            setDataset((d) => {
+                const next = { ...d, data: { ...d.data, recap: [...d.data.recap] } };
+                next.data.recap[index] = prev;
+                return next;
+            });
+            toast.error(`Erreur : ${err.response?.data?.detail || err.message}`);
+        }
+    }, [dataset]);
+
+    const addRecapRow = useCallback(async () => {
+        if (!dataset?.upload_id) return;
+        try {
+            const res = await axios.post(`${API}/dataset/${dataset.upload_id}/recap-row`);
+            setDataset((d) => ({
+                ...d,
+                data: { ...d.data, recap: [...d.data.recap, res.data.row] },
+            }));
+            toast.success("Ligne ajoutée");
+        } catch (err) {
+            toast.error(`Erreur : ${err.response?.data?.detail || err.message}`);
+        }
+    }, [dataset]);
+
+    const deleteRecapRow = useCallback(async (index) => {
+        if (!dataset?.upload_id) return;
+        const prev = dataset.data.recap[index];
+        // Optimistic remove
+        setDataset((d) => {
+            const next = { ...d, data: { ...d.data, recap: [...d.data.recap] } };
+            next.data.recap.splice(index, 1);
+            return next;
+        });
+        try {
+            await axios.delete(`${API}/dataset/${dataset.upload_id}/recap-row/${index}`);
+        } catch (err) {
+            // Rollback
+            setDataset((d) => {
+                const next = { ...d, data: { ...d.data, recap: [...d.data.recap] } };
+                next.data.recap.splice(index, 0, prev);
+                return next;
+            });
+            toast.error(`Erreur : ${err.response?.data?.detail || err.message}`);
+        }
+    }, [dataset]);
+
     const tabs = useMemo(() => {
         if (!dataset) return [];
         return [
@@ -98,7 +171,13 @@ export default function App() {
                                 />
                             )}
                             {activeTab === "recap" && (
-                                <RecapTable rows={dataset.data.recap} search={search} />
+                                <RecapTable
+                                    rows={dataset.data.recap}
+                                    search={search}
+                                    onUpdateRow={updateRecapRow}
+                                    onAddRow={addRecapRow}
+                                    onDeleteRow={deleteRecapRow}
+                                />
                             )}
                             {activeTab === "secteur" && (
                                 <SecteurTable rows={dataset.data.secteur} search={search} />

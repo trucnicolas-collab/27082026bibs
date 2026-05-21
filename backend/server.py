@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
+from pydantic import BaseModel
 
 import pandas as pd
 
@@ -340,6 +341,81 @@ async def get_dataset(upload_id: str):
             "secteur": d["secteur_rows"],
         },
     }
+
+
+class RecapRowUpdate(BaseModel):
+    type: Optional[str] = ""
+    reference: Optional[str] = ""
+    designation: Optional[str] = ""
+    quantite: Optional[str] = ""  # accepté en str ou nombre, on convertit
+
+
+def _parse_quantite(v):
+    """Parse quantité en nombre si possible, sinon retourne '' ou la valeur originale."""
+    if v is None or v == "":
+        return ""
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip().replace(" ", "").replace(",", ".")
+    if s == "":
+        return ""
+    try:
+        f = float(s)
+        return f
+    except ValueError:
+        return v  # on garde le texte tel quel si non numérique
+
+
+@api_router.patch("/dataset/{upload_id}/recap-row/{index}")
+async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
+    """Met à jour une ligne du récapitulatif. Réservé aux lignes éditables (kind='empty' ou 'manual')."""
+    if upload_id not in DATASTORE:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    rows = DATASTORE[upload_id]["recap_rows"]
+    if index < 0 or index >= len(rows):
+        raise HTTPException(status_code=404, detail="Ligne introuvable")
+    row = rows[index]
+    if row["kind"] not in ("empty", "manual"):
+        raise HTTPException(status_code=400, detail="Cette ligne n'est pas éditable")
+
+    new_type = (payload.type or "").strip()
+    new_ref = (payload.reference or "").strip()
+    new_desig = (payload.designation or "").strip()
+    new_qty = _parse_quantite(payload.quantite)
+
+    # Si toutes les valeurs sont vides, on remet kind='empty'
+    is_empty = not new_type and not new_ref and not new_desig and (new_qty == "" or new_qty == 0)
+    row["type"] = new_type
+    row["reference"] = new_ref
+    row["designation"] = new_desig
+    row["quantite"] = new_qty
+    row["kind"] = "empty" if is_empty else "manual"
+    return {"row": row, "index": index}
+
+
+@api_router.post("/dataset/{upload_id}/recap-row")
+async def add_recap_row(upload_id: str):
+    """Ajoute une nouvelle ligne vide à la fin du récapitulatif."""
+    if upload_id not in DATASTORE:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    rows = DATASTORE[upload_id]["recap_rows"]
+    new_row = {"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": ""}
+    rows.append(new_row)
+    return {"row": new_row, "index": len(rows) - 1}
+
+
+@api_router.delete("/dataset/{upload_id}/recap-row/{index}")
+async def delete_recap_row(upload_id: str, index: int):
+    """Supprime une ligne manuelle ou vide du récapitulatif."""
+    if upload_id not in DATASTORE:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    rows = DATASTORE[upload_id]["recap_rows"]
+    if index < 0 or index >= len(rows):
+        raise HTTPException(status_code=404, detail="Ligne introuvable")
+    if rows[index]["kind"] not in ("empty", "manual"):
+        raise HTTPException(status_code=400, detail="Seules les lignes manuelles peuvent être supprimées")
+    rows.pop(index)
+    return {"ok": True, "remaining": len(rows)}
 
 
 @api_router.get("/export/{upload_id}")

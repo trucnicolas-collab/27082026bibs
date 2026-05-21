@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 2 backend testing for inline recap-row edition endpoints (PATCH/POST/DELETE) + regression. 39/41 tests passed (95%). All 16 previous regression tests still pass. New endpoints work as specified except for one bug: quantite numeric (int/float) inputs are rejected by Pydantic validation with 422 (string-only schema), violating the requirement 'Quantité acceptée en string et nombre'.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/dataset/{upload_id}/recap-row/{index}",
+        "issue": "RecapRowUpdate.quantite is typed Optional[str]; sending JSON number (e.g. 42 or 42.5) returns 422 'Input should be a valid string'. Spec requires accepting both string and number. _parse_quantite already handles int/float, only the Pydantic field type needs to be Union[str, float, int, None] (or Any).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {"endpoint": "PATCH recap-row", "issue": "When kind='manual' is updated to all-empty + quantite=='0', a numeric 0 also triggers kind='empty'; behaviour matches spec but is an implicit truthiness rule worth documenting (a legitimate manual row with quantite=0 cannot exist)."},
+      {"endpoint": "DATASTORE", "issue": "Edits persist only in-memory; a backend restart wipes manual rows. Acceptable for MVP but should be flagged."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_recap_row_edit.py",
+    "/app/backend/tests/test_excel_inventory.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix Pydantic model RecapRowUpdate in /app/backend/server.py (~line 346): change `quantite: Optional[str] = ''` to `quantite: Optional[Union[str, float, int]] = ''` (and import Union) OR use `Any`. _parse_quantite already handles numbers correctly — only the schema rejects them."
+  ],
+  "critical_code_review_comments": [
+    "RecapRowUpdate.quantite typed as Optional[str] contradicts the requirement to accept numbers; _parse_quantite handles both but the model layer rejects numeric JSON values with 422.",
+    "delete_recap_row returns {'ok': true, 'remaining': N} — consider also returning the deleted row for client undo support.",
+    "Manual rows are stored in-memory only (DATASTORE); not persisted to Mongo. A server restart loses all manual edits. Document or persist.",
+    "kind transitions: PATCH a 'manual' row with all-empty fields silently transitions it to 'empty'. A manual row with quantite==0 cannot be expressed (treated as empty). Worth a doc note."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recap_row_edit.py"
+  ],
+  "success_rate": {"backend": "95% (39/41)", "frontend": "N/A (not in scope)"},
+  "test_credentials": "N/A - no auth",
+  "seed_data_creation": "Reused /tmp/sample.xlsx (19780 rows). Tests add/edit/delete recap rows transactionally with cleanup.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the RecapRowUpdate.quantite type (accept str|float|int), rerun /app/backend/tests/test_recap_row_edit.py — the two failing parametrized cases (numeric 42 and 42.5) should pass. All other 39 tests already green. Sample fixture at /tmp/sample.xlsx still valid.",
+  "rca of the issue": "Pydantic v2 strict type checking on RecapRowUpdate.quantite: Optional[str] = '' rejects JSON numbers before they reach _parse_quantite. Reproduction: `curl -X PATCH .../recap-row/<idx> -d '{\"quantite\": 42}'` returns 422. Mitigation: change field type to Optional[Union[str, float, int]] or Optional[Any]. _parse_quantite already converts int/float to float so no other code change needed."
+}
