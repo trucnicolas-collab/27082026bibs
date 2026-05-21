@@ -532,6 +532,11 @@ async def export_excel(upload_id: str, sheet: str = "all"):
         if sheet in ("all", "raw"):
             df_raw = pd.DataFrame(d["raw_records"])
             df_raw.to_excel(writer, sheet_name="Données", index=False)
+            ws_raw = writer.sheets["Données"]
+            if len(df_raw) > 0:
+                # Active les filtres Excel natifs sur toutes les colonnes
+                ws_raw.autofilter(0, 0, len(df_raw), max(0, len(df_raw.columns) - 1))
+                ws_raw.freeze_panes(1, 0)
 
         if sheet in ("all", "recap"):
             recap = d["recap_rows"]
@@ -558,6 +563,9 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             ws.set_column(1, 1, 14)
             ws.set_column(2, 2, 50)
             ws.set_column(3, 3, 12)
+            if len(recap) > 0:
+                ws.autofilter(0, 0, len(recap), 3)
+                ws.freeze_panes(1, 0)
 
         if sheet in ("all", "secteur"):
             secteur = d["secteur_rows"]
@@ -569,13 +577,22 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             for row_i, r in enumerate(secteur, start=1):
                 ws.write(row_i, 0, r["secteur"], fmt_cell)
                 ws.write(row_i, 1, r["rayon"], fmt_cell)
-                ws.write(row_i, 2, r["allee"], fmt_cell)
+                # N° Allée : convertir en nombre si possible pour permettre le tri numérique dans Excel
+                allee_val = r["allee"]
+                try:
+                    allee_num = int(allee_val) if str(allee_val).isdigit() else float(allee_val)
+                    ws.write_number(row_i, 2, allee_num, fmt_cell)
+                except (ValueError, TypeError):
+                    ws.write(row_i, 2, allee_val, fmt_cell)
                 ws.write(row_i, 3, r["nb_eeg_es"], fmt_cell)
                 ws.write(row_i, 4, r["nb_eeg_sa"], fmt_cell)
                 ws.write(row_i, 5, r["nb_rail"], fmt_cell)
                 ws.write(row_i, 6, r["nb_camera"], fmt_cell)
             ws.set_column(0, 1, 14)
             ws.set_column(2, 6, 12)
+            if len(secteur) > 0:
+                ws.autofilter(0, 0, len(secteur), 6)
+                ws.freeze_panes(1, 0)
 
     output.seek(0)
     filename = f"{Path(d['filename']).stem}_traité.xlsx"
