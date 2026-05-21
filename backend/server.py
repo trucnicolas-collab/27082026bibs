@@ -144,24 +144,25 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
             "designation": f"TOTAL {tp}",
             "quantite": type_total,
         })
-        # Lignes produits
+        # Lignes produits avec Spare (+5%) après chaque produit
         for _, r in grouped.iterrows():
+            ref = "" if pd.isna(r[ref_col]) else str(r[ref_col])
+            desig = "" if pd.isna(r[desig_col]) else str(r[desig_col])
+            qty = float(r[qty_col])
             rows.append({
                 "kind": "product",
                 "type": tp,
-                "reference": "" if pd.isna(r[ref_col]) else str(r[ref_col]),
-                "designation": "" if pd.isna(r[desig_col]) else str(r[desig_col]),
-                "quantite": float(r[qty_col]),
+                "reference": ref,
+                "designation": desig,
+                "quantite": qty,
             })
-        # Spare +5%
-        spare = math.ceil(type_total * 0.05)
-        rows.append({
-            "kind": "spare",
-            "type": tp,
-            "reference": "",
-            "designation": f"Spare (+5%) {tp}",
-            "quantite": spare,
-        })
+            rows.append({
+                "kind": "spare",
+                "type": tp,
+                "reference": ref,
+                "designation": f"Spare (+5%) {desig}" if desig else "Spare (+5%)",
+                "quantite": math.ceil(qty * 0.05),
+            })
         # Inclineur (uniquement pour Rail)
         if tp.lower() == "rail":
             mask = sub[desig_col].apply(is_inclineur_rail)

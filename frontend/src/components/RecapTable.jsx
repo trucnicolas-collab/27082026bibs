@@ -107,22 +107,23 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                 </button>
             </div>
             <div className="flex-1 overflow-auto custom-scroll">
-                <table className="w-full border-collapse text-left">
+                <table className="border-collapse text-left">
                     <thead className="sticky top-0 z-10 bg-gray-100 thead-sticky">
                         <tr>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 w-32">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap">
                                 Type
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 w-32">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap">
                                 Référence
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap">
                                 Désignation
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider w-28 text-right border-r border-gray-300">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap">
                                 Quantité
                             </th>
                             <th className="w-10" />
+                            <th className="w-full" />
                         </tr>
                     </thead>
                     <tbody>
@@ -144,10 +145,11 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                         data-testid={`recap-row-${i}`}
                                         data-kind={r.kind}
                                     >
-                                        <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data">{r.type}</td>
-                                        <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data">{r.reference}</td>
-                                        <td className="px-3 py-1.5 text-sm border-r border-gray-200">{r.designation}</td>
-                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200">{fmtNum(r.quantite)}</td>
+                                        <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data whitespace-nowrap">{r.type}</td>
+                                        <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data whitespace-nowrap">{r.reference}</td>
+                                        <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.designation}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap">{fmtNum(r.quantite)}</td>
+                                        <td />
                                         <td />
                                     </tr>
                                 );
@@ -200,12 +202,13 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                             <Trash2 className="w-3.5 h-3.5" />
                                         </button>
                                     </td>
+                                    <td />
                                 </tr>
                             );
                         })}
                         {filtered.length === 0 && (
                             <tr>
-                                <td colSpan={5} className="px-3 py-8 text-center text-sm text-gray-500">
+                                <td colSpan={6} className="px-3 py-8 text-center text-sm text-gray-500">
                                     Aucun résultat
                                 </td>
                             </tr>

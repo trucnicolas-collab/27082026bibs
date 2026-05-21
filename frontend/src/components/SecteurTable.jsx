@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 
 function fmtNum(v) {
     if (v === "" || v === null || v === undefined) return "";
@@ -10,16 +10,37 @@ function fmtNum(v) {
 }
 
 export default function SecteurTable({ rows, search }) {
+    const [filterSecteur, setFilterSecteur] = useState("");
+    const [filterRayon, setFilterRayon] = useState("");
+
+    const secteurOptions = useMemo(() => {
+        const set = new Set();
+        rows.forEach((r) => r.secteur && set.add(r.secteur));
+        return Array.from(set).sort();
+    }, [rows]);
+
+    const rayonOptions = useMemo(() => {
+        const set = new Set();
+        rows.forEach((r) => {
+            if (filterSecteur && r.secteur !== filterSecteur) return;
+            if (r.rayon) set.add(r.rayon);
+        });
+        return Array.from(set).sort();
+    }, [rows, filterSecteur]);
+
     const filtered = useMemo(() => {
-        if (!search) return rows;
         const q = search.toLowerCase();
-        return rows.filter(
-            (r) =>
+        return rows.filter((r) => {
+            if (filterSecteur && r.secteur !== filterSecteur) return false;
+            if (filterRayon && r.rayon !== filterRayon) return false;
+            if (!q) return true;
+            return (
                 (r.secteur && r.secteur.toLowerCase().includes(q)) ||
                 (r.rayon && r.rayon.toLowerCase().includes(q)) ||
                 (r.allee && String(r.allee).toLowerCase().includes(q))
-        );
-    }, [rows, search]);
+            );
+        });
+    }, [rows, search, filterSecteur, filterRayon]);
 
     const totals = useMemo(() => {
         return filtered.reduce(
@@ -34,33 +55,84 @@ export default function SecteurTable({ rows, search }) {
         );
     }, [filtered]);
 
+    const clearFilters = () => {
+        setFilterSecteur("");
+        setFilterRayon("");
+    };
+
     return (
         <div className="h-full flex flex-col bg-white" data-testid="secteur-table">
+            <div className="h-10 border-b border-gray-200 px-3 flex items-center gap-3 bg-gray-50 flex-shrink-0">
+                <span className="text-xs font-medium text-gray-700">Filtres :</span>
+                <select
+                    value={filterSecteur}
+                    onChange={(e) => {
+                        setFilterSecteur(e.target.value);
+                        setFilterRayon("");
+                    }}
+                    data-testid="filter-secteur"
+                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                >
+                    <option value="">Tous les secteurs</option>
+                    {secteurOptions.map((s) => (
+                        <option key={s} value={s}>
+                            {s}
+                        </option>
+                    ))}
+                </select>
+                <select
+                    value={filterRayon}
+                    onChange={(e) => setFilterRayon(e.target.value)}
+                    data-testid="filter-rayon"
+                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                >
+                    <option value="">Tous les rayons</option>
+                    {rayonOptions.map((r) => (
+                        <option key={r} value={r}>
+                            {r}
+                        </option>
+                    ))}
+                </select>
+                {(filterSecteur || filterRayon) && (
+                    <button
+                        onClick={clearFilters}
+                        data-testid="clear-filters"
+                        className="text-xs text-gray-600 hover:text-gray-900 underline"
+                    >
+                        Effacer
+                    </button>
+                )}
+                <span className="ml-auto text-xs text-gray-500">
+                    {filtered.length.toLocaleString("fr-FR")} / {rows.length.toLocaleString("fr-FR")} allées
+                </span>
+            </div>
+
             <div className="flex-1 overflow-auto custom-scroll">
-                <table className="w-full border-collapse text-left">
+                <table className="border-collapse text-left">
                     <thead className="sticky top-0 z-10 bg-gray-100 thead-sticky">
                         <tr>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap">
                                 Secteur
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap">
                                 Rayon
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 w-24">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap text-right">
                                 N° Allée
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 w-24 text-right">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap text-right">
                                 EEG ES
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 w-24 text-right">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap text-right">
                                 EEG SA
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 w-24 text-right">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 whitespace-nowrap text-right">
                                 Rails
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider w-24 text-right">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider whitespace-nowrap text-right">
                                 Caméras
                             </th>
+                            <th className="w-full" />
                         </tr>
                     </thead>
                     <tbody>
@@ -70,18 +142,19 @@ export default function SecteurTable({ rows, search }) {
                                 className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50 border-b border-gray-200`}
                                 data-testid={`secteur-row-${i}`}
                             >
-                                <td className="px-3 py-1.5 text-sm border-r border-gray-200">{r.secteur}</td>
-                                <td className="px-3 py-1.5 text-sm border-r border-gray-200">{r.rayon}</td>
-                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data">{r.allee}</td>
-                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right">{fmtNum(r.nb_eeg_es)}</td>
-                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right">{fmtNum(r.nb_eeg_sa)}</td>
-                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right">{fmtNum(r.nb_rail)}</td>
-                                <td className="px-3 py-1.5 text-sm font-mono-data text-right">{fmtNum(r.nb_camera)}</td>
+                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.secteur}</td>
+                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.rayon}</td>
+                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right whitespace-nowrap">{r.allee}</td>
+                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right whitespace-nowrap">{fmtNum(r.nb_eeg_es)}</td>
+                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right whitespace-nowrap">{fmtNum(r.nb_eeg_sa)}</td>
+                                <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data text-right whitespace-nowrap">{fmtNum(r.nb_rail)}</td>
+                                <td className="px-3 py-1.5 text-sm font-mono-data text-right whitespace-nowrap">{fmtNum(r.nb_camera)}</td>
+                                <td />
                             </tr>
                         ))}
                         {filtered.length === 0 && (
                             <tr>
-                                <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">
+                                <td colSpan={8} className="px-3 py-8 text-center text-sm text-gray-500">
                                     Aucun résultat
                                 </td>
                             </tr>
@@ -90,13 +163,14 @@ export default function SecteurTable({ rows, search }) {
                     {filtered.length > 0 && (
                         <tfoot className="sticky bottom-0 bg-yellow-50">
                             <tr className="border-t-2 border-gray-400 font-semibold" data-testid="secteur-totals">
-                                <td colSpan={3} className="px-3 py-2 text-sm text-gray-900">
+                                <td colSpan={3} className="px-3 py-2 text-sm text-gray-900 whitespace-nowrap">
                                     TOTAL
                                 </td>
-                                <td className="px-3 py-2 text-sm font-mono-data text-right">{fmtNum(totals.es)}</td>
-                                <td className="px-3 py-2 text-sm font-mono-data text-right">{fmtNum(totals.sa)}</td>
-                                <td className="px-3 py-2 text-sm font-mono-data text-right">{fmtNum(totals.rail)}</td>
-                                <td className="px-3 py-2 text-sm font-mono-data text-right">{fmtNum(totals.cam)}</td>
+                                <td className="px-3 py-2 text-sm font-mono-data text-right whitespace-nowrap">{fmtNum(totals.es)}</td>
+                                <td className="px-3 py-2 text-sm font-mono-data text-right whitespace-nowrap">{fmtNum(totals.sa)}</td>
+                                <td className="px-3 py-2 text-sm font-mono-data text-right whitespace-nowrap">{fmtNum(totals.rail)}</td>
+                                <td className="px-3 py-2 text-sm font-mono-data text-right whitespace-nowrap">{fmtNum(totals.cam)}</td>
+                                <td />
                             </tr>
                         </tfoot>
                     )}

@@ -14,7 +14,7 @@ const API = `${BACKEND_URL}/api`;
 
 export default function App() {
     const [dataset, setDataset] = useState(null);
-    const [activeTab, setActiveTab] = useState("recap");
+    const [activeTab, setActiveTab] = useState("raw");
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
 
@@ -28,7 +28,7 @@ export default function App() {
                 timeout: 120000,
             });
             setDataset(res.data);
-            setActiveTab("recap");
+            setActiveTab("raw");
             toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
@@ -61,7 +61,7 @@ export default function App() {
     const handleReset = useCallback(() => {
         setDataset(null);
         setSearch("");
-        setActiveTab("recap");
+        setActiveTab("raw");
     }, []);
 
     const updateRecapRow = useCallback(async (index, patch) => {
@@ -140,9 +140,9 @@ export default function App() {
     const tabs = useMemo(() => {
         if (!dataset) return [];
         return [
+            { id: "raw", label: "Données Brutes", count: dataset.data.raw.length },
             { id: "recap", label: "Récapitulatif Produits", count: dataset.data.recap.length },
             { id: "secteur", label: "Par Secteur / Allée", count: dataset.data.secteur.length },
-            { id: "raw", label: "Données Brutes", count: dataset.data.raw.length },
         ];
     }, [dataset]);
 

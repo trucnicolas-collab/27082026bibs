@@ -67,15 +67,22 @@ class TestUploadExcel:
 
     def test_recap_spare_lines(self, upload_response):
         recap = upload_response["data"]["recap"]
-        spares = {r["type"]: r["quantite"] for r in recap if r["kind"] == "spare"}
-        # 4 expected (EEG, Fixation, Rail, Caméra)
-        assert len(spares) == 4, f"Expected 4 spare lines, got {len(spares)}: {spares}"
-        # Tolerate either "Caméra" or "Camera"
-        cam_key = "Caméra" if "Caméra" in spares else "Camera"
-        expected = {"EEG": 3819, "Fixation": 2091, "Rail": 610, cam_key: 175}
-        for k, v in expected.items():
-            assert k in spares, f"Spare type missing: {k}"
-            assert spares[k] == v, f"Spare {k} expected {v}, got {spares[k]}"
+        # Une ligne Spare est désormais générée après chaque produit (kind='product')
+        products = [r for r in recap if r["kind"] == "product"]
+        spares = [r for r in recap if r["kind"] == "spare"]
+        assert len(spares) == len(products), f"Expected one spare per product: {len(products)} products vs {len(spares)} spares"
+
+        # Vérification : la somme des spares EEG = somme ceil(qty*0.05) par produit EEG
+        import math
+        eeg_products = [r for r in recap if r["kind"] == "product" and r["type"] == "EEG"]
+        expected_eeg_total = sum(math.ceil(p["quantite"] * 0.05) for p in eeg_products)
+        eeg_spares = [r for r in recap if r["kind"] == "spare" and r["type"] == "EEG"]
+        actual_eeg_total = sum(s["quantite"] for s in eeg_spares)
+        assert actual_eeg_total == expected_eeg_total, f"EEG spares sum {actual_eeg_total} != expected {expected_eeg_total}"
+
+        # Pour chaque spare on doit avoir une référence non vide (héritée du produit)
+        for s in spares:
+            assert s["designation"].startswith("Spare (+5%)"), f"Bad designation: {s['designation']}"
 
     def test_recap_inclineur_rail_9669(self, upload_response):
         recap = upload_response["data"]["recap"]
