@@ -169,7 +169,7 @@ export default function SecteurTable({ rows, search }) {
                     <tbody>
                         {filtered.map((r, i) => (
                             <tr
-                                key={i}
+                                key={`${r.secteur}|${r.rayon}|${r.allee}`}
                                 className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50 border-b border-gray-200`}
                                 data-testid={`secteur-row-${i}`}
                             >

@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from bson.binary import Binary
 
 import pandas as pd
+import numpy as np
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -295,9 +296,25 @@ def build_par_secteur(df: pd.DataFrame, cols: dict) -> list[dict]:
     return rows
 
 
+def _parse_excel(contents: bytes) -> pd.DataFrame:
+    """Parse un xlsx avec calamine (rapide) puis openpyxl en fallback."""
+    try:
+        df = pd.read_excel(io.BytesIO(contents), sheet_name=0, engine="calamine")
+        logger.info(f"Parsed with calamine: {df.shape[0]} rows x {df.shape[1]} cols")
+        return df
+    except Exception as e_cal:
+        logger.warning(f"Calamine failed ({e_cal}), falling back to openpyxl")
+    try:
+        df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+        logger.info(f"Parsed with openpyxl: {df.shape[0]} rows x {df.shape[1]} cols")
+        return df
+    except Exception as e:
+        logger.exception("Excel parse error")
+        raise HTTPException(status_code=400, detail=f"Impossible de lire le fichier Excel : {e}")
+
+
 def df_to_records(df: pd.DataFrame) -> list[dict]:
     """Convertit en records JSON-safe (NaN/Inf -> None, Timestamps -> str)."""
-    import numpy as np
     out = df.to_dict(orient="records")
     for rec in out:
         for k, v in list(rec.items()):
@@ -341,20 +358,10 @@ async def upload_excel(file: UploadFile = File(...)):
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Le fichier doit être au format Excel (.xlsx ou .xls)")
 
-    try:
-        contents = await file.read()
-        logger.info(f"Upload received: {file.filename}, {len(contents)} bytes")
-        # Lire la première feuille — calamine 5-10× plus rapide qu'openpyxl
-        try:
-            df = pd.read_excel(io.BytesIO(contents), sheet_name=0, engine="calamine")
-            logger.info(f"Parsed with calamine: {df.shape[0]} rows x {df.shape[1]} cols")
-        except Exception as e_cal:
-            logger.warning(f"Calamine failed ({e_cal}), falling back to openpyxl")
-            df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
-            logger.info(f"Parsed with openpyxl: {df.shape[0]} rows x {df.shape[1]} cols")
-    except Exception as e:
-        logger.exception("Excel parse error")
-        raise HTTPException(status_code=400, detail=f"Impossible de lire le fichier Excel : {e}")
+    contents = await file.read()
+    logger.info(f"Upload received: {file.filename}, {len(contents)} bytes")
+
+    df = _parse_excel(contents)
 
     if df.empty:
         raise HTTPException(status_code=400, detail="Le fichier Excel est vide")
@@ -572,9 +579,6 @@ async def export_excel(upload_id: str, sheet: str = "all"):
         })
         fmt_total = workbook.add_format({
             "bold": True, "bg_color": "#FEF3C7", "border": 1
-        })
-        fmt_spare = workbook.add_format({
-            "bold": True, "bg_color": "#D1FAE5", "border": 1
         })
         fmt_inclineur = workbook.add_format({
             "bold": True, "bg_color": "#DBEAFE", "border": 1
