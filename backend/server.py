@@ -30,6 +30,9 @@ import pandas as pd
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # MongoDB
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -340,9 +343,17 @@ async def upload_excel(file: UploadFile = File(...)):
 
     try:
         contents = await file.read()
-        # Lire la première feuille
-        df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+        logger.info(f"Upload received: {file.filename}, {len(contents)} bytes")
+        # Lire la première feuille — calamine 5-10× plus rapide qu'openpyxl
+        try:
+            df = pd.read_excel(io.BytesIO(contents), sheet_name=0, engine="calamine")
+            logger.info(f"Parsed with calamine: {df.shape[0]} rows x {df.shape[1]} cols")
+        except Exception as e_cal:
+            logger.warning(f"Calamine failed ({e_cal}), falling back to openpyxl")
+            df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
+            logger.info(f"Parsed with openpyxl: {df.shape[0]} rows x {df.shape[1]} cols")
     except Exception as e:
+        logger.exception("Excel parse error")
         raise HTTPException(status_code=400, detail=f"Impossible de lire le fichier Excel : {e}")
 
     if df.empty:
@@ -352,9 +363,15 @@ async def upload_excel(file: UploadFile = File(...)):
     cols = detect_columns(df)
 
     # Construire les onglets
+    logger.info("Building recap rows...")
     recap_rows = build_recap_produits(df, cols)
+    logger.info(f"Recap built: {len(recap_rows)} rows")
+    logger.info("Building secteur rows...")
     secteur_rows = build_par_secteur(df, cols)
+    logger.info(f"Secteur built: {len(secteur_rows)} rows")
+    logger.info("Converting raw records...")
     raw_records = df_to_records(df)
+    logger.info(f"Raw records: {len(raw_records)} rows")
 
     upload_id = str(uuid.uuid4())
     DATASTORE[upload_id] = {
@@ -649,9 +666,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 
 @app.on_event("shutdown")
