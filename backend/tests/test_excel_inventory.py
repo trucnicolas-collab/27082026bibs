@@ -89,11 +89,15 @@ class TestUploadExcel:
         assert eeg_total["spare"] == "", f"TOTAL EEG spare should be empty, got {eeg_total['spare']!r}"
         assert eeg_total["total_plus_spare"] == "", f"TOTAL EEG total_plus_spare should be empty"
 
-        # Inclineur : pas de spare ni total_plus_spare
+        # Inclineur : produit à commander, avec ref 16657, spare et total_plus_spare calculés
         inclineurs = [r for r in recap if r["kind"] == "inclineur"]
         for inc in inclineurs:
-            assert inc["spare"] == "", f"Inclineur should have no spare"
-            assert inc["total_plus_spare"] == "", f"Inclineur should have no total_plus_spare"
+            assert inc["reference"] == "16657", f"Inclineur ref expected 16657, got {inc['reference']!r}"
+            expected_inc_spare = math.ceil(inc["quantite"] * 0.05)
+            assert inc["spare"] == expected_inc_spare, f"Inclineur spare expected {expected_inc_spare}, got {inc['spare']}"
+            assert inc["total_plus_spare"] == inc["quantite"] + inc["spare"], (
+                f"Inclineur total_plus_spare expected {inc['quantite']+inc['spare']}, got {inc['total_plus_spare']}"
+            )
 
     def test_recap_inclineur_rail_9669(self, upload_response):
         recap = upload_response["data"]["recap"]

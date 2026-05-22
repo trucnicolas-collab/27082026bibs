@@ -229,18 +229,19 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "spare": spare,
                 "total_plus_spare": qty + spare,
             })
-        # Inclineur (uniquement pour Rail) — sans Spare ni Total+Spare
+        # Inclineur (uniquement pour Rail) — comptable comme produit à commander
         if tp.lower() == "rail":
             mask = sub[desig_col].apply(is_inclineur_rail)
             inclineur_total = float(sub.loc[mask, qty_col].sum())
+            inclineur_spare = math.ceil(inclineur_total * 0.05)
             rows.append({
                 "kind": "inclineur",
                 "type": tp,
-                "reference": "",
+                "reference": "16657",
                 "designation": "Inclineur (1 par rail 1320/1240/990/1187/908/650/535mm)",
                 "quantite": inclineur_total,
-                "spare": "",
-                "total_plus_spare": "",
+                "spare": inclineur_spare,
+                "total_plus_spare": inclineur_total + inclineur_spare,
             })
 
     # 3 lignes vides
@@ -449,6 +450,10 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     new_desig = (payload.designation or "").strip()
     new_qty = _parse_quantite(payload.quantite)
     new_spare = _parse_quantite(payload.spare)
+
+    # Auto-calcul du Spare = ceil(qty * 5%) si Quantité saisie et Spare vide/0
+    if isinstance(new_qty, (int, float)) and new_qty > 0 and (new_spare == "" or new_spare == 0):
+        new_spare = math.ceil(float(new_qty) * 0.05)
 
     # Total + Spare auto-calculé pour les manuels (si les 2 sont numériques)
     if isinstance(new_qty, (int, float)) and isinstance(new_spare, (int, float)):
