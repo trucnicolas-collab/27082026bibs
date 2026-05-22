@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ChevronRight, ChevronDown, Download } from "lucide-react";
+import { Download } from "lucide-react";
 
 function fmtNum(v) {
     if (v == null || v === "") return "";
@@ -16,101 +16,102 @@ function findCol(columns, candidates) {
     return null;
 }
 
-function cmp(a, b) {
+function cmpAllee(a, b) {
     if (a === b) return 0;
-    if (a == null || a === "") return 1;
-    if (b == null || b === "") return -1;
     const nA = typeof a === "number" ? a : parseFloat(String(a).replace(",", "."));
     const nB = typeof b === "number" ? b : parseFloat(String(b).replace(",", "."));
     if (!isNaN(nA) && !isNaN(nB)) return nA - nB;
     return String(a).localeCompare(String(b), "fr", { numeric: true });
 }
 
-function typeBreakdownToChips(byType) {
-    return Object.entries(byType)
-        .sort(([x], [y]) => x.localeCompare(y))
-        .map(([t, n]) => `${t}: ${fmtNum(n)}`)
-        .join(" · ");
-}
-
 export default function ParSecteurTable({ rows, columns, search, uploadId }) {
     const SECTEUR = findCol(columns, ["Secteur"]) || "Secteur";
     const RAYON = findCol(columns, ["Rayon"]) || "Rayon";
     const ALLEE = findCol(columns, ["N° allée", "N° allee", "Allée", "Allee"]) || "N° allée";
-    const ELEMENT = findCol(columns, ["N° élément", "N° element", "Élément", "Element"]) || "N° élément";
+    // Colonne G du fichier original = identifiant unique de la gondole
+    const ELEMENT =
+        findCol(columns, ["Element", "Élément", "N° élément", "N° element", "N° gondole", "Gondole"]) ||
+        (columns[6] /* col G fallback */ || null);
     const TYPE = findCol(columns, ["Type"]);
     const DESIG = findCol(columns, ["Désignation", "Designation"]);
     const QTY = findCol(columns, ["Quantité", "Quantite"]);
 
     const [filterSecteur, setFilterSecteur] = useState("");
     const [filterRayon, setFilterRayon] = useState("");
-    const [expanded, setExpanded] = useState({});
+    const [mode, setMode] = useState("rayon"); // 'rayon' | 'global'
 
-    const toggle = (key) => setExpanded((p) => ({ ...p, [key]: !p[key] }));
-
-    // Tree: Secteur > Rayon > Allée > Element > Products
-    const tree = useMemo(() => {
+    // 1) Filtrer les lignes selon recherche/filtre
+    const filteredRows = useMemo(() => {
         const q = (search || "").toLowerCase();
-        const map = new Map();
+        return rows.filter((r) => {
+            if (filterSecteur && String(r[SECTEUR] ?? "") !== filterSecteur) return false;
+            if (filterRayon && String(r[RAYON] ?? "") !== filterRayon) return false;
+            if (q && !columns.some((c) => r[c] != null && String(r[c]).toLowerCase().includes(q))) return false;
+            return true;
+        });
+    }, [rows, columns, search, filterSecteur, filterRayon, SECTEUR, RAYON]);
+
+    // 2) Liste globale des désignations (mode "Toutes désignations")
+    const allDesignations = useMemo(() => {
+        if (!DESIG) return [];
+        const map = new Map(); // designation -> type (premier rencontré)
         for (const r of rows) {
+            const d = r[DESIG] == null ? "" : String(r[DESIG]).trim();
+            if (!d) continue;
+            const t = TYPE ? String(r[TYPE] ?? "") : "";
+            if (!map.has(d)) map.set(d, t);
+        }
+        return Array.from(map.entries())
+            .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0], "fr"))
+            .map(([d]) => d);
+    }, [rows, DESIG, TYPE]);
+
+    // 3) Construire l'arbre Secteur > Rayon > Allée
+    const tree = useMemo(() => {
+        const sectMap = new Map();
+        for (const r of filteredRows) {
             const s = r[SECTEUR] == null ? "—" : String(r[SECTEUR]);
             const ra = r[RAYON] == null ? "—" : String(r[RAYON]);
             const al = r[ALLEE] == null ? "—" : String(r[ALLEE]);
-            const el = r[ELEMENT] == null ? "—" : String(r[ELEMENT]);
-            if (filterSecteur && s !== filterSecteur) continue;
-            if (filterRayon && ra !== filterRayon) continue;
-            if (q && !columns.some((c) => r[c] != null && String(r[c]).toLowerCase().includes(q))) continue;
+            const el = ELEMENT ? (r[ELEMENT] == null ? "" : String(r[ELEMENT])) : "";
+            const desig = DESIG ? (r[DESIG] == null ? "" : String(r[DESIG]).trim()) : "";
+            const qty = QTY ? Number(r[QTY]) || 0 : 0;
+            const typ = TYPE ? String(r[TYPE] ?? "") : "";
 
-            if (!map.has(s)) map.set(s, new Map());
-            const rayMap = map.get(s);
-            if (!rayMap.has(ra)) rayMap.set(ra, new Map());
-            const allMap = rayMap.get(ra);
-            if (!allMap.has(al)) allMap.set(al, { elements: new Map(), byType: {}, total: 0 });
-            const alNode = allMap.get(al);
-            if (!alNode.elements.has(el)) alNode.elements.set(el, { products: [], byType: {}, total: 0 });
-            const elNode = alNode.elements.get(el);
-
-            const qty = QTY ? Number(r[QTY]) || 0 : 1;
-            const typ = TYPE ? (r[TYPE] || "—") : "—";
-            const desig = DESIG ? (r[DESIG] || "") : "";
-
-            elNode.products.push({ type: typ, designation: desig, qty });
-            elNode.total += qty;
-            elNode.byType[typ] = (elNode.byType[typ] || 0) + qty;
-            alNode.total += qty;
-            alNode.byType[typ] = (alNode.byType[typ] || 0) + qty;
+            if (!sectMap.has(s)) sectMap.set(s, new Map());
+            const rayMap = sectMap.get(s);
+            if (!rayMap.has(ra)) rayMap.set(ra, { allees: new Map(), desigSet: new Map() });
+            const rayNode = rayMap.get(ra);
+            if (desig) {
+                if (!rayNode.desigSet.has(desig)) rayNode.desigSet.set(desig, typ);
+            }
+            if (!rayNode.allees.has(al)) rayNode.allees.set(al, { elements: new Set(), byDesig: {} });
+            const alNode = rayNode.allees.get(al);
+            if (el) alNode.elements.add(el);
+            if (desig) alNode.byDesig[desig] = (alNode.byDesig[desig] || 0) + qty;
         }
-        // Materialize sorted arrays
-        return Array.from(map.entries())
-            .sort(([a], [b]) => cmp(a, b))
+
+        return Array.from(sectMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b, "fr"))
             .map(([secteur, rayMap]) => {
                 const rayons = Array.from(rayMap.entries())
-                    .sort(([a], [b]) => cmp(a, b))
-                    .map(([rayon, allMap]) => {
-                        const allees = Array.from(allMap.entries())
-                            .sort(([a], [b]) => cmp(a, b))
-                            .map(([allee, data]) => {
-                                const elements = Array.from(data.elements.entries())
-                                    .sort(([a], [b]) => cmp(a, b))
-                                    .map(([el, eData]) => ({ element: el, ...eData }));
-                                return { allee, elements, byType: data.byType, total: data.total };
-                            });
-                        return {
-                            rayon,
-                            allees,
-                            total: allees.reduce((acc, a) => acc + a.total, 0),
-                            nbAllees: allees.length,
-                            nbElements: allees.reduce((acc, a) => acc + a.elements.length, 0),
-                        };
+                    .sort(([a], [b]) => a.localeCompare(b, "fr"))
+                    .map(([rayon, node]) => {
+                        const desigs = Array.from(node.desigSet.entries())
+                            .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0], "fr"))
+                            .map(([d]) => d);
+                        const allees = Array.from(node.allees.entries())
+                            .sort(([a], [b]) => cmpAllee(a, b))
+                            .map(([allee, data]) => ({
+                                allee,
+                                nbElements: data.elements.size,
+                                byDesig: data.byDesig,
+                            }));
+                        return { rayon, allees, desigs };
                     });
-                return {
-                    secteur,
-                    rayons,
-                    total: rayons.reduce((acc, r) => acc + r.total, 0),
-                    nbElements: rayons.reduce((acc, r) => acc + r.nbElements, 0),
-                };
+                return { secteur, rayons };
             });
-    }, [rows, columns, search, filterSecteur, filterRayon, SECTEUR, RAYON, ALLEE, ELEMENT, TYPE, DESIG, QTY]);
+    }, [filteredRows, SECTEUR, RAYON, ALLEE, ELEMENT, DESIG, QTY, TYPE]);
 
     const secteurOptions = useMemo(() => {
         const set = new Set();
@@ -127,17 +128,16 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
         return Array.from(set).sort();
     }, [rows, filterSecteur, SECTEUR, RAYON]);
 
-    const totalAllees = useMemo(
-        () => tree.reduce((a, s) => a + s.rayons.reduce((b, r) => b + r.allees.length, 0), 0),
-        [tree]
-    );
-
-    // Export du fichier Excel global (inclut "Par Secteur" hiérarchique)
-    const handleExportView = async () => {
+    const handleExport = () => {
         if (!uploadId) return;
         const url = `${process.env.REACT_APP_BACKEND_URL}/api/export/${uploadId}?sheet=parsecteur`;
         window.location.href = url;
     };
+
+    const totalAllees = useMemo(
+        () => tree.reduce((a, s) => a + s.rayons.reduce((b, r) => b + r.allees.length, 0), 0),
+        [tree]
+    );
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="parsecteur-table">
@@ -168,32 +168,31 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
                         <option key={r} value={r}>{r}</option>
                     ))}
                 </select>
+
+                <div className="ml-2 inline-flex rounded border border-gray-300 overflow-hidden" data-testid="parsecteur-mode-toggle">
+                    <button
+                        onClick={() => setMode("rayon")}
+                        data-testid="mode-rayon"
+                        className={`h-7 px-2.5 text-xs font-medium ${mode === "rayon" ? "bg-[#056839] text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
+                        title="Désignations du rayon uniquement"
+                    >
+                        Désignations rayon
+                    </button>
+                    <button
+                        onClick={() => setMode("global")}
+                        data-testid="mode-global"
+                        className={`h-7 px-2.5 text-xs font-medium border-l border-gray-300 ${mode === "global" ? "bg-[#056839] text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
+                        title="Toutes les désignations du fichier"
+                    >
+                        Toutes désignations
+                    </button>
+                </div>
+
                 <button
-                    onClick={() => {
-                        const next = {};
-                        tree.forEach((s) => {
-                            next[`s:${s.secteur}`] = true;
-                            s.rayons.forEach((r) => (next[`r:${s.secteur}|${r.rayon}`] = true));
-                        });
-                        setExpanded(next);
-                    }}
-                    data-testid="expand-all"
-                    className="h-7 px-2 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-100"
-                >
-                    Tout déplier
-                </button>
-                <button
-                    onClick={() => setExpanded({})}
-                    data-testid="collapse-all"
-                    className="h-7 px-2 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-100"
-                >
-                    Tout replier
-                </button>
-                <button
-                    onClick={handleExportView}
+                    onClick={handleExport}
                     data-testid="export-parsecteur"
                     className="h-7 px-2.5 text-xs font-medium bg-[#056839] text-white rounded hover:bg-[#04502b] flex items-center gap-1.5"
-                    title="Exporter l'onglet Par Secteur en Excel (avec filtres natifs)"
+                    title="Exporter l'onglet Par Secteur en Excel"
                 >
                     <Download className="w-3.5 h-3.5" />
                     Exporter cette vue
@@ -204,105 +203,68 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
             </div>
 
             <div className="flex-1 overflow-auto custom-scroll">
-                {tree.map((s) => {
-                    const secKey = `s:${s.secteur}`;
-                    const secOpen = expanded[secKey] !== false;
-                    return (
-                        <div key={s.secteur} data-testid={`secteur-block-${s.secteur}`}>
-                            <button
-                                onClick={() => toggle(secKey)}
-                                className="w-full flex items-center gap-2 px-3 py-2 bg-[#056839] text-white text-sm font-semibold sticky top-0 z-10 hover:bg-[#04502b]"
-                            >
-                                {secOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                                <span>{s.secteur}</span>
-                                <span className="ml-auto text-xs opacity-90">
-                                    {s.rayons.length} rayon{s.rayons.length > 1 ? "s" : ""} · {fmtNum(s.nbElements)} gondoles · {fmtNum(s.total)} éléments
-                                </span>
-                            </button>
-                            {secOpen && s.rayons.map((r) => {
-                                const rayKey = `r:${s.secteur}|${r.rayon}`;
-                                const rayOpen = expanded[rayKey] !== false;
-                                return (
-                                    <div key={r.rayon}>
-                                        <button
-                                            onClick={() => toggle(rayKey)}
-                                            className="w-full flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-900 text-sm font-medium pl-8 hover:bg-emerald-200 border-b border-emerald-200"
-                                        >
-                                            {rayOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                                            <span>{r.rayon}</span>
-                                            <span className="ml-auto text-xs text-emerald-800">
-                                                {r.allees.length} allée{r.allees.length > 1 ? "s" : ""} · {fmtNum(r.nbElements)} gondoles · {fmtNum(r.total)} éléments
-                                            </span>
-                                        </button>
-                                        {rayOpen && r.allees.map((a) => {
-                                            const allKey = `a:${s.secteur}|${r.rayon}|${a.allee}`;
-                                            const allOpen = !!expanded[allKey];
-                                            return (
-                                                <div key={a.allee} className="border-b border-gray-100">
-                                                    <button
-                                                        onClick={() => toggle(allKey)}
-                                                        className="w-full flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-blue-50 text-sm pl-14 text-gray-800"
-                                                        data-testid={`allee-${s.secteur}-${r.rayon}-${a.allee}`}
-                                                    >
-                                                        {allOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                                        <span className="font-mono-data font-medium">Allée {a.allee}</span>
-                                                        <span className="text-gray-500 text-xs">
-                                                            — {a.elements.length} gondole{a.elements.length > 1 ? "s" : ""} · {fmtNum(a.total)} éléments
-                                                        </span>
-                                                        <span className="ml-auto text-xs text-gray-500 truncate max-w-[60%]">
-                                                            {typeBreakdownToChips(a.byType)}
-                                                        </span>
-                                                    </button>
-                                                    {allOpen && a.elements.map((e) => {
-                                                        const elKey = `e:${s.secteur}|${r.rayon}|${a.allee}|${e.element}`;
-                                                        const elOpen = !!expanded[elKey];
+                {tree.map((s) => (
+                    <div key={s.secteur} data-testid={`secteur-${s.secteur}`} className="mb-6">
+                        <div className="px-3 py-1.5 bg-[#056839] text-white text-sm font-semibold sticky top-0 z-10">
+                            Secteur : {s.secteur}
+                        </div>
+                        {s.rayons.map((r) => {
+                            const productCols = mode === "global" ? allDesignations : r.desigs;
+                            return (
+                                <div key={r.rayon} className="mt-2 mb-4 px-3" data-testid={`rayon-${s.secteur}-${r.rayon}`}>
+                                    <div className="text-sm font-medium text-emerald-900 bg-emerald-50 border-l-4 border-emerald-600 px-2 py-1 mb-1">
+                                        Rayon : {r.rayon}
+                                    </div>
+                                    <div className="overflow-x-auto border border-gray-200 rounded">
+                                        <table className="w-full text-xs">
+                                            <thead className="bg-gray-50">
+                                                <tr className="text-gray-700">
+                                                    <th className="px-2 py-1.5 text-left font-semibold whitespace-nowrap sticky left-0 bg-gray-50 z-[1]">N° Allée</th>
+                                                    <th className="px-2 py-1.5 text-right font-semibold whitespace-nowrap">Nbr éléments</th>
+                                                    {productCols.map((d) => (
+                                                        <th key={d} className="px-2 py-1.5 text-right font-semibold whitespace-nowrap text-gray-700">{d}</th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {r.allees.map((a, i) => (
+                                                    <tr key={a.allee} className={i % 2 === 0 ? "bg-white" : "bg-gray-50/50"}>
+                                                        <td className="px-2 py-1 font-mono-data text-gray-800 sticky left-0 bg-inherit border-r border-gray-100">
+                                                            {a.allee}
+                                                        </td>
+                                                        <td className="px-2 py-1 text-right font-mono-data font-semibold text-gray-900">
+                                                            {fmtNum(a.nbElements)}
+                                                        </td>
+                                                        {productCols.map((d) => (
+                                                            <td key={d} className="px-2 py-1 text-right font-mono-data text-gray-700">
+                                                                {a.byDesig[d] ? fmtNum(a.byDesig[d]) : ""}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                                {/* Ligne TOTAL Rayon */}
+                                                <tr className="bg-yellow-50 font-semibold border-t-2 border-yellow-300">
+                                                    <td className="px-2 py-1 text-gray-900 sticky left-0 bg-yellow-50">TOTAL</td>
+                                                    <td className="px-2 py-1 text-right font-mono-data text-gray-900">
+                                                        {fmtNum(r.allees.reduce((a, x) => a + x.nbElements, 0))}
+                                                    </td>
+                                                    {productCols.map((d) => {
+                                                        const sum = r.allees.reduce((a, x) => a + (x.byDesig[d] || 0), 0);
                                                         return (
-                                                            <div key={e.element} className="bg-gray-50 border-t border-gray-200">
-                                                                <button
-                                                                    onClick={() => toggle(elKey)}
-                                                                    className="w-full flex items-center gap-2 px-3 py-1 pl-20 text-xs text-gray-700 hover:bg-amber-50"
-                                                                >
-                                                                    {elOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                                                                    <span className="font-mono-data">Gondole {e.element}</span>
-                                                                    <span className="text-gray-500">— {fmtNum(e.total)} éléments</span>
-                                                                    <span className="ml-auto text-gray-500 truncate max-w-[55%]">
-                                                                        {typeBreakdownToChips(e.byType)}
-                                                                    </span>
-                                                                </button>
-                                                                {elOpen && (
-                                                                    <div className="pl-28 bg-white border-t border-gray-200">
-                                                                        <table className="w-full text-sm">
-                                                                            <thead>
-                                                                                <tr className="text-xs text-gray-600">
-                                                                                    <th className="text-left py-1 pr-3 font-medium">Type</th>
-                                                                                    <th className="text-left py-1 pr-3 font-medium">Désignation</th>
-                                                                                    <th className="text-right py-1 pr-3 font-medium">Qté</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody>
-                                                                                {e.products.map((p, idx) => (
-                                                                                    <tr key={`${p.type}|${p.designation}|${idx}`} className="border-t border-gray-100">
-                                                                                        <td className="py-1 pr-3 text-gray-700">{p.type}</td>
-                                                                                        <td className="py-1 pr-3 text-gray-800">{p.designation}</td>
-                                                                                        <td className="py-1 pr-3 text-right font-mono-data text-gray-700">{fmtNum(p.qty)}</td>
-                                                                                    </tr>
-                                                                                ))}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                                            <td key={d} className="px-2 py-1 text-right font-mono-data text-gray-900">
+                                                                {sum ? fmtNum(sum) : ""}
+                                                            </td>
                                                         );
                                                     })}
-                                                </div>
-                                            );
-                                        })}
+                                                </tr>
+                                            </tbody>
+                                        </table>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    );
-                })}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ))}
                 {tree.length === 0 && (
                     <div className="p-8 text-center text-sm text-gray-500">Aucun résultat</div>
                 )}

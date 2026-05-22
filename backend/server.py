@@ -646,10 +646,21 @@ def _allee_sort_key(v):
 
 
 def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur):
-    """Génère 2 feuilles :
-      - "Par Secteur" : tableau plat (1 ligne / produit) avec autofilter Excel
-      - "Par Secteur (Hiérarchie)" : structure repliable Secteur > Rayon > Allée > Gondole > Produits
+    """Génère 2 feuilles "Par Secteur" :
+      - "Par Secteur (rayon)"  : tableau par rayon — colonnes produits = désignations présentes dans CE rayon
+      - "Par Secteur (global)" : tableau par rayon — colonnes produits = TOUTES les désignations du fichier
+
+    Layout pour chaque rayon (les 2 feuilles partagent ce layout) :
+        Secteur : XXX
+        Rayon : YYY
+        | N° Allée | Nbr éléments | <Désignation 1> | <Désignation 2> | ... |
+        |    1     |      23      |       12        |       4         | ... |
+        |    2     |      18      |       ...       |       ...       | ... |
+        | TOTAL    |     SOMME    |       ...       |       ...       | ... |
+
+    "Nbr éléments" = nombre de valeurs distinctes de la colonne G (élément/gondole) pour cette allée.
     """
+    from collections import defaultdict
     raw_records = d.get("raw_records", []) or []
     if not raw_records:
         return
@@ -663,16 +674,12 @@ def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         "designation": next((c for c in ["Désignation", "Designation"] if c in columns), None),
         "quantite": next((c for c in ["Quantité", "Quantite"] if c in columns), None),
     }
+    # "Élément" = colonne G du fichier d'origine = identifiant unique de la gondole
     element_col = _detect_element_col(columns)
+    if element_col is None and len(columns) >= 7:
+        element_col = columns[6]  # fallback colonne G
 
-    # ----- 1) Feuille plate "Par Secteur" -----
-    ws = workbook.add_worksheet("Par Secteur")
-    writer.sheets["Par Secteur"] = ws
-    flat_headers = ["Secteur", "Rayon", "N° Allée", "N° Gondole", "Type", "Désignation", "Quantité"]
-    for ci, h in enumerate(flat_headers):
-        ws.write(0, ci, h, fmt_header)
-
-    def _norm(v):
+    def _s(v):
         if v is None:
             return ""
         try:
@@ -680,146 +687,131 @@ def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
                 return ""
         except (TypeError, ValueError):
             pass
-        return v
+        return str(v).strip()
 
-    flat_rows = []
+    # ---- Agrégation ----
+    # tree[secteur][rayon] = {
+    #   "allees": { allee: { "elements": set(), "byDesig": {desig: qty} } },
+    #   "desigs": { desig: type }
+    # }
+    tree: dict = {}
+    all_desigs: dict = {}  # désignation -> type (pour tri)
     for r in raw_records:
-        flat_rows.append({
-            "secteur": _norm(r.get(cols["secteur"])) if cols["secteur"] else "",
-            "rayon": _norm(r.get(cols["rayon"])) if cols["rayon"] else "",
-            "allee": _norm(r.get(cols["allee"])) if cols["allee"] else "",
-            "element": _norm(r.get(element_col)) if element_col else "",
-            "type": _norm(r.get(cols["type"])) if cols["type"] else "",
-            "designation": _norm(r.get(cols["designation"])) if cols["designation"] else "",
-            "quantite": _norm(r.get(cols["quantite"])) if cols["quantite"] else "",
-        })
-    # Tri stable pour faciliter la lecture
-    flat_rows.sort(key=lambda x: (
-        str(x["secteur"]),
-        str(x["rayon"]),
-        _allee_sort_key(x["allee"]),
-        _allee_sort_key(x["element"]),
-        str(x["type"]),
-        str(x["designation"]),
-    ))
-
-    def _write_num_or_str(ws, row, col, val, fmt):
-        if val == "" or val is None:
-            ws.write(row, col, "", fmt)
-            return
+        s = _s(r.get(cols["secteur"])) or "—"
+        ra = _s(r.get(cols["rayon"])) or "—"
+        al = _s(r.get(cols["allee"])) or "—"
+        el = _s(r.get(element_col)) if element_col else ""
+        typ = _s(r.get(cols["type"])) if cols["type"] else ""
+        desig = _s(r.get(cols["designation"])) if cols["designation"] else ""
         try:
-            num = float(val)
-            if num.is_integer():
-                ws.write_number(row, col, int(num), fmt)
-            else:
-                ws.write_number(row, col, num, fmt)
-        except (ValueError, TypeError):
-            ws.write(row, col, str(val), fmt)
-
-    for ri, fr in enumerate(flat_rows, start=1):
-        ws.write(ri, 0, str(fr["secteur"]) if fr["secteur"] != "" else "", fmt_cell)
-        ws.write(ri, 1, str(fr["rayon"]) if fr["rayon"] != "" else "", fmt_cell)
-        _write_num_or_str(ws, ri, 2, fr["allee"], fmt_cell)
-        _write_num_or_str(ws, ri, 3, fr["element"], fmt_cell)
-        ws.write(ri, 4, str(fr["type"]) if fr["type"] != "" else "", fmt_cell)
-        ws.write(ri, 5, str(fr["designation"]) if fr["designation"] != "" else "", fmt_cell)
-        _write_num_or_str(ws, ri, 6, fr["quantite"], fmt_cell)
-
-    ws.set_column(0, 0, 14)
-    ws.set_column(1, 1, 18)
-    ws.set_column(2, 3, 12)
-    ws.set_column(4, 4, 12)
-    ws.set_column(5, 5, 50)
-    ws.set_column(6, 6, 10)
-    if flat_rows:
-        ws.autofilter(0, 0, len(flat_rows), len(flat_headers) - 1)
-        ws.freeze_panes(1, 0)
-
-    # ----- 2) Feuille hiérarchique "Par Secteur (Hiérarchie)" -----
-    ws2 = workbook.add_worksheet("Par Secteur (Hiérarchie)")
-    writer.sheets["Par Secteur (Hiérarchie)"] = ws2
-
-    fmt_sec = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white", "border": 1, "font_size": 11})
-    fmt_ray = workbook.add_format({"bold": True, "bg_color": "#D1FAE5", "font_color": "#064E3B", "border": 1})
-    fmt_all = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "font_color": "#78350F", "border": 1})
-    fmt_gon = workbook.add_format({"italic": True, "bg_color": "#F3F4F6", "font_color": "#1F2937", "border": 1})
-    fmt_prd = workbook.add_format({"border": 1})
-    fmt_qty = workbook.add_format({"border": 1, "align": "right"})
-
-    # Construction de l'arbre
-    from collections import defaultdict
-    tree = {}
-    for fr in flat_rows:
-        s = str(fr["secteur"]) if fr["secteur"] != "" else "—"
-        ra = str(fr["rayon"]) if fr["rayon"] != "" else "—"
-        al = fr["allee"] if fr["allee"] != "" else "—"
-        el = fr["element"] if fr["element"] != "" else "—"
-        try:
-            qty = float(fr["quantite"]) if fr["quantite"] not in ("", None) else 0
+            qty = float(r.get(cols["quantite"]) or 0) if cols["quantite"] else 0
         except (ValueError, TypeError):
             qty = 0
-        tree.setdefault(s, {}).setdefault(ra, {}).setdefault(al, {}).setdefault(el, []).append({
-            "type": str(fr["type"]) if fr["type"] != "" else "",
-            "designation": str(fr["designation"]) if fr["designation"] != "" else "",
-            "qty": qty,
-        })
 
-    h_headers = ["Niveau", "Libellé", "Détail", "Quantité"]
-    for ci, h in enumerate(h_headers):
-        ws2.write(0, ci, h, fmt_header)
+        sect_d = tree.setdefault(s, {})
+        ray_d = sect_d.setdefault(ra, {"allees": {}, "desigs": {}})
+        if desig:
+            ray_d["desigs"].setdefault(desig, typ)
+            all_desigs.setdefault(desig, typ)
+        al_d = ray_d["allees"].setdefault(al, {"elements": set(), "byDesig": defaultdict(float)})
+        if el:
+            al_d["elements"].add(el)
+        if desig:
+            al_d["byDesig"][desig] += qty
 
-    row = 1
-    for secteur in sorted(tree.keys(), key=str):
-        rayons = tree[secteur]
-        sec_total = sum(p["qty"] for ra in rayons.values() for al in ra.values() for el in al.values() for p in el)
-        nb_gondoles_sec = sum(len(al) for ra in rayons.values() for al in ra.values())
-        ws2.write(row, 0, "Secteur", fmt_sec)
-        ws2.write(row, 1, secteur, fmt_sec)
-        ws2.write(row, 2, f"{len(rayons)} rayon(s) · {nb_gondoles_sec} gondole(s)", fmt_sec)
-        ws2.write_number(row, 3, sec_total, fmt_sec)
-        row += 1
-        for rayon in sorted(rayons.keys(), key=str):
-            allees = rayons[rayon]
-            ray_total = sum(p["qty"] for al in allees.values() for el in al.values() for p in el)
-            nb_gondoles_ray = sum(len(al) for al in allees.values())
-            ws2.write(row, 0, "  Rayon", fmt_ray)
-            ws2.write(row, 1, rayon, fmt_ray)
-            ws2.write(row, 2, f"{len(allees)} allée(s) · {nb_gondoles_ray} gondole(s)", fmt_ray)
-            ws2.write_number(row, 3, ray_total, fmt_ray)
-            row += 1
-            for allee in sorted(allees.keys(), key=_allee_sort_key):
-                elements = allees[allee]
-                al_total = sum(p["qty"] for el in elements.values() for p in el)
-                ws2.write(row, 0, "    Allée", fmt_all)
-                ws2.write(row, 1, f"Allée {allee}", fmt_all)
-                ws2.write(row, 2, f"{len(elements)} gondole(s)", fmt_all)
-                ws2.write_number(row, 3, al_total, fmt_all)
-                row += 1
-                for element in sorted(elements.keys(), key=_allee_sort_key):
-                    products = elements[element]
-                    el_total = sum(p["qty"] for p in products)
-                    ws2.write(row, 0, "      Gondole", fmt_gon)
-                    ws2.write(row, 1, f"Gondole {element}", fmt_gon)
-                    ws2.write(row, 2, f"{len(products)} produit(s)", fmt_gon)
-                    ws2.write_number(row, 3, el_total, fmt_gon)
-                    row += 1
-                    # Agréger les produits par (type, désignation) pour éviter les doublons visuels
-                    agg = defaultdict(float)
-                    for p in products:
-                        agg[(p["type"], p["designation"])] += p["qty"]
-                    for (typ, desig), q in sorted(agg.items()):
-                        ws2.write(row, 0, "        ", fmt_prd)
-                        ws2.write(row, 1, typ, fmt_prd)
-                        ws2.write(row, 2, desig, fmt_prd)
-                        ws2.write_number(row, 3, q, fmt_qty)
-                        row += 1
+    # Tri global des désignations (Type, puis Désignation)
+    global_desigs_sorted = [d_ for d_, _t in sorted(all_desigs.items(), key=lambda kv: (kv[1], kv[0]))]
 
-    ws2.set_column(0, 0, 14)
-    ws2.set_column(1, 1, 28)
-    ws2.set_column(2, 2, 48)
-    ws2.set_column(3, 3, 12)
-    if row > 1:
-        ws2.freeze_panes(1, 0)
+    # Formats spécifiques
+    fmt_sec_hdr = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+                                       "border": 1, "font_size": 11, "align": "left"})
+    fmt_ray_hdr = workbook.add_format({"bold": True, "bg_color": "#D1FAE5", "font_color": "#064E3B",
+                                       "border": 1, "align": "left"})
+    fmt_col_hdr = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1,
+                                       "align": "center", "text_wrap": True, "valign": "vcenter"})
+    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+    fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_allee = workbook.add_format({"border": 1, "align": "center"})
+
+    def _write_rayon_block(ws, start_row: int, secteur: str, rayon: str, ray_node: dict, prod_cols: list[str]) -> int:
+        """Écrit un bloc de rayon en commençant à start_row. Retourne la prochaine ligne libre."""
+        nb_total_cols = 2 + len(prod_cols)
+        # Ligne 1 : Secteur
+        ws.merge_range(start_row, 0, start_row, max(0, nb_total_cols - 1),
+                       f"Secteur : {secteur}", fmt_sec_hdr) if nb_total_cols > 1 else ws.write(start_row, 0, f"Secteur : {secteur}", fmt_sec_hdr)
+        # Ligne 2 : Rayon
+        ws.merge_range(start_row + 1, 0, start_row + 1, max(0, nb_total_cols - 1),
+                       f"Rayon : {rayon}", fmt_ray_hdr) if nb_total_cols > 1 else ws.write(start_row + 1, 0, f"Rayon : {rayon}", fmt_ray_hdr)
+        # Ligne 3 : en-têtes colonnes
+        ws.write(start_row + 2, 0, "N° Allée", fmt_col_hdr)
+        ws.write(start_row + 2, 1, "Nbr éléments", fmt_col_hdr)
+        for ci, dname in enumerate(prod_cols):
+            ws.write(start_row + 2, 2 + ci, dname, fmt_col_hdr)
+
+        # Lignes : 1 par allée
+        allees = ray_node["allees"]
+        sorted_allees = sorted(allees.keys(), key=_allee_sort_key)
+        r = start_row + 3
+        total_nb = 0
+        total_by_desig = {d_: 0.0 for d_ in prod_cols}
+        for allee in sorted_allees:
+            node = allees[allee]
+            # N° Allée
+            try:
+                ws.write_number(r, 0, float(allee) if "." in str(allee) else int(allee), fmt_allee)
+            except (ValueError, TypeError):
+                ws.write(r, 0, str(allee), fmt_allee)
+            nb = len(node["elements"])
+            ws.write_number(r, 1, nb, fmt_num)
+            total_nb += nb
+            for ci, dname in enumerate(prod_cols):
+                v = node["byDesig"].get(dname, 0)
+                if v:
+                    ws.write_number(r, 2 + ci, v, fmt_num)
+                    total_by_desig[dname] += v
+                else:
+                    ws.write(r, 2 + ci, "", fmt_num)
+            r += 1
+        # Ligne TOTAL
+        ws.write(r, 0, "TOTAL", fmt_total_lbl)
+        ws.write_number(r, 1, total_nb, fmt_total_row)
+        for ci, dname in enumerate(prod_cols):
+            v = total_by_desig[dname]
+            if v:
+                ws.write_number(r, 2 + ci, v, fmt_total_row)
+            else:
+                ws.write(r, 2 + ci, "", fmt_total_row)
+        r += 1
+        # ligne vide entre 2 rayons
+        return r + 1
+
+    def _write_sheet(sheet_name: str, mode: str):
+        ws = workbook.add_worksheet(sheet_name)
+        writer.sheets[sheet_name] = ws
+        ws.set_column(0, 0, 10)
+        ws.set_column(1, 1, 13)
+        # largeur produits
+        ws.set_column(2, 200, 16)
+
+        row = 0
+        for secteur in sorted(tree.keys(), key=str):
+            rayons = tree[secteur]
+            for rayon in sorted(rayons.keys(), key=str):
+                ray_node = rayons[rayon]
+                if mode == "global":
+                    prod_cols = global_desigs_sorted
+                else:
+                    # Désignations de ce rayon, triées par Type puis Désignation
+                    prod_cols = [
+                        d_ for d_, _t in sorted(ray_node["desigs"].items(), key=lambda kv: (kv[1], kv[0]))
+                    ]
+                row = _write_rayon_block(ws, row, secteur, rayon, ray_node, prod_cols)
+        if row == 0:
+            ws.write(0, 0, "Aucune donnée", fmt_header)
+
+    _write_sheet("Par Secteur (rayon)", "rayon")
+    _write_sheet("Par Secteur (global)", "global")
 
 
 

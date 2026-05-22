@@ -171,8 +171,8 @@ class TestExport:
         assert "Données" in sheet_names, f"Missing 'Données' sheet: {sheet_names}"
         assert "Récapitulatif" in sheet_names, f"Missing 'Récapitulatif' sheet: {sheet_names}"
         assert "Phasage" in sheet_names, f"Missing 'Phasage' sheet: {sheet_names}"
-        assert "Par Secteur" in sheet_names, f"Missing 'Par Secteur' sheet: {sheet_names}"
-        assert "Par Secteur (Hiérarchie)" in sheet_names, f"Missing 'Par Secteur (Hiérarchie)' sheet: {sheet_names}"
+        assert "Par Secteur (rayon)" in sheet_names, f"Missing 'Par Secteur (rayon)' sheet: {sheet_names}"
+        assert "Par Secteur (global)" in sheet_names, f"Missing 'Par Secteur (global)' sheet: {sheet_names}"
         wb.close()
 
     def test_export_not_found(self):
