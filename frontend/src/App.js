@@ -7,6 +7,7 @@ import BottomTabs from "./components/BottomTabs";
 import RawTable from "./components/RawTable";
 import RecapTable from "./components/RecapTable";
 import SecteurTable from "./components/SecteurTable";
+import ParSecteurTable from "./components/ParSecteurTable";
 import "./App.css";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -175,8 +176,9 @@ export default function App() {
         if (!dataset) return [];
         return [
             { id: "raw", label: "Données Brutes", count: dataset.row_count || 0 },
-            { id: "recap", label: "Récapitulatif Produits", count: dataset.data.recap.length },
-            { id: "secteur", label: "Par Secteur / Allée", count: dataset.data.secteur.length },
+            { id: "parsecteur", label: "Par Secteur", count: dataset.row_count || 0 },
+            { id: "recap", label: "Commandes", count: dataset.data.recap.length },
+            { id: "phasage", label: "Phasage", count: dataset.data.secteur.length },
         ];
     }, [dataset]);
 
@@ -219,8 +221,21 @@ export default function App() {
                                     onDeleteRow={deleteRecapRow}
                                 />
                             )}
-                            {activeTab === "secteur" && (
+                            {activeTab === "phasage" && (
                                 <SecteurTable rows={dataset.data.secteur} search={search} />
+                            )}
+                            {activeTab === "parsecteur" && (
+                                dataset.data.raw === null || rawLoading ? (
+                                    <div className="flex-1 flex items-center justify-center h-full text-sm text-gray-500" data-testid="parsecteur-loading">
+                                        Chargement des {(dataset.row_count || 0).toLocaleString("fr-FR")} lignes...
+                                    </div>
+                                ) : (
+                                    <ParSecteurTable
+                                        rows={dataset.data.raw}
+                                        columns={dataset.columns}
+                                        search={search}
+                                    />
+                                )
                             )}
                         </div>
                         <BottomTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
