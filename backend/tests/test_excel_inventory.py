@@ -51,13 +51,19 @@ class TestUploadExcel:
         assert "data" in d
         assert "recap" in d["data"]
         assert "secteur" in d["data"]
-        assert "raw" in d["data"]
+        # raw_records sont chargés à la demande via /dataset/{id}/raw, pas dans la réponse upload
+        assert "raw" not in d["data"]
 
     def test_row_count_19780(self, upload_response):
         assert upload_response["row_count"] == 19780, f"Expected 19780 rows, got {upload_response['row_count']}"
 
     def test_raw_count_matches(self, upload_response):
-        assert len(upload_response["data"]["raw"]) == 19780
+        """Vérifie que GET /api/dataset/{id}/raw retourne bien 19780 lignes."""
+        upload_id = upload_response["upload_id"]
+        r = requests.get(f"{BASE_URL}/api/dataset/{upload_id}/raw", timeout=60)
+        assert r.status_code == 200, f"GET /raw expected 200, got {r.status_code}"
+        data = r.json()
+        assert len(data["raw"]) == 19780
 
     def test_recap_total_eeg_76366(self, upload_response):
         recap = upload_response["data"]["recap"]
@@ -134,7 +140,17 @@ class TestDataset:
         d = r.json()
         assert d["upload_id"] == upload_id
         assert "data" in d
-        assert len(d["data"]["raw"]) == 19780
+        # /api/dataset/{id} renvoie recap+secteur, pas raw (qui a son propre endpoint)
+        assert "recap" in d["data"]
+        assert "secteur" in d["data"]
+        assert "raw" not in d["data"]
+
+    def test_get_dataset_raw(self, upload_response):
+        upload_id = upload_response["upload_id"]
+        r = requests.get(f"{BASE_URL}/api/dataset/{upload_id}/raw", timeout=60)
+        assert r.status_code == 200
+        d = r.json()
+        assert len(d["raw"]) == 19780
 
     def test_get_dataset_not_found(self):
         r = requests.get(f"{BASE_URL}/api/dataset/nonexistent-id-xxx", timeout=30)

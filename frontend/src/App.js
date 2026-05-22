@@ -14,9 +14,10 @@ const API = `${BACKEND_URL}/api`;
 
 export default function App() {
     const [dataset, setDataset] = useState(null);
-    const [activeTab, setActiveTab] = useState("raw");
+    const [activeTab, setActiveTab] = useState("recap");
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
+    const [rawLoading, setRawLoading] = useState(false);
 
     const handleUpload = useCallback(async (file) => {
         setLoading(true);
@@ -25,10 +26,15 @@ export default function App() {
         try {
             const res = await axios.post(`${API}/upload-excel`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
-                timeout: 120000,
+                timeout: 300000,  // 5 min pour gros fichiers
             });
-            setDataset(res.data);
-            setActiveTab("raw");
+            // Initialiser avec raw=null ; sera chargé à la demande au clic sur l'onglet
+            const ds = {
+                ...res.data,
+                data: { ...res.data.data, raw: null },
+            };
+            setDataset(ds);
+            setActiveTab("recap");  // Récap par défaut (instantané, raw chargé après)
             toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
@@ -37,6 +43,34 @@ export default function App() {
             setLoading(false);
         }
     }, []);
+
+    const ensureRawLoaded = useCallback(async () => {
+        if (!dataset?.upload_id) return;
+        if (dataset.data.raw !== null) return;  // déjà chargé
+        if (rawLoading) return;
+        setRawLoading(true);
+        try {
+            const res = await axios.get(`${API}/dataset/${dataset.upload_id}/raw`, {
+                timeout: 300000,
+            });
+            setDataset((d) => ({
+                ...d,
+                data: { ...d.data, raw: res.data.raw },
+            }));
+        } catch (err) {
+            toast.error(`Impossible de charger les données brutes : ${err.message}`);
+        } finally {
+            setRawLoading(false);
+        }
+    }, [dataset, rawLoading]);
+
+    const handleTabChange = useCallback(
+        (tabId) => {
+            setActiveTab(tabId);
+            if (tabId === "raw") ensureRawLoaded();
+        },
+        [ensureRawLoaded]
+    );
 
     const handleExport = useCallback(async () => {
         if (!dataset?.upload_id) return;
@@ -61,7 +95,7 @@ export default function App() {
     const handleReset = useCallback(() => {
         setDataset(null);
         setSearch("");
-        setActiveTab("raw");
+        setActiveTab("recap");
     }, []);
 
     const updateRecapRow = useCallback(async (index, patch) => {
@@ -140,7 +174,7 @@ export default function App() {
     const tabs = useMemo(() => {
         if (!dataset) return [];
         return [
-            { id: "raw", label: "Données Brutes", count: dataset.data.raw.length },
+            { id: "raw", label: "Données Brutes", count: dataset.row_count || 0 },
             { id: "recap", label: "Récapitulatif Produits", count: dataset.data.recap.length },
             { id: "secteur", label: "Par Secteur / Allée", count: dataset.data.secteur.length },
         ];
@@ -164,11 +198,17 @@ export default function App() {
                     <>
                         <div className="flex-1 overflow-hidden">
                             {activeTab === "raw" && (
-                                <RawTable
-                                    rows={dataset.data.raw}
-                                    columns={dataset.columns}
-                                    search={search}
-                                />
+                                dataset.data.raw === null || rawLoading ? (
+                                    <div className="flex-1 flex items-center justify-center h-full text-sm text-gray-500" data-testid="raw-loading">
+                                        Chargement des {(dataset.row_count || 0).toLocaleString("fr-FR")} lignes brutes...
+                                    </div>
+                                ) : (
+                                    <RawTable
+                                        rows={dataset.data.raw}
+                                        columns={dataset.columns}
+                                        search={search}
+                                    />
+                                )
                             )}
                             {activeTab === "recap" && (
                                 <RecapTable
@@ -183,7 +223,7 @@ export default function App() {
                                 <SecteurTable rows={dataset.data.secteur} search={search} />
                             )}
                         </div>
-                        <BottomTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+                        <BottomTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
                     </>
                 )}
             </main>

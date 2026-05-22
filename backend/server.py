@@ -379,9 +379,10 @@ async def upload_excel(file: UploadFile = File(...)):
         "row_count": len(raw_records),
         "columns": list(df.columns),
         "data": {
-            "raw": raw_records,
             "recap": recap_rows,
             "secteur": secteur_rows,
+            # raw_records non inclus ici pour garder la réponse légère ;
+            # le frontend les chargera à la demande via GET /api/dataset/{id}/raw
         },
         "stats": {
             "total_rows": len(raw_records),
@@ -393,6 +394,7 @@ async def upload_excel(file: UploadFile = File(...)):
 
 @api_router.get("/dataset/{upload_id}")
 async def get_dataset(upload_id: str):
+    """Récupère métadonnées + recap + secteur (PAS les raw records, voir /raw)."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
@@ -400,11 +402,24 @@ async def get_dataset(upload_id: str):
         "upload_id": upload_id,
         "filename": d["filename"],
         "columns": d["columns"],
+        "row_count": len(d["raw_records"]),
         "data": {
-            "raw": d["raw_records"],
             "recap": d["recap_rows"],
             "secteur": d["secteur_rows"],
         },
+    }
+
+
+@api_router.get("/dataset/{upload_id}/raw")
+async def get_dataset_raw(upload_id: str):
+    """Récupère les données brutes (~9 MB pour 19780 lignes, mais gzippé HTTP ~600 KB)."""
+    d = await load_dataset(upload_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    return {
+        "upload_id": upload_id,
+        "columns": d["columns"],
+        "raw": d["raw_records"],
     }
 
 
