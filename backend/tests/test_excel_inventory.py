@@ -71,22 +71,29 @@ class TestUploadExcel:
         spare_lines = [r for r in recap if r["kind"] == "spare"]
         assert len(spare_lines) == 0, f"No 'spare' kind lines expected, got {len(spare_lines)}"
 
-        # Chaque produit doit avoir un champ 'spare' = ceil(quantite * 0.05)
+        # Chaque produit doit avoir spare = ceil(quantite * 0.05) et total_plus_spare = qty + spare
         import math
         products = [r for r in recap if r["kind"] == "product"]
         assert len(products) > 0, "No products in recap"
         for p in products:
             assert "spare" in p, f"Missing spare field on product: {p}"
-            expected = math.ceil(p["quantite"] * 0.05)
-            assert p["spare"] == expected, f"Spare for {p['designation']} expected {expected}, got {p['spare']}"
+            expected_spare = math.ceil(p["quantite"] * 0.05)
+            assert p["spare"] == expected_spare, f"Spare for {p['designation']} expected {expected_spare}, got {p['spare']}"
+            assert "total_plus_spare" in p, f"Missing total_plus_spare on product: {p}"
+            assert p["total_plus_spare"] == p["quantite"] + p["spare"], (
+                f"total_plus_spare for {p['designation']} expected {p['quantite']+p['spare']}, got {p['total_plus_spare']}"
+            )
 
-        # Le header TOTAL doit avoir un spare = somme des spares produits
+        # Le header TOTAL ne doit PAS avoir de spare (lignes jaunes vides selon UX)
         eeg_total = [r for r in recap if r["kind"] == "header" and r["type"] == "EEG"][0]
-        eeg_products = [r for r in recap if r["kind"] == "product" and r["type"] == "EEG"]
-        expected_eeg_spare_total = sum(p["spare"] for p in eeg_products)
-        assert eeg_total["spare"] == expected_eeg_spare_total, (
-            f"TOTAL EEG spare {eeg_total['spare']} != sum of product spares {expected_eeg_spare_total}"
-        )
+        assert eeg_total["spare"] == "", f"TOTAL EEG spare should be empty, got {eeg_total['spare']!r}"
+        assert eeg_total["total_plus_spare"] == "", f"TOTAL EEG total_plus_spare should be empty"
+
+        # Inclineur : pas de spare ni total_plus_spare
+        inclineurs = [r for r in recap if r["kind"] == "inclineur"]
+        for inc in inclineurs:
+            assert inc["spare"] == "", f"Inclineur should have no spare"
+            assert inc["total_plus_spare"] == "", f"Inclineur should have no total_plus_spare"
 
     def test_recap_inclineur_rail_9669(self, upload_response):
         recap = upload_response["data"]["recap"]

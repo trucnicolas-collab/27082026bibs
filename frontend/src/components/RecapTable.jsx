@@ -125,6 +125,9 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-emerald-50">
                                 Spare (+5%)
                             </th>
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-blue-50">
+                                Total + Spare
+                            </th>
                             <th className="w-10" />
                             <th className="w-full" />
                         </tr>
@@ -152,6 +155,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                         <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.designation}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap">{fmtNum(r.quantite)}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-emerald-50/40">{fmtNum(r.spare)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-blue-50/40 font-semibold">{fmtNum(r.total_plus_spare)}</td>
                                         <td />
                                         <td />
                                     </tr>
@@ -204,6 +208,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                             onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: r.designation, quantite: r.quantite, spare: v })}
                                         />
                                     </td>
+                                    <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-blue-50/40 font-semibold">{fmtNum(r.total_plus_spare)}</td>
                                     <td className="p-0 text-center align-middle">
                                         <button
                                             onClick={() => onDeleteRow(i)}
@@ -220,7 +225,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         })}
                         {filtered.length === 0 && (
                             <tr>
-                                <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">
+                                <td colSpan={8} className="px-3 py-8 text-center text-sm text-gray-500">
                                     Aucun résultat
                                 </td>
                             </tr>
@@ -238,7 +243,10 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         <span className="w-3 h-3 rounded-sm" style={{ background: "#DBEAFE" }} /> Inclineur
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Colonne Spare / Ajouts manuels
+                        <span className="w-3 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Spare
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-sm bg-blue-50 border border-blue-200" /> Total + Spare
                     </span>
                 </span>
             </div>
