@@ -69,7 +69,7 @@ export default function App() {
     const handleTabChange = useCallback(
         (tabId) => {
             setActiveTab(tabId);
-            if (tabId === "raw") ensureRawLoaded();
+            if (tabId === "raw" || tabId === "parsecteur") ensureRawLoaded();
         },
         [ensureRawLoaded]
     );
@@ -246,6 +246,7 @@ export default function App() {
                                         rows={dataset.data.raw}
                                         columns={dataset.columns}
                                         search={search}
+                                        uploadId={dataset.upload_id}
                                     />
                                 )
                             )}

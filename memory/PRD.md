@@ -78,3 +78,13 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 1. Recueillir feedback utilisateur sur le rendu réel (le fichier joint ressemble-t-il à ce que vous attendiez ?)
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
+
+## Feature additions (22/05/2026)
+- [x] Onglet "Par Secteur" reconstruit en hiérarchie 5 niveaux : Secteur > Rayon > Allée > Gondole (Élément) > Produits
+- [x] Compteur visuel à chaque niveau : nb rayons / allées / gondoles / éléments + chips de breakdown par Type
+- [x] Lazy-load des données brutes déclenché aussi sur l'onglet "Par Secteur" (mêmes raw que "Données Brutes")
+- [x] Export Excel `?sheet=parsecteur` génère 2 feuilles :
+   - **Par Secteur** : tableau plat avec autofilter Excel (Secteur, Rayon, N° Allée, N° Gondole, Type, Désignation, Quantité) — permet de filtrer par ex. uniquement "PGC"
+   - **Par Secteur (Hiérarchie)** : structure indentée avec totaux par niveau (Secteur en vert, Rayon en émeraude, Allée en jaune, Gondole en gris)
+- [x] Export `?sheet=all` inclut Phasage + Par Secteur (plat) + Par Secteur (Hiérarchie) en plus de Données / Récap / Commentaire (6 feuilles)
+- [x] Tests backend mis à jour pour valider la présence des nouvelles feuilles

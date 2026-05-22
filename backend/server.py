@@ -625,11 +625,210 @@ async def update_comment_table(upload_id: str, payload: CommentTableUpdate):
     return {"ok": True, "comment_table": d["comment_table"]}
 
 
+def _detect_element_col(columns: list[str]) -> Optional[str]:
+    """Trouve la colonne 'N° élément' / Gondole dans les données brutes (insensible à la casse)."""
+    candidates = ["N° élément", "N° element", "Élément", "Element", "N° gondole", "Gondole"]
+    lower_map = {c.lower(): c for c in columns}
+    for cand in candidates:
+        if cand.lower() in lower_map:
+            return lower_map[cand.lower()]
+    return None
+
+
+def _allee_sort_key(v):
+    """Trie les allées numériquement quand possible."""
+    if v is None or v == "":
+        return (1, "")
+    try:
+        return (0, float(str(v).replace(",", ".")))
+    except (ValueError, TypeError):
+        return (1, str(v))
+
+
+def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur):
+    """Génère 2 feuilles :
+      - "Par Secteur" : tableau plat (1 ligne / produit) avec autofilter Excel
+      - "Par Secteur (Hiérarchie)" : structure repliable Secteur > Rayon > Allée > Gondole > Produits
+    """
+    raw_records = d.get("raw_records", []) or []
+    if not raw_records:
+        return
+
+    columns = list(raw_records[0].keys())
+    cols = {
+        "secteur": next((c for c in ["Secteur"] if c in columns), None),
+        "rayon": next((c for c in ["Rayon"] if c in columns), None),
+        "allee": next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in columns), None),
+        "type": next((c for c in ["Type"] if c in columns), None),
+        "designation": next((c for c in ["Désignation", "Designation"] if c in columns), None),
+        "quantite": next((c for c in ["Quantité", "Quantite"] if c in columns), None),
+    }
+    element_col = _detect_element_col(columns)
+
+    # ----- 1) Feuille plate "Par Secteur" -----
+    ws = workbook.add_worksheet("Par Secteur")
+    writer.sheets["Par Secteur"] = ws
+    flat_headers = ["Secteur", "Rayon", "N° Allée", "N° Gondole", "Type", "Désignation", "Quantité"]
+    for ci, h in enumerate(flat_headers):
+        ws.write(0, ci, h, fmt_header)
+
+    def _norm(v):
+        if v is None:
+            return ""
+        try:
+            if isinstance(v, float) and math.isnan(v):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        return v
+
+    flat_rows = []
+    for r in raw_records:
+        flat_rows.append({
+            "secteur": _norm(r.get(cols["secteur"])) if cols["secteur"] else "",
+            "rayon": _norm(r.get(cols["rayon"])) if cols["rayon"] else "",
+            "allee": _norm(r.get(cols["allee"])) if cols["allee"] else "",
+            "element": _norm(r.get(element_col)) if element_col else "",
+            "type": _norm(r.get(cols["type"])) if cols["type"] else "",
+            "designation": _norm(r.get(cols["designation"])) if cols["designation"] else "",
+            "quantite": _norm(r.get(cols["quantite"])) if cols["quantite"] else "",
+        })
+    # Tri stable pour faciliter la lecture
+    flat_rows.sort(key=lambda x: (
+        str(x["secteur"]),
+        str(x["rayon"]),
+        _allee_sort_key(x["allee"]),
+        _allee_sort_key(x["element"]),
+        str(x["type"]),
+        str(x["designation"]),
+    ))
+
+    def _write_num_or_str(ws, row, col, val, fmt):
+        if val == "" or val is None:
+            ws.write(row, col, "", fmt)
+            return
+        try:
+            num = float(val)
+            if num.is_integer():
+                ws.write_number(row, col, int(num), fmt)
+            else:
+                ws.write_number(row, col, num, fmt)
+        except (ValueError, TypeError):
+            ws.write(row, col, str(val), fmt)
+
+    for ri, fr in enumerate(flat_rows, start=1):
+        ws.write(ri, 0, str(fr["secteur"]) if fr["secteur"] != "" else "", fmt_cell)
+        ws.write(ri, 1, str(fr["rayon"]) if fr["rayon"] != "" else "", fmt_cell)
+        _write_num_or_str(ws, ri, 2, fr["allee"], fmt_cell)
+        _write_num_or_str(ws, ri, 3, fr["element"], fmt_cell)
+        ws.write(ri, 4, str(fr["type"]) if fr["type"] != "" else "", fmt_cell)
+        ws.write(ri, 5, str(fr["designation"]) if fr["designation"] != "" else "", fmt_cell)
+        _write_num_or_str(ws, ri, 6, fr["quantite"], fmt_cell)
+
+    ws.set_column(0, 0, 14)
+    ws.set_column(1, 1, 18)
+    ws.set_column(2, 3, 12)
+    ws.set_column(4, 4, 12)
+    ws.set_column(5, 5, 50)
+    ws.set_column(6, 6, 10)
+    if flat_rows:
+        ws.autofilter(0, 0, len(flat_rows), len(flat_headers) - 1)
+        ws.freeze_panes(1, 0)
+
+    # ----- 2) Feuille hiérarchique "Par Secteur (Hiérarchie)" -----
+    ws2 = workbook.add_worksheet("Par Secteur (Hiérarchie)")
+    writer.sheets["Par Secteur (Hiérarchie)"] = ws2
+
+    fmt_sec = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white", "border": 1, "font_size": 11})
+    fmt_ray = workbook.add_format({"bold": True, "bg_color": "#D1FAE5", "font_color": "#064E3B", "border": 1})
+    fmt_all = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "font_color": "#78350F", "border": 1})
+    fmt_gon = workbook.add_format({"italic": True, "bg_color": "#F3F4F6", "font_color": "#1F2937", "border": 1})
+    fmt_prd = workbook.add_format({"border": 1})
+    fmt_qty = workbook.add_format({"border": 1, "align": "right"})
+
+    # Construction de l'arbre
+    from collections import defaultdict
+    tree = {}
+    for fr in flat_rows:
+        s = str(fr["secteur"]) if fr["secteur"] != "" else "—"
+        ra = str(fr["rayon"]) if fr["rayon"] != "" else "—"
+        al = fr["allee"] if fr["allee"] != "" else "—"
+        el = fr["element"] if fr["element"] != "" else "—"
+        try:
+            qty = float(fr["quantite"]) if fr["quantite"] not in ("", None) else 0
+        except (ValueError, TypeError):
+            qty = 0
+        tree.setdefault(s, {}).setdefault(ra, {}).setdefault(al, {}).setdefault(el, []).append({
+            "type": str(fr["type"]) if fr["type"] != "" else "",
+            "designation": str(fr["designation"]) if fr["designation"] != "" else "",
+            "qty": qty,
+        })
+
+    h_headers = ["Niveau", "Libellé", "Détail", "Quantité"]
+    for ci, h in enumerate(h_headers):
+        ws2.write(0, ci, h, fmt_header)
+
+    row = 1
+    for secteur in sorted(tree.keys(), key=str):
+        rayons = tree[secteur]
+        sec_total = sum(p["qty"] for ra in rayons.values() for al in ra.values() for el in al.values() for p in el)
+        nb_gondoles_sec = sum(len(al) for ra in rayons.values() for al in ra.values())
+        ws2.write(row, 0, "Secteur", fmt_sec)
+        ws2.write(row, 1, secteur, fmt_sec)
+        ws2.write(row, 2, f"{len(rayons)} rayon(s) · {nb_gondoles_sec} gondole(s)", fmt_sec)
+        ws2.write_number(row, 3, sec_total, fmt_sec)
+        row += 1
+        for rayon in sorted(rayons.keys(), key=str):
+            allees = rayons[rayon]
+            ray_total = sum(p["qty"] for al in allees.values() for el in al.values() for p in el)
+            nb_gondoles_ray = sum(len(al) for al in allees.values())
+            ws2.write(row, 0, "  Rayon", fmt_ray)
+            ws2.write(row, 1, rayon, fmt_ray)
+            ws2.write(row, 2, f"{len(allees)} allée(s) · {nb_gondoles_ray} gondole(s)", fmt_ray)
+            ws2.write_number(row, 3, ray_total, fmt_ray)
+            row += 1
+            for allee in sorted(allees.keys(), key=_allee_sort_key):
+                elements = allees[allee]
+                al_total = sum(p["qty"] for el in elements.values() for p in el)
+                ws2.write(row, 0, "    Allée", fmt_all)
+                ws2.write(row, 1, f"Allée {allee}", fmt_all)
+                ws2.write(row, 2, f"{len(elements)} gondole(s)", fmt_all)
+                ws2.write_number(row, 3, al_total, fmt_all)
+                row += 1
+                for element in sorted(elements.keys(), key=_allee_sort_key):
+                    products = elements[element]
+                    el_total = sum(p["qty"] for p in products)
+                    ws2.write(row, 0, "      Gondole", fmt_gon)
+                    ws2.write(row, 1, f"Gondole {element}", fmt_gon)
+                    ws2.write(row, 2, f"{len(products)} produit(s)", fmt_gon)
+                    ws2.write_number(row, 3, el_total, fmt_gon)
+                    row += 1
+                    # Agréger les produits par (type, désignation) pour éviter les doublons visuels
+                    agg = defaultdict(float)
+                    for p in products:
+                        agg[(p["type"], p["designation"])] += p["qty"]
+                    for (typ, desig), q in sorted(agg.items()):
+                        ws2.write(row, 0, "        ", fmt_prd)
+                        ws2.write(row, 1, typ, fmt_prd)
+                        ws2.write(row, 2, desig, fmt_prd)
+                        ws2.write_number(row, 3, q, fmt_qty)
+                        row += 1
+
+    ws2.set_column(0, 0, 14)
+    ws2.set_column(1, 1, 28)
+    ws2.set_column(2, 2, 48)
+    ws2.set_column(3, 3, 12)
+    if row > 1:
+        ws2.freeze_panes(1, 0)
+
+
+
+
 @api_router.get("/export/{upload_id}")
 async def export_excel(upload_id: str, sheet: str = "all"):
     """Exporte le fichier Excel généré.
 
-    sheet : 'all' | 'raw' | 'recap' | 'secteur'
+    sheet : 'all' | 'raw' | 'recap' | 'secteur' | 'parsecteur' | 'comment'
     """
     d = await load_dataset(upload_id)
     if d is None:
@@ -694,8 +893,8 @@ async def export_excel(upload_id: str, sheet: str = "all"):
 
         if sheet in ("all", "secteur"):
             secteur = d["secteur_rows"]
-            ws = workbook.add_worksheet("Par Secteur")
-            writer.sheets["Par Secteur"] = ws
+            ws = workbook.add_worksheet("Phasage")
+            writer.sheets["Phasage"] = ws
             headers = ["Secteur", "Rayon", "N° Allée", "EEG ES", "EEG SA", "Rails", "Caméras"]
             for col_i, h in enumerate(headers):
                 ws.write(0, col_i, h, fmt_header)
@@ -718,6 +917,10 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             if len(secteur) > 0:
                 ws.autofilter(0, 0, len(secteur), 6)
                 ws.freeze_panes(1, 0)
+
+        if sheet in ("all", "parsecteur"):
+            _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur)
+
 
         if sheet in ("all", "comment"):
             ct = d.get("comment_table") or {"columns": [], "rows": []}
