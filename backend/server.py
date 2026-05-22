@@ -60,7 +60,10 @@ async def persist_dataset(upload_id: str, data: dict):
         "raw_records": data["raw_records"],
         "recap_rows": data["recap_rows"],
         "secteur_rows": data["secteur_rows"],
-        "comment": data.get("comment", ""),
+        "comment_table": data.get("comment_table") or {
+            "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
+            "rows": [["", "", "", "", ""] for _ in range(8)],
+        },
     }
     raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     compressed = gzip.compress(raw_bytes, compresslevel=6)
@@ -99,8 +102,8 @@ async def persist_recap_rows(upload_id: str, recap_rows: list[dict]):
     )
 
 
-async def persist_comment(upload_id: str, comment: str):
-    """Met à jour uniquement le commentaire en base."""
+async def persist_comment_table(upload_id: str, comment_table: dict):
+    """Met à jour uniquement le tableau de commentaires en base."""
     if upload_id not in DATASTORE:
         return
     doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
@@ -108,7 +111,7 @@ async def persist_comment(upload_id: str, comment: str):
         await persist_dataset(upload_id, DATASTORE[upload_id])
         return
     payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
-    payload["comment"] = comment
+    payload["comment_table"] = comment_table
     raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     compressed = gzip.compress(raw_bytes, compresslevel=6)
     await db.datasets.update_one(
@@ -436,7 +439,10 @@ async def upload_excel(file: UploadFile = File(...)):
         "data": {
             "recap": recap_rows,
             "secteur": secteur_rows,
-            "comment": "",
+            "comment_table": {
+                "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
+                "rows": [["", "", "", "", ""] for _ in range(8)],
+            },
             # raw_records non inclus ici pour garder la réponse légère ;
             # le frontend les chargera à la demande via GET /api/dataset/{id}/raw
         },
@@ -462,7 +468,10 @@ async def get_dataset(upload_id: str):
         "data": {
             "recap": d["recap_rows"],
             "secteur": d["secteur_rows"],
-            "comment": d.get("comment", ""),
+            "comment_table": d.get("comment_table") or {
+                "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
+                "rows": [["", "", "", "", ""] for _ in range(8)],
+            },
         },
     }
 
@@ -597,22 +606,23 @@ async def delete_recap_row(upload_id: str, index: int):
     return {"ok": True, "remaining": len(rows)}
 
 
-class CommentUpdate(BaseModel):
-    comment: str = ""
+class CommentTableUpdate(BaseModel):
+    columns: list[str]
+    rows: list[list[str]]
 
 
-@api_router.patch("/dataset/{upload_id}/comment")
-async def update_comment(upload_id: str, payload: CommentUpdate):
-    """Met à jour le commentaire libre du dataset."""
+@api_router.patch("/dataset/{upload_id}/comment-table")
+async def update_comment_table(upload_id: str, payload: CommentTableUpdate):
+    """Met à jour le tableau de commentaires (colonnes + lignes)."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    d["comment"] = payload.comment or ""
+    d["comment_table"] = {"columns": payload.columns, "rows": payload.rows}
     try:
-        await persist_comment(upload_id, d["comment"])
+        await persist_comment_table(upload_id, d["comment_table"])
     except Exception as e:
-        logger.warning(f"Mongo persist comment failed: {e}")
-    return {"ok": True, "comment": d["comment"]}
+        logger.warning(f"Mongo persist comment_table failed: {e}")
+    return {"ok": True, "comment_table": d["comment_table"]}
 
 
 @api_router.get("/export/{upload_id}")
@@ -710,14 +720,22 @@ async def export_excel(upload_id: str, sheet: str = "all"):
                 ws.freeze_panes(1, 0)
 
         if sheet in ("all", "comment"):
-            comment_text = d.get("comment", "") or ""
+            ct = d.get("comment_table") or {"columns": [], "rows": []}
             ws = workbook.add_worksheet("Commentaire")
             writer.sheets["Commentaire"] = ws
-            ws.write(0, 0, "Commentaires", fmt_header)
-            text_fmt = workbook.add_format({"text_wrap": True, "valign": "top"})
-            ws.write(1, 0, comment_text, text_fmt)
-            ws.set_column(0, 0, 120)
-            ws.set_row(1, 400)
+            cols_ct = ct.get("columns", [])
+            rows_ct = ct.get("rows", [])
+            for ci, h in enumerate(cols_ct):
+                ws.write(0, ci, h, fmt_header)
+            cell_fmt = workbook.add_format({"border": 1, "text_wrap": True, "valign": "top"})
+            for ri, row in enumerate(rows_ct, start=1):
+                for ci, v in enumerate(row):
+                    ws.write(ri, ci, v or "", cell_fmt)
+            if cols_ct:
+                ws.set_column(0, len(cols_ct) - 1, 25)
+            if len(rows_ct) > 0 and len(cols_ct) > 0:
+                ws.autofilter(0, 0, len(rows_ct), len(cols_ct) - 1)
+                ws.freeze_panes(1, 0)
 
     output.seek(0)
     filename = f"{Path(d['filename']).stem}_traité.xlsx"

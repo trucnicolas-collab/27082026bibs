@@ -36,6 +36,7 @@ function EditableCell({ value, onCommit, type = "text", align = "left", placehol
         return (
             <input
                 autoFocus
+                onFocus={(e) => e.target.select()}
                 type={type}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}

@@ -173,6 +173,16 @@ export default function App() {
         }
     }, [dataset]);
 
+    const updateComment = useCallback(async (table) => {
+        if (!dataset?.upload_id) return;
+        setDataset((d) => ({ ...d, data: { ...d.data, comment_table: table } }));
+        try {
+            await axios.patch(`${API}/dataset/${dataset.upload_id}/comment-table`, table);
+        } catch (err) {
+            toast.error(`Sauvegarde commentaire échouée : ${err.message}`);
+        }
+    }, [dataset]);
+
     const tabs = useMemo(() => {
         if (!dataset) return [];
         return [
@@ -180,7 +190,7 @@ export default function App() {
             { id: "parsecteur", label: "Par Secteur", count: dataset.row_count || 0 },
             { id: "recap", label: "Commandes", count: dataset.data.recap.length },
             { id: "phasage", label: "Phasage", count: dataset.data.secteur.length },
-            { id: "comment", label: "Commentaire", count: (dataset.data.comment || "").length },
+            { id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 },
         ];
     }, [dataset]);
 
@@ -241,7 +251,7 @@ export default function App() {
                             )}
                             {activeTab === "comment" && (
                                 <CommentTab
-                                    value={dataset.data.comment || ""}
+                                    value={dataset.data.comment_table}
                                     onCommit={updateComment}
                                 />
                             )}
