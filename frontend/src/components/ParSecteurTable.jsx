@@ -1,31 +1,12 @@
 import React, { useMemo, useState } from "react";
-import { FixedSizeList as List } from "react-window";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 
-const ROW_HEIGHT = 32;
-const COL_WIDTH = 140;
-
-function formatCell(value) {
-    if (value === null || value === undefined) return "";
-    if (typeof value === "number") {
-        if (Number.isInteger(value)) return value.toLocaleString("fr-FR");
-        return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-    }
-    return String(value);
+function fmtNum(v) {
+    if (v == null || v === "") return "";
+    if (typeof v === "number") return v.toLocaleString("fr-FR");
+    return v;
 }
 
-// Tri intelligent (numérique si possible, sinon localeCompare)
-function compareValues(a, b) {
-    if (a === b) return 0;
-    if (a == null || a === "") return 1;
-    if (b == null || b === "") return -1;
-    const numA = typeof a === "number" ? a : parseFloat(String(a).replace(",", "."));
-    const numB = typeof b === "number" ? b : parseFloat(String(b).replace(",", "."));
-    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-    return String(a).localeCompare(String(b), "fr", { numeric: true });
-}
-
-// Détection souple du nom de colonne
 function findCol(columns, candidates) {
     const lower = columns.map((c) => c.toLowerCase());
     for (const cand of candidates) {
@@ -35,243 +16,240 @@ function findCol(columns, candidates) {
     return null;
 }
 
+// Compare numérique puis string
+function cmp(a, b) {
+    if (a === b) return 0;
+    if (a == null || a === "") return 1;
+    if (b == null || b === "") return -1;
+    const nA = typeof a === "number" ? a : parseFloat(String(a).replace(",", "."));
+    const nB = typeof b === "number" ? b : parseFloat(String(b).replace(",", "."));
+    if (!isNaN(nA) && !isNaN(nB)) return nA - nB;
+    return String(a).localeCompare(String(b), "fr", { numeric: true });
+}
+
 export default function ParSecteurTable({ rows, columns, search }) {
-    const SECTEUR_COL = findCol(columns, ["Secteur"]) || "Secteur";
-    const RAYON_COL = findCol(columns, ["Rayon"]) || "Rayon";
-    const ALLEE_COL = findCol(columns, ["N° allée", "N° allee", "Allée", "Allee"]) || "N° allée";
-    const TYPE_COL = findCol(columns, ["Type"]);
+    const SECTEUR = findCol(columns, ["Secteur"]) || "Secteur";
+    const RAYON = findCol(columns, ["Rayon"]) || "Rayon";
+    const ALLEE = findCol(columns, ["N° allée", "N° allee", "Allée", "Allee"]) || "N° allée";
+    const TYPE = findCol(columns, ["Type"]);
+    const DESIG = findCol(columns, ["Désignation", "Designation"]);
+    const QTY = findCol(columns, ["Quantité", "Quantite"]);
 
     const [filterSecteur, setFilterSecteur] = useState("");
     const [filterRayon, setFilterRayon] = useState("");
-    const [filterAllee, setFilterAllee] = useState("");
-    const [filterType, setFilterType] = useState("");
-    const [sortConfig, setSortConfig] = useState({ key: null, dir: "asc" });
+    const [expanded, setExpanded] = useState({}); // key -> bool
 
-    const handleSort = (key) => {
-        setSortConfig((prev) => {
-            if (prev.key !== key) return { key, dir: "asc" };
-            if (prev.dir === "asc") return { key, dir: "desc" };
-            return { key: null, dir: "asc" };
-        });
-    };
+    const toggle = (key) => setExpanded((p) => ({ ...p, [key]: !p[key] }));
+
+    // Construire l'arbre : Secteur > Rayon > Allée > Produits
+    const tree = useMemo(() => {
+        const q = (search || "").toLowerCase();
+        const map = new Map(); // secteur -> Map(rayon -> Map(allee -> { total, byType, products: [] }))
+        for (const r of rows) {
+            const s = r[SECTEUR] == null ? "—" : String(r[SECTEUR]);
+            const ra = r[RAYON] == null ? "—" : String(r[RAYON]);
+            const al = r[ALLEE] == null ? "—" : String(r[ALLEE]);
+            if (filterSecteur && s !== filterSecteur) continue;
+            if (filterRayon && ra !== filterRayon) continue;
+            if (q && !columns.some((c) => r[c] != null && String(r[c]).toLowerCase().includes(q))) continue;
+
+            if (!map.has(s)) map.set(s, new Map());
+            const rayMap = map.get(s);
+            if (!rayMap.has(ra)) rayMap.set(ra, new Map());
+            const allMap = rayMap.get(ra);
+            if (!allMap.has(al)) allMap.set(al, { total: 0, byType: {}, products: [] });
+            const node = allMap.get(al);
+            const qty = QTY ? Number(r[QTY]) || 0 : 1;
+            node.total += qty;
+            const typ = TYPE ? (r[TYPE] || "—") : "—";
+            node.byType[typ] = (node.byType[typ] || 0) + qty;
+            node.products.push({
+                type: typ,
+                designation: DESIG ? (r[DESIG] || "") : "",
+                qty,
+            });
+        }
+        // Convertir en tableau trié pour rendu
+        const secteurs = Array.from(map.entries())
+            .sort(([a], [b]) => cmp(a, b))
+            .map(([secteur, rayMap]) => {
+                const rayons = Array.from(rayMap.entries())
+                    .sort(([a], [b]) => cmp(a, b))
+                    .map(([rayon, allMap]) => {
+                        const allees = Array.from(allMap.entries())
+                            .sort(([a], [b]) => cmp(a, b))
+                            .map(([allee, data]) => ({ allee, ...data }));
+                        const rayonTotal = allees.reduce((acc, a) => acc + a.total, 0);
+                        return { rayon, allees, total: rayonTotal };
+                    });
+                const secteurTotal = rayons.reduce((acc, r) => acc + r.total, 0);
+                return { secteur, rayons, total: secteurTotal };
+            });
+        return secteurs;
+    }, [rows, columns, search, filterSecteur, filterRayon, SECTEUR, RAYON, ALLEE, TYPE, DESIG, QTY]);
 
     const secteurOptions = useMemo(() => {
         const set = new Set();
-        rows.forEach((r) => r[SECTEUR_COL] != null && set.add(r[SECTEUR_COL]));
-        return Array.from(set).map(String).sort();
-    }, [rows, SECTEUR_COL]);
+        rows.forEach((r) => r[SECTEUR] != null && set.add(String(r[SECTEUR])));
+        return Array.from(set).sort();
+    }, [rows, SECTEUR]);
 
     const rayonOptions = useMemo(() => {
         const set = new Set();
         rows.forEach((r) => {
-            if (filterSecteur && String(r[SECTEUR_COL]) !== filterSecteur) return;
-            if (r[RAYON_COL] != null) set.add(r[RAYON_COL]);
+            if (filterSecteur && String(r[SECTEUR]) !== filterSecteur) return;
+            if (r[RAYON] != null) set.add(String(r[RAYON]));
         });
-        return Array.from(set).map(String).sort();
-    }, [rows, filterSecteur, SECTEUR_COL, RAYON_COL]);
+        return Array.from(set).sort();
+    }, [rows, filterSecteur, SECTEUR, RAYON]);
 
-    const alleeOptions = useMemo(() => {
-        const set = new Set();
-        rows.forEach((r) => {
-            if (filterSecteur && String(r[SECTEUR_COL]) !== filterSecteur) return;
-            if (filterRayon && String(r[RAYON_COL]) !== filterRayon) return;
-            if (r[ALLEE_COL] != null) set.add(r[ALLEE_COL]);
-        });
-        return Array.from(set)
-            .map(String)
-            .sort((a, b) => compareValues(a, b));
-    }, [rows, filterSecteur, filterRayon, SECTEUR_COL, RAYON_COL, ALLEE_COL]);
-
-    const typeOptions = useMemo(() => {
-        if (!TYPE_COL) return [];
-        const set = new Set();
-        rows.forEach((r) => r[TYPE_COL] != null && set.add(r[TYPE_COL]));
-        return Array.from(set).map(String).sort();
-    }, [rows, TYPE_COL]);
-
-    const filtered = useMemo(() => {
-        const q = (search || "").toLowerCase();
-        // 1) filtrer
-        let res = rows.filter((r) => {
-            if (filterSecteur && String(r[SECTEUR_COL]) !== filterSecteur) return false;
-            if (filterRayon && String(r[RAYON_COL]) !== filterRayon) return false;
-            if (filterAllee && String(r[ALLEE_COL]) !== filterAllee) return false;
-            if (filterType && TYPE_COL && String(r[TYPE_COL]) !== filterType) return false;
-            if (!q) return true;
-            return columns.some((c) => {
-                const v = r[c];
-                return v != null && String(v).toLowerCase().includes(q);
-            });
-        });
-        // 2) trier : par défaut Secteur > Rayon > Allée ; sinon par la colonne cliquée
-        if (sortConfig.key) {
-            const k = sortConfig.key;
-            const sign = sortConfig.dir === "asc" ? 1 : -1;
-            res = [...res].sort((a, b) => sign * compareValues(a[k], b[k]));
-        } else {
-            res = [...res].sort((a, b) => {
-                let c = compareValues(a[SECTEUR_COL], b[SECTEUR_COL]);
-                if (c !== 0) return c;
-                c = compareValues(a[RAYON_COL], b[RAYON_COL]);
-                if (c !== 0) return c;
-                return compareValues(a[ALLEE_COL], b[ALLEE_COL]);
-            });
-        }
-        return res;
-    }, [rows, columns, search, filterSecteur, filterRayon, filterAllee, filterType, sortConfig, SECTEUR_COL, RAYON_COL, ALLEE_COL, TYPE_COL]);
-
-    const clearFilters = () => {
-        setFilterSecteur("");
-        setFilterRayon("");
-        setFilterAllee("");
-        setFilterType("");
-        setSortConfig({ key: null, dir: "asc" });
-    };
-
-    const totalWidth = columns.length * COL_WIDTH;
-
-    const Row = ({ index, style }) => {
-        const r = filtered[index];
-        return (
-            <div
-                style={style}
-                className={`flex border-b border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50`}
-                data-testid={`parsecteur-row-${index}`}
-            >
-                {columns.map((c, i) => (
-                    <div
-                        key={i}
-                        className="px-3 py-1.5 text-sm border-r border-gray-200 last:border-r-0 truncate font-mono-data"
-                        style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
-                        title={formatCell(r[c])}
-                    >
-                        {formatCell(r[c])}
-                    </div>
-                ))}
-            </div>
-        );
-    };
+    const totalAllees = useMemo(
+        () => tree.reduce((a, s) => a + s.rayons.reduce((b, r) => b + r.allees.length, 0), 0),
+        [tree]
+    );
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="parsecteur-table">
-            <div className="h-10 border-b border-gray-200 px-3 flex items-center gap-2 bg-gray-50 flex-shrink-0 overflow-x-auto">
+            <div className="h-10 border-b border-gray-200 px-3 flex items-center gap-2 bg-gray-50 flex-shrink-0">
                 <span className="text-xs font-medium text-gray-700 whitespace-nowrap">Filtres :</span>
                 <select
                     value={filterSecteur}
                     onChange={(e) => {
                         setFilterSecteur(e.target.value);
                         setFilterRayon("");
-                        setFilterAllee("");
                     }}
                     data-testid="parsecteur-filter-secteur"
                     className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
                 >
                     <option value="">Tous les secteurs</option>
                     {secteurOptions.map((s) => (
-                        <option key={s} value={s}>
-                            {s}
-                        </option>
+                        <option key={s} value={s}>{s}</option>
                     ))}
                 </select>
                 <select
                     value={filterRayon}
-                    onChange={(e) => {
-                        setFilterRayon(e.target.value);
-                        setFilterAllee("");
-                    }}
+                    onChange={(e) => setFilterRayon(e.target.value)}
                     data-testid="parsecteur-filter-rayon"
                     className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
                 >
                     <option value="">Tous les rayons</option>
                     {rayonOptions.map((r) => (
-                        <option key={r} value={r}>
-                            {r}
-                        </option>
+                        <option key={r} value={r}>{r}</option>
                     ))}
                 </select>
-                <select
-                    value={filterAllee}
-                    onChange={(e) => setFilterAllee(e.target.value)}
-                    data-testid="parsecteur-filter-allee"
-                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                <button
+                    onClick={() => {
+                        // Tout déplier : marquer chaque secteur + rayon ouvert
+                        const next = {};
+                        tree.forEach((s) => {
+                            next[`s:${s.secteur}`] = true;
+                            s.rayons.forEach((r) => (next[`r:${s.secteur}|${r.rayon}`] = true));
+                        });
+                        setExpanded(next);
+                    }}
+                    data-testid="expand-all"
+                    className="h-7 px-2 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-100"
                 >
-                    <option value="">Toutes les allées</option>
-                    {alleeOptions.map((a) => (
-                        <option key={a} value={a}>
-                            {a}
-                        </option>
-                    ))}
-                </select>
-                {TYPE_COL && (
-                    <select
-                        value={filterType}
-                        onChange={(e) => setFilterType(e.target.value)}
-                        data-testid="parsecteur-filter-type"
-                        className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
-                    >
-                        <option value="">Tous les types</option>
-                        {typeOptions.map((t) => (
-                            <option key={t} value={t}>
-                                {t}
-                            </option>
-                        ))}
-                    </select>
-                )}
-                {(filterSecteur || filterRayon || filterAllee || filterType || sortConfig.key) && (
-                    <button
-                        onClick={clearFilters}
-                        data-testid="parsecteur-clear-filters"
-                        className="text-xs text-gray-600 hover:text-gray-900 underline whitespace-nowrap"
-                    >
-                        Effacer
-                    </button>
-                )}
+                    Tout déplier
+                </button>
+                <button
+                    onClick={() => setExpanded({})}
+                    data-testid="collapse-all"
+                    className="h-7 px-2 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-100"
+                >
+                    Tout replier
+                </button>
                 <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">
-                    {filtered.length.toLocaleString("fr-FR")} / {rows.length.toLocaleString("fr-FR")} lignes
+                    {totalAllees.toLocaleString("fr-FR")} allées
                 </span>
             </div>
 
             <div className="flex-1 overflow-auto custom-scroll">
-                <div style={{ minWidth: totalWidth }}>
-                    <div className="flex sticky top-0 z-10 bg-gray-100 thead-sticky">
-                        {columns.map((c, i) => {
-                            const isActive = sortConfig.key === c;
-                            const Icon = isActive ? (sortConfig.dir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
-                            return (
-                                <div
-                                    key={i}
-                                    onClick={() => handleSort(c)}
-                                    data-testid={`parsecteur-sort-${c}`}
-                                    className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 last:border-r-0 truncate cursor-pointer select-none hover:bg-gray-200 flex items-center gap-1"
-                                    style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
-                                    title={c}
-                                >
-                                    <span className="truncate">{c}</span>
-                                    <Icon className={`w-3 h-3 flex-shrink-0 ${isActive ? "text-[#056839]" : "text-gray-400"}`} />
-                                </div>
-                            );
-                        })}
-                    </div>
-                    <List
-                        height={Math.max(window.innerHeight - 56 - 40 - 40 - 28, 300)}
-                        itemCount={filtered.length}
-                        itemSize={ROW_HEIGHT}
-                        width={totalWidth}
-                    >
-                        {Row}
-                    </List>
-                </div>
-            </div>
-            <div className="h-7 border-t border-gray-200 px-3 flex items-center text-xs text-gray-600 bg-gray-50 flex-shrink-0">
-                <span data-testid="parsecteur-row-count">
-                    {filtered.length.toLocaleString("fr-FR")} ligne{filtered.length > 1 ? "s" : ""}
-                    {!sortConfig.key && <span className="ml-2 text-gray-500">· trié par Secteur → Rayon → Allée</span>}
-                    {sortConfig.key && (
-                        <span className="ml-2 text-gray-500">
-                            · trié par {sortConfig.key} {sortConfig.dir === "asc" ? "↑" : "↓"}
-                        </span>
-                    )}
-                </span>
+                {tree.map((s) => {
+                    const secKey = `s:${s.secteur}`;
+                    const secOpen = expanded[secKey] !== false; // ouvert par défaut
+                    return (
+                        <div key={s.secteur} data-testid={`secteur-block-${s.secteur}`}>
+                            <button
+                                onClick={() => toggle(secKey)}
+                                className="w-full flex items-center gap-2 px-3 py-2 bg-[#056839] text-white text-sm font-semibold sticky top-0 z-10 hover:bg-[#04502b]"
+                            >
+                                {secOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                <span>{s.secteur}</span>
+                                <span className="ml-auto text-xs opacity-90">
+                                    {s.rayons.length} rayon{s.rayons.length > 1 ? "s" : ""} · {fmtNum(s.total)} éléments
+                                </span>
+                            </button>
+                            {secOpen &&
+                                s.rayons.map((r) => {
+                                    const rayKey = `r:${s.secteur}|${r.rayon}`;
+                                    const rayOpen = expanded[rayKey] !== false;
+                                    return (
+                                        <div key={r.rayon}>
+                                            <button
+                                                onClick={() => toggle(rayKey)}
+                                                className="w-full flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-900 text-sm font-medium pl-8 hover:bg-emerald-200 border-b border-emerald-200"
+                                            >
+                                                {rayOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                                <span>{r.rayon}</span>
+                                                <span className="ml-auto text-xs text-emerald-800">
+                                                    {r.allees.length} allée{r.allees.length > 1 ? "s" : ""} · {fmtNum(r.total)} éléments
+                                                </span>
+                                            </button>
+                                            {rayOpen &&
+                                                r.allees.map((a) => {
+                                                    const allKey = `a:${s.secteur}|${r.rayon}|${a.allee}`;
+                                                    const allOpen = !!expanded[allKey];
+                                                    const typeChips = Object.entries(a.byType)
+                                                        .sort(([x], [y]) => x.localeCompare(y))
+                                                        .map(([t, n]) => `${t}: ${fmtNum(n)}`)
+                                                        .join(" · ");
+                                                    return (
+                                                        <div key={a.allee} className="border-b border-gray-100">
+                                                            <button
+                                                                onClick={() => toggle(allKey)}
+                                                                className="w-full flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-blue-50 text-sm pl-14 text-gray-800"
+                                                                data-testid={`allee-${s.secteur}-${r.rayon}-${a.allee}`}
+                                                            >
+                                                                {allOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                                                <span className="font-mono-data font-medium">Allée {a.allee}</span>
+                                                                <span className="text-gray-500 text-xs">— {fmtNum(a.total)} éléments</span>
+                                                                <span className="ml-auto text-xs text-gray-500 truncate">{typeChips}</span>
+                                                            </button>
+                                                            {allOpen && (
+                                                                <div className="pl-20 bg-gray-50 border-t border-gray-200">
+                                                                    <table className="w-full text-sm">
+                                                                        <thead>
+                                                                            <tr className="text-xs text-gray-600">
+                                                                                <th className="text-left py-1 pr-3 font-medium">Type</th>
+                                                                                <th className="text-left py-1 pr-3 font-medium">Désignation</th>
+                                                                                <th className="text-right py-1 pr-3 font-medium">Qté</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {a.products.map((p, idx) => (
+                                                                                <tr key={`${p.type}|${p.designation}|${idx}`} className="border-t border-gray-200">
+                                                                                    <td className="py-1 pr-3 text-gray-700">{p.type}</td>
+                                                                                    <td className="py-1 pr-3 text-gray-800">{p.designation}</td>
+                                                                                    <td className="py-1 pr-3 text-right font-mono-data text-gray-700">{fmtNum(p.qty)}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+                                    );
+                                })}
+                        </div>
+                    );
+                })}
+                {tree.length === 0 && (
+                    <div className="p-8 text-center text-sm text-gray-500">Aucun résultat</div>
+                )}
             </div>
         </div>
     );

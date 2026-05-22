@@ -8,6 +8,7 @@ import RawTable from "./components/RawTable";
 import RecapTable from "./components/RecapTable";
 import SecteurTable from "./components/SecteurTable";
 import ParSecteurTable from "./components/ParSecteurTable";
+import CommentTab from "./components/CommentTab";
 import "./App.css";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -179,6 +180,7 @@ export default function App() {
             { id: "parsecteur", label: "Par Secteur", count: dataset.row_count || 0 },
             { id: "recap", label: "Commandes", count: dataset.data.recap.length },
             { id: "phasage", label: "Phasage", count: dataset.data.secteur.length },
+            { id: "comment", label: "Commentaire", count: (dataset.data.comment || "").length },
         ];
     }, [dataset]);
 
@@ -236,6 +238,12 @@ export default function App() {
                                         search={search}
                                     />
                                 )
+                            )}
+                            {activeTab === "comment" && (
+                                <CommentTab
+                                    value={dataset.data.comment || ""}
+                                    onCommit={updateComment}
+                                />
                             )}
                         </div>
                         <BottomTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />

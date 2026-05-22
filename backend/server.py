@@ -60,6 +60,7 @@ async def persist_dataset(upload_id: str, data: dict):
         "raw_records": data["raw_records"],
         "recap_rows": data["recap_rows"],
         "secteur_rows": data["secteur_rows"],
+        "comment": data.get("comment", ""),
     }
     raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     compressed = gzip.compress(raw_bytes, compresslevel=6)
@@ -90,6 +91,24 @@ async def persist_recap_rows(upload_id: str, recap_rows: list[dict]):
         return
     payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
     payload["recap_rows"] = recap_rows
+    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    await db.datasets.update_one(
+        {"upload_id": upload_id},
+        {"$set": {"payload": Binary(compressed), "size_bytes": len(raw_bytes), "compressed_bytes": len(compressed)}},
+    )
+
+
+async def persist_comment(upload_id: str, comment: str):
+    """Met à jour uniquement le commentaire en base."""
+    if upload_id not in DATASTORE:
+        return
+    doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
+    if not doc:
+        await persist_dataset(upload_id, DATASTORE[upload_id])
+        return
+    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
+    payload["comment"] = comment
     raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     compressed = gzip.compress(raw_bytes, compresslevel=6)
     await db.datasets.update_one(
@@ -248,6 +267,17 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "total_plus_spare": inclineur_total + inclineur_spare,
             })
 
+    # Ligne Dongle — éditable, pas de Spare ni Total+Spare
+    rows.append({
+        "kind": "dongle",
+        "type": "Accessoire",
+        "reference": "",
+        "designation": "Dongle",
+        "quantite": "",
+        "spare": "",
+        "total_plus_spare": "",
+    })
+
     # 3 lignes vides
     for _ in range(3):
         rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": "", "total_plus_spare": ""})
@@ -389,6 +419,7 @@ async def upload_excel(file: UploadFile = File(...)):
         "raw_records": raw_records,
         "recap_rows": recap_rows,
         "secteur_rows": secteur_rows,
+        "comment": "",
     }
 
     # Persister le dataset complet en MongoDB (gzippé) pour multi-replica
@@ -405,6 +436,7 @@ async def upload_excel(file: UploadFile = File(...)):
         "data": {
             "recap": recap_rows,
             "secteur": secteur_rows,
+            "comment": "",
             # raw_records non inclus ici pour garder la réponse légère ;
             # le frontend les chargera à la demande via GET /api/dataset/{id}/raw
         },
@@ -430,6 +462,7 @@ async def get_dataset(upload_id: str):
         "data": {
             "recap": d["recap_rows"],
             "secteur": d["secteur_rows"],
+            "comment": d.get("comment", ""),
         },
     }
 
@@ -481,8 +514,9 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     if index < 0 or index >= len(rows):
         raise HTTPException(status_code=404, detail="Ligne introuvable")
     row = rows[index]
-    if row["kind"] not in ("empty", "manual"):
+    if row["kind"] not in ("empty", "manual", "dongle"):
         raise HTTPException(status_code=400, detail="Cette ligne n'est pas éditable")
+    is_dongle = row["kind"] == "dongle"
 
     new_type = (payload.type or "").strip()
     new_ref = (payload.reference or "").strip()
@@ -491,11 +525,14 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     new_spare = _parse_quantite(payload.spare)
 
     # Auto-calcul du Spare = ceil(qty * 5%) si Quantité saisie et Spare vide/0
-    if isinstance(new_qty, (int, float)) and new_qty > 0 and (new_spare == "" or new_spare == 0):
+    # SAUF pour Dongle qui n'a pas de règle Spare
+    if not is_dongle and isinstance(new_qty, (int, float)) and new_qty > 0 and (new_spare == "" or new_spare == 0):
         new_spare = math.ceil(float(new_qty) * 0.05)
 
-    # Total + Spare auto-calculé pour les manuels (si les 2 sont numériques)
-    if isinstance(new_qty, (int, float)) and isinstance(new_spare, (int, float)):
+    # Total + Spare auto-calculé (sauf pour Dongle qui reste vide)
+    if is_dongle:
+        new_total_plus_spare = ""
+    elif isinstance(new_qty, (int, float)) and isinstance(new_spare, (int, float)):
         new_total_plus_spare = new_qty + new_spare
     elif isinstance(new_qty, (int, float)) and (new_spare == "" or new_spare == 0):
         new_total_plus_spare = new_qty
@@ -503,6 +540,7 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
         new_total_plus_spare = ""
 
     # Si toutes les valeurs sont vides, on remet kind='empty'
+    # (sauf pour la ligne Dongle qui reste 'dongle' même vide)
     is_empty = (
         not new_type and not new_ref and not new_desig
         and (new_qty == "" or new_qty == 0)
@@ -512,9 +550,10 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     row["reference"] = new_ref
     row["designation"] = new_desig
     row["quantite"] = new_qty
-    row["spare"] = new_spare
+    row["spare"] = "" if is_dongle else new_spare
     row["total_plus_spare"] = new_total_plus_spare
-    row["kind"] = "empty" if is_empty else "manual"
+    if not is_dongle:
+        row["kind"] = "empty" if is_empty else "manual"
     # Re-persister
     try:
         await persist_recap_rows(upload_id, rows)
@@ -556,6 +595,24 @@ async def delete_recap_row(upload_id: str, index: int):
     except Exception as e:
         logger.warning(f"Mongo persist recap failed: {e}")
     return {"ok": True, "remaining": len(rows)}
+
+
+class CommentUpdate(BaseModel):
+    comment: str = ""
+
+
+@api_router.patch("/dataset/{upload_id}/comment")
+async def update_comment(upload_id: str, payload: CommentUpdate):
+    """Met à jour le commentaire libre du dataset."""
+    d = await load_dataset(upload_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    d["comment"] = payload.comment or ""
+    try:
+        await persist_comment(upload_id, d["comment"])
+    except Exception as e:
+        logger.warning(f"Mongo persist comment failed: {e}")
+    return {"ok": True, "comment": d["comment"]}
 
 
 @api_router.get("/export/{upload_id}")
@@ -651,6 +708,16 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             if len(secteur) > 0:
                 ws.autofilter(0, 0, len(secteur), 6)
                 ws.freeze_panes(1, 0)
+
+        if sheet in ("all", "comment"):
+            comment_text = d.get("comment", "") or ""
+            ws = workbook.add_worksheet("Commentaire")
+            writer.sheets["Commentaire"] = ws
+            ws.write(0, 0, "Commentaires", fmt_header)
+            text_fmt = workbook.add_format({"text_wrap": True, "valign": "top"})
+            ws.write(1, 0, comment_text, text_fmt)
+            ws.set_column(0, 0, 120)
+            ws.set_row(1, 400)
 
     output.seek(0)
     filename = f"{Path(d['filename']).stem}_traité.xlsx"
