@@ -188,9 +188,9 @@ export default function App() {
         if (!dataset) return [];
         return [
             { id: "raw", label: "Données Brutes", count: dataset.row_count || 0 },
-            { id: "parsecteur", label: "Par Secteur", count: dataset.row_count || 0 },
             { id: "recap", label: "Commandes", count: dataset.data.recap.length },
-            { id: "phasage", label: "Phasage", count: dataset.data.secteur.length },
+            { id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 },
+            { id: "phasage", label: "Tableau phasage", count: dataset.data.secteur.length },
             { id: "pose", label: "Phasage de pose", count: 0 },
             { id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 },
         ];
