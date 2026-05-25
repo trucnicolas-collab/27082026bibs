@@ -837,20 +837,52 @@ async def update_phasage(upload_id: str, payload: PhasageUpdate):
 
 
 def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
-    """Génère la feuille "Phasage de pose" avec :
-      - En-tête : nb nuits, moyenne/nuit (ES1.5+ES2.1)
-      - Bloc totaux globaux (ES 1.5, ES 2.1, breakdown rails ES par longueur)
-      - Tableau gauche : assignations allée -> nuit (avec comptes auto)
-      - Tableau droite : agrégation par nuit
+    """Génère la feuille "Phasage de pose" INTERACTIVE (formules + listes déroulantes).
+
+    Layout:
+      - Cellule "Nb nuits" éditable + formule "Moyenne/nuit"
+      - Bloc totaux globaux (statiques, ES 1.5/2.1/Rails ES + breakdown)
+      - Tableau gauche : 1 ligne par allée du fichier
+          * Col A "N° Allée" : liste déroulante (data validation) source = liste des allées
+          * Col B/C/D : formules VLOOKUP -> auto-calcul ES 1.5 / ES 2.1 / Rails ES
+          * Col E "Nuit" : liste déroulante (Nuit 1, Nuit 2, ...)
+      - Tableau droite : agrégation par nuit via SUMIFS sur le tableau gauche
+          * Col "Allées" : TEXTJOIN array formula
+      - Feuille cachée "_Phasage_data" : table de référence des allées (allée -> es15/es21/rails)
     """
     summary = compute_phasage_summary(d)
     phasage = d.get("phasage") or {"nb_nuits": 3, "rows": []}
     nb_nuits = max(1, int(phasage.get("nb_nuits") or 3))
     rows_assign = phasage.get("rows") or []
+    all_allees = summary["allees"]
+    totals = summary["totals"]
+    n_allees = len(all_allees)
 
+    if n_allees == 0:
+        # Pas de données -> feuille minimaliste
+        ws = workbook.add_worksheet("Phasage de pose")
+        writer.sheets["Phasage de pose"] = ws
+        ws.write(0, 0, "Aucune allée détectée dans le fichier source.", fmt_header)
+        return
+
+    # ----- Feuille principale (créée AVANT _Phasage_data pour qu'elle soit "active") -----
     ws = workbook.add_worksheet("Phasage de pose")
     writer.sheets["Phasage de pose"] = ws
-    ws.set_column(0, 0, 12)
+    ws.activate()
+
+    # ----- Feuille cachée _Phasage_data : table de référence pour VLOOKUP -----
+    ws_data = workbook.add_worksheet("_Phasage_data")
+    writer.sheets["_Phasage_data"] = ws_data
+    ws_data.write_row(0, 0, ["Allée", "ES 1.5", "ES 2.1", "Rails ES"])
+    for i, a in enumerate(all_allees, start=1):
+        ws_data.write_string(i, 0, str(a["allee"]))
+        ws_data.write_number(i, 1, a["es_15"] or 0)
+        ws_data.write_number(i, 2, a["es_21"] or 0)
+        ws_data.write_number(i, 3, a["rails_es"] or 0)
+    ws_data.hide()
+
+    # ----- Configuration de la feuille principale -----
+    ws.set_column(0, 0, 14)
     ws.set_column(1, 1, 14)
     ws.set_column(2, 2, 14)
     ws.set_column(3, 3, 14)
@@ -866,19 +898,34 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                      "border": 1, "font_size": 12, "align": "left"})
     fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "left"})
     fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_num_calc = workbook.add_format({"border": 1, "align": "right", "bg_color": "#FAFAFA"})
+    fmt_input = workbook.add_format({"border": 1, "align": "center", "bg_color": "#FFFBEB", "bold": True})
     fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
     fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+    fmt_italic = workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"})
 
-    totals = summary["totals"]
-    avg_per_night = (totals["es_15"] + totals["es_21"]) / nb_nuits if nb_nuits else 0
+    # Couleurs douces par nuit (10 couleurs en rotation, identiques au frontend)
+    night_palette = [
+        "#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
+        "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB",
+    ]
+    fmt_night = {n: workbook.add_format({"border": 1, "align": "right",
+                                          "bg_color": night_palette[(n - 1) % len(night_palette)]})
+                 for n in range(1, nb_nuits + 1)}
 
-    ws.merge_range(0, 0, 0, 9, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
+    # ----- En-tête supérieur -----
+    ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
     ws.write(1, 0, "Nb nuits :", fmt_lbl)
-    ws.write_number(1, 1, nb_nuits, fmt_num)
+    ws.write_number(1, 1, nb_nuits, fmt_input)
+    ws.data_validation(1, 1, 1, 1, {"validate": "integer", "criteria": "between",
+                                     "minimum": 1, "maximum": 30,
+                                     "error_message": "Nombre de nuits entre 1 et 30"})
     ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
-    ws.write_number(1, 3, round(avg_per_night, 1), fmt_num)
-    ws.write(1, 4, "(ES1.5 + ES2.1) / nb nuits", workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"}))
+    # Moyenne = (Total ES 1.5 + Total ES 2.1) / Nb nuits (cellules B4 et D4 ci-dessous)
+    ws.write_formula(1, 3, "=IFERROR((B4+D4)/B2,0)", fmt_num_calc)
+    ws.write(1, 4, "(ES 1.5 + ES 2.1) / Nb nuits", fmt_italic)
 
+    # ----- Totaux globaux du fichier (statiques) -----
     ws.write(3, 0, "Total ES 1.5", fmt_lbl)
     ws.write_number(3, 1, totals["es_15"], fmt_num)
     ws.write(3, 2, "Total ES 2.1", fmt_lbl)
@@ -893,76 +940,114 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.write_number(r, 1, totals["rails_es_by_desig"].get(pat, 0), fmt_num)
         r += 1
 
+    # ----- Tableau gauche (interactif) -----
     start_left = r + 2
     ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
     headers_left = ["N° Allée", "ES 1.5", "ES 2.1", "Rails ES", "Nuit"]
     for ci, h in enumerate(headers_left):
         ws.write(start_left + 1, ci, h, fmt_lbl)
 
-    allee_index = {str(a["allee"]): a for a in summary["allees"]}
+    first_data_row = start_left + 2  # 0-indexed
+    nb_rows_left = max(n_allees, len(rows_assign), 30)
 
-    night_totals = {n: {"es_15": 0.0, "es_21": 0.0, "rails_es": 0.0} for n in range(1, nb_nuits + 1)}
-    rr = start_left + 2
+    # Sources pour les data validations
+    # _Phasage_data!$A$2:$A${n_allees+1}
+    allee_source = f"=_Phasage_data!$A$2:$A${n_allees + 1}"
+    nuit_labels = [f"Nuit {n}" for n in range(1, nb_nuits + 1)]
+
+    # Pré-remplissage des assignations existantes (ordre = ordre du phasage utilisateur)
+    existing = []
     for row in rows_assign:
-        allee = str(row.get("allee") or "").strip()
-        nuit = row.get("nuit")
-        node = allee_index.get(allee)
-        es15 = node["es_15"] if node else 0
-        es21 = node["es_21"] if node else 0
-        rails = node["rails_es"] if node else 0
-        try:
-            ws.write_number(rr, 0, int(allee), fmt_cell)
-        except (ValueError, TypeError):
-            ws.write(rr, 0, allee, fmt_cell)
-        ws.write_number(rr, 1, es15, fmt_num)
-        ws.write_number(rr, 2, es21, fmt_num)
-        ws.write_number(rr, 3, rails, fmt_num)
-        if nuit and 1 <= int(nuit) <= nb_nuits:
-            ws.write(rr, 4, f"Nuit {int(nuit)}", fmt_num)
-            night_totals[int(nuit)]["es_15"] += es15
-            night_totals[int(nuit)]["es_21"] += es21
-            night_totals[int(nuit)]["rails_es"] += rails
-        else:
-            ws.write(rr, 4, "—", fmt_num)
-        rr += 1
+        a = str(row.get("allee") or "").strip()
+        n = row.get("nuit")
+        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
 
+    # Plages pour les formules (Excel 1-based)
+    excel_first = first_data_row + 1
+    excel_last = first_data_row + nb_rows_left
+    A_range = f"$A${excel_first}:$A${excel_last}"
+    B_range = f"$B${excel_first}:$B${excel_last}"
+    C_range = f"$C${excel_first}:$C${excel_last}"
+    D_range = f"$D${excel_first}:$D${excel_last}"
+    E_range = f"$E${excel_first}:$E${excel_last}"
+    vlookup_range = f"_Phasage_data!$A$2:$D${n_allees + 1}"
+
+    for i in range(nb_rows_left):
+        rr = first_data_row + i
+        excel_row = rr + 1  # 1-based
+        # Cellule allée : data validation + valeur préremplie si dispo
+        ws.data_validation(rr, 0, rr, 0, {
+            "validate": "list",
+            "source": allee_source,
+            "error_message": "Sélectionnez une allée existante dans le fichier",
+            "error_title": "Allée inconnue",
+        })
+        if i < len(existing) and existing[i]["allee"]:
+            ws.write_string(rr, 0, existing[i]["allee"], fmt_cell)
+        else:
+            ws.write_blank(rr, 0, None, fmt_cell)
+
+        # ES 1.5 / 2.1 / Rails ES : formules VLOOKUP
+        ws.write_formula(rr, 1, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},2,FALSE),"")', fmt_num_calc)
+        ws.write_formula(rr, 2, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},3,FALSE),"")', fmt_num_calc)
+        ws.write_formula(rr, 3, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},4,FALSE),"")', fmt_num_calc)
+
+        # Nuit : data validation + valeur préremplie + couleur de la nuit si assignée
+        ws.data_validation(rr, 4, rr, 4, {
+            "validate": "list",
+            "source": nuit_labels,
+        })
+        if i < len(existing) and existing[i]["nuit"]:
+            nuit = existing[i]["nuit"]
+            ws.write_string(rr, 4, f"Nuit {nuit}", fmt_night.get(nuit, fmt_cell))
+        else:
+            ws.write_blank(rr, 4, None, fmt_cell)
+
+    # ----- Tableau droite (formules SUMIFS + TEXTJOIN) -----
     col_right = 6
     ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
     headers_right = ["Nuit", "Allées", "ES 1.5", "ES 2.1", "Rails ES"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
-    night_allees: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
-    for row in rows_assign:
-        allee = str(row.get("allee") or "").strip()
-        nuit = row.get("nuit")
-        if allee and nuit and 1 <= int(nuit) <= nb_nuits:
-            night_allees[int(nuit)].append(allee)
-    # Tri num des allées par nuit
-    def _sort_allee(a):
-        try:
-            return (0, float(str(a).replace(",", ".")))
-        except (ValueError, TypeError):
-            return (1, str(a))
-    total_es15 = 0
-    total_es21 = 0
-    total_rails = 0
+
     for i, n in enumerate(range(1, nb_nuits + 1), start=0):
-        rrow = start_left + 2 + i
-        allees_list = sorted(night_allees[n], key=_sort_allee)
-        ws.write(rrow, col_right + 0, f"Nuit {n}", fmt_cell)
-        ws.write(rrow, col_right + 1, ", ".join(allees_list) if allees_list else "—", fmt_cell)
-        ws.write_number(rrow, col_right + 2, round(night_totals[n]["es_15"], 2), fmt_num)
-        ws.write_number(rrow, col_right + 3, round(night_totals[n]["es_21"], 2), fmt_num)
-        ws.write_number(rrow, col_right + 4, round(night_totals[n]["rails_es"], 2), fmt_num)
-        total_es15 += night_totals[n]["es_15"]
-        total_es21 += night_totals[n]["es_21"]
-        total_rails += night_totals[n]["rails_es"]
-    rrow_total = start_left + 2 + nb_nuits
+        rrow = first_data_row + i
+        nuit_label = f"Nuit {n}"
+        fmt_n = fmt_night.get(n, fmt_cell)
+        ws.write(rrow, col_right + 0, nuit_label, fmt_n)
+        # Liste des allées de cette nuit (array formula)
+        textjoin = f'=TEXTJOIN(", ",TRUE,IF({E_range}="{nuit_label}",{A_range},""))'
+        ws.write_array_formula(rrow, col_right + 1, rrow, col_right + 1, textjoin, fmt_n, "")
+        ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{E_range},"{nuit_label}")', fmt_n)
+        ws.write_formula(rrow, col_right + 3, f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_n)
+        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({D_range},{E_range},"{nuit_label}")', fmt_n)
+
+    # Ligne TOTAL (somme des colonnes)
+    rrow_total = first_data_row + nb_nuits
+    excel_total_first = first_data_row + 1
+    excel_total_last = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
-    ws.write(rrow_total, col_right + 1, f"{sum(len(v) for v in night_allees.values())} allées", fmt_total_lbl)
-    ws.write_number(rrow_total, col_right + 2, round(total_es15, 2), fmt_total_row)
-    ws.write_number(rrow_total, col_right + 3, round(total_es21, 2), fmt_total_row)
-    ws.write_number(rrow_total, col_right + 4, round(total_rails, 2), fmt_total_row)
+    ws.write_formula(rrow_total, col_right + 1,
+                     f'=COUNTA({A_range})&" allées planifiées"',
+                     fmt_total_lbl)
+    ws.write_formula(rrow_total, col_right + 2,
+                     f"=SUM(${chr(ord('A')+col_right+2)}${excel_total_first}:${chr(ord('A')+col_right+2)}${excel_total_last})",
+                     fmt_total_row)
+    ws.write_formula(rrow_total, col_right + 3,
+                     f"=SUM(${chr(ord('A')+col_right+3)}${excel_total_first}:${chr(ord('A')+col_right+3)}${excel_total_last})",
+                     fmt_total_row)
+    ws.write_formula(rrow_total, col_right + 4,
+                     f"=SUM(${chr(ord('A')+col_right+4)}${excel_total_first}:${chr(ord('A')+col_right+4)}${excel_total_last})",
+                     fmt_total_row)
+
+    # Petite note d'aide en bas
+    note_row = max(first_data_row + nb_rows_left, rrow_total + 1) + 1
+    ws.merge_range(note_row, 0, note_row, 10,
+                   "Astuce : modifiez le « Nb nuits » (jaune) pour recalculer la moyenne. "
+                   "Sélectionnez une allée et une nuit dans les colonnes déroulantes — les comptes et "
+                   "le récap par nuit se mettent à jour automatiquement.",
+                   fmt_italic)
+
 
 
 
