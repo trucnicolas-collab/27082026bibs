@@ -323,6 +323,14 @@ def build_par_secteur(df: pd.DataFrame, cols: dict) -> list[dict]:
     df["_eeg_subtype"] = df.apply(
         lambda r: classify_eeg(r[desig_col]) if r[type_col] == "EEG" else None, axis=1
     )
+    # Détecte les caméras valides : Type=Caméra/Camera ET désignation contient "noir(e)" ou "blanc(he)"
+    def _is_valid_camera(row) -> bool:
+        if row[type_col] not in ("Caméra", "Camera"):
+            return False
+        d = str(row[desig_col] or "").lower()
+        return ("noir" in d) or ("blanc" in d)
+
+    df["_camera_valid"] = df.apply(_is_valid_camera, axis=1)
 
     grouped = df.groupby([secteur_col, rayon_col, allee_col], dropna=False)
     rows: list[dict] = []
@@ -330,8 +338,8 @@ def build_par_secteur(df: pd.DataFrame, cols: dict) -> list[dict]:
         eeg_es = float(g.loc[g["_eeg_subtype"] == "ES", qty_col].sum())
         eeg_sa = float(g.loc[g["_eeg_subtype"] == "SA", qty_col].sum())
         nb_rail = float(g.loc[g[type_col] == "Rail", qty_col].sum())
-        # Caméra ou Camera
-        nb_cam = float(g.loc[g[type_col].isin(["Caméra", "Camera"]), qty_col].sum())
+        # Caméra : uniquement les désignations contenant "noir(e)" ou "blanc(he)"
+        nb_cam = float(g.loc[g["_camera_valid"], qty_col].sum())
         rows.append({
             "secteur": "" if pd.isna(secteur) else str(secteur),
             "rayon": "" if pd.isna(rayon) else str(rayon),
@@ -533,7 +541,8 @@ def _parse_quantite(v):
 
 @api_router.patch("/dataset/{upload_id}/recap-row/{index}")
 async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
-    """Met à jour une ligne du récapitulatif. Réservé aux lignes éditables (kind='empty' ou 'manual')."""
+    """Met à jour une ligne du récapitulatif. Toutes les lignes sont éditables
+    sauf les en-têtes de section (kind='header')."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
@@ -541,9 +550,10 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     if index < 0 or index >= len(rows):
         raise HTTPException(status_code=404, detail="Ligne introuvable")
     row = rows[index]
-    if row["kind"] not in ("empty", "manual", "dongle"):
-        raise HTTPException(status_code=400, detail="Cette ligne n'est pas éditable")
+    if row["kind"] == "header":
+        raise HTTPException(status_code=400, detail="Les en-têtes de section ne sont pas éditables")
     is_dongle = row["kind"] == "dongle"
+    is_inclineur = row["kind"] == "inclineur"
 
     new_type = (payload.type or "").strip()
     new_ref = (payload.reference or "").strip()
@@ -552,12 +562,14 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     new_spare = _parse_quantite(payload.spare)
 
     # Auto-calcul du Spare = ceil(qty * 5%) si Quantité saisie et Spare vide/0
-    # SAUF pour Dongle qui n'a pas de règle Spare
-    if not is_dongle and isinstance(new_qty, (int, float)) and new_qty > 0 and (new_spare == "" or new_spare == 0):
+    # SAUF pour Dongle / Inclineur qui n'ont pas de règle Spare
+    if (not is_dongle and not is_inclineur
+            and isinstance(new_qty, (int, float)) and new_qty > 0
+            and (new_spare == "" or new_spare == 0)):
         new_spare = math.ceil(float(new_qty) * 0.05)
 
-    # Total + Spare auto-calculé (sauf pour Dongle qui reste vide)
-    if is_dongle:
+    # Total + Spare auto-calculé (sauf pour Dongle/Inclineur)
+    if is_dongle or is_inclineur:
         new_total_plus_spare = ""
     elif isinstance(new_qty, (int, float)) and isinstance(new_spare, (int, float)):
         new_total_plus_spare = new_qty + new_spare
@@ -567,7 +579,6 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
         new_total_plus_spare = ""
 
     # Si toutes les valeurs sont vides, on remet kind='empty'
-    # (sauf pour la ligne Dongle qui reste 'dongle' même vide)
     is_empty = (
         not new_type and not new_ref and not new_desig
         and (new_qty == "" or new_qty == 0)
@@ -577,9 +588,11 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
     row["reference"] = new_ref
     row["designation"] = new_desig
     row["quantite"] = new_qty
-    row["spare"] = "" if is_dongle else new_spare
+    row["spare"] = "" if (is_dongle or is_inclineur) else new_spare
     row["total_plus_spare"] = new_total_plus_spare
-    if not is_dongle:
+    # Le kind est préservé pour Dongle/Inclineur (couleur orange spéciale)
+    # Pour les autres lignes (product, manual, empty), on bascule entre empty/manual
+    if not is_dongle and not is_inclineur:
         row["kind"] = "empty" if is_empty else "manual"
     # Re-persister
     try:
@@ -607,15 +620,15 @@ async def add_recap_row(upload_id: str):
 
 @api_router.delete("/dataset/{upload_id}/recap-row/{index}")
 async def delete_recap_row(upload_id: str, index: int):
-    """Supprime une ligne manuelle ou vide du récapitulatif."""
+    """Supprime une ligne du récapitulatif (sauf en-têtes de section)."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
     if index < 0 or index >= len(rows):
         raise HTTPException(status_code=404, detail="Ligne introuvable")
-    if rows[index]["kind"] not in ("empty", "manual"):
-        raise HTTPException(status_code=400, detail="Seules les lignes manuelles peuvent être supprimées")
+    if rows[index]["kind"] == "header":
+        raise HTTPException(status_code=400, detail="Les en-têtes de section ne sont pas supprimables")
     rows.pop(index)
     try:
         await persist_recap_rows(upload_id, rows)
@@ -910,32 +923,30 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Feuille cachée _Phasage_data : table de référence pour VLOOKUP -----
     ws_data = workbook.add_worksheet("_Phasage_data")
     writer.sheets["_Phasage_data"] = ws_data
-    ws_data.write_row(0, 0, ["Allée", "ES 1.5", "ES 2.1", "Rails ES", "SA"])
+    # Col B = ES (1.5 + 2.1 fusionnés), Col C = Rails ES, Col D = SA
+    ws_data.write_row(0, 0, ["Allée", "ES", "Rails ES", "SA"])
     for i, a in enumerate(all_allees, start=1):
         ws_data.write_string(i, 0, str(a["allee"]))
-        ws_data.write_number(i, 1, a["es_15"] or 0)
-        ws_data.write_number(i, 2, a["es_21"] or 0)
-        ws_data.write_number(i, 3, a["rails_es"] or 0)
-        ws_data.write_number(i, 4, a.get("sa") or 0)
+        ws_data.write_number(i, 1, (a["es_15"] or 0) + (a["es_21"] or 0))
+        ws_data.write_number(i, 2, a["rails_es"] or 0)
+        ws_data.write_number(i, 3, a.get("sa") or 0)
     ws_data.hide()
 
     # ----- Configuration de la feuille principale -----
-    # Tableau gauche : A=N°Allée, B=ES1.5, C=ES2.1, D=RailsES, E=SA (info), F=Nuit
-    # Spacer : col G (6)
-    # Tableau droit : H=Nuit, I=Allées, J=ES1.5, K=ES2.1, L=RailsES, M=SA (info)
+    # Tableau gauche : A=N°Allée, B=ES, C=RailsES, D=SA (info), E=Nuit
+    # Spacer : col F (5)
+    # Tableau droit : G=Nuit, H=Allées, I=ES, J=RailsES, K=SA (info)
     ws.set_column(0, 0, 12)   # A N° Allée
-    ws.set_column(1, 1, 12)   # B ES 1.5
-    ws.set_column(2, 2, 12)   # C ES 2.1
-    ws.set_column(3, 3, 12)   # D Rails ES
-    ws.set_column(4, 4, 10)   # E SA (info)
-    ws.set_column(5, 5, 12)   # F Nuit
-    ws.set_column(6, 6, 3)    # G spacer
-    ws.set_column(7, 7, 10)   # H Nuit
-    ws.set_column(8, 8, 32)   # I Allées
-    ws.set_column(9, 9, 12)   # J ES 1.5
-    ws.set_column(10, 10, 12) # K ES 2.1
-    ws.set_column(11, 11, 12) # L Rails ES
-    ws.set_column(12, 12, 10) # M SA (info)
+    ws.set_column(1, 1, 12)   # B ES
+    ws.set_column(2, 2, 12)   # C Rails ES
+    ws.set_column(3, 3, 10)   # D SA (info)
+    ws.set_column(4, 4, 12)   # E Nuit
+    ws.set_column(5, 5, 3)    # F spacer
+    ws.set_column(6, 6, 10)   # G Nuit
+    ws.set_column(7, 7, 32)   # H Allées
+    ws.set_column(8, 8, 12)   # I ES
+    ws.set_column(9, 9, 12)   # J Rails ES
+    ws.set_column(10, 10, 10) # K SA (info)
 
     fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
                                      "border": 1, "font_size": 12, "align": "left"})
@@ -964,27 +975,25 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         cf_formats_right[n] = workbook.add_format({"bg_color": color, "border": 1})
 
     # ----- En-tête supérieur -----
-    ws.merge_range(0, 0, 0, 12, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
+    ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (ES)", fmt_title)
     ws.write(1, 0, "Nb nuits :", fmt_lbl)
     ws.write_number(1, 1, nb_nuits, fmt_input)
     ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
-    # Moyenne = (Total ES 1.5 + Total ES 2.1) / Nb nuits (cellules B4 et D4 ci-dessous)
-    ws.write_formula(1, 3, "=IFERROR(ROUND((B4+D4)/B2,0),0)", fmt_num_calc)
-    ws.write(1, 4, "(ES 1.5 + ES 2.1) / Nb nuits", fmt_italic)
+    # Moyenne = Total ES (B4) / Nb nuits (B2)
+    ws.write_formula(1, 3, "=IFERROR(ROUND(B4/B2,0),0)", fmt_num_calc)
+    ws.write(1, 4, "Total ES / Nb nuits", fmt_italic)
 
     # ----- Totaux globaux du fichier (statiques) -----
-    ws.write(3, 0, "Total ES 1.5", fmt_lbl)
-    ws.write_number(3, 1, totals["es_15"], fmt_num)
-    ws.write(3, 2, "Total ES 2.1", fmt_lbl)
-    ws.write_number(3, 3, totals["es_21"], fmt_num)
-    ws.write(3, 4, "Total Rails ES", fmt_lbl)
-    ws.write_number(3, 5, totals["rails_es"], fmt_num)
+    ws.write(3, 0, "Total ES", fmt_lbl)
+    ws.write_number(3, 1, (totals["es_15"] or 0) + (totals["es_21"] or 0), fmt_num)
+    ws.write(3, 2, "Total Rails ES", fmt_lbl)
+    ws.write_number(3, 3, totals["rails_es"], fmt_num)
     fmt_sa_total = workbook.add_format({"bold": True, "bg_color": "#F9FAFB", "border": 1,
                                          "align": "left", "italic": True, "font_color": "#6B7280"})
     fmt_sa_total_num = workbook.add_format({"border": 1, "align": "right", "bg_color": "#F9FAFB",
                                              "italic": True, "font_color": "#6B7280"})
-    ws.write(3, 7, "Total SA (info)", fmt_sa_total)
-    ws.write_number(3, 8, totals.get("sa", 0), fmt_sa_total_num)
+    ws.write(3, 4, "Total SA (info)", fmt_sa_total)
+    ws.write_number(3, 5, totals.get("sa", 0), fmt_sa_total_num)
 
     ws.write(5, 0, "Rails ES par désignation :", fmt_lbl)
     r = 6
@@ -994,10 +1003,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         r += 1
 
     # ----- Tableau gauche (interactif) -----
-    # Nb de nuits = ce que l'utilisateur a saisi dans l'app (sera la taille du tableau droit et de la dropdown)
     start_left = r + 2
-    ws.merge_range(start_left, 0, start_left, 5, "Plan d'attribution par allée", fmt_title)
-    headers_left = ["N° Allée", "ES 1.5", "ES 2.1", "Rails ES", "SA", "Nuit"]
+    ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
+    headers_left = ["N° Allée", "ES", "Rails ES", "SA", "Nuit"]
     for ci, h in enumerate(headers_left):
         ws.write(start_left + 1, ci, h, fmt_lbl)
 
@@ -1022,12 +1030,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     excel_first = first_data_row + 1
     excel_last = first_data_row + nb_rows_left
     A_range = f"$A${excel_first}:$A${excel_last}"
-    B_range = f"$B${excel_first}:$B${excel_last}"
-    C_range = f"$C${excel_first}:$C${excel_last}"
-    D_range = f"$D${excel_first}:$D${excel_last}"
-    E_range_sa = f"$E${excel_first}:$E${excel_last}"  # colonne SA (info)
-    F_range = f"$F${excel_first}:$F${excel_last}"     # colonne Nuit
-    vlookup_range = f"_Phasage_data!$A$2:$E${n_allees + 1}"  # E = SA
+    B_range = f"$B${excel_first}:$B${excel_last}"  # ES (1.5 + 2.1)
+    C_range = f"$C${excel_first}:$C${excel_last}"  # Rails ES
+    D_range_sa = f"$D${excel_first}:$D${excel_last}"  # SA (info)
+    E_range = f"$E${excel_first}:$E${excel_last}"  # Nuit
+    vlookup_range = f"_Phasage_data!$A$2:$D${n_allees + 1}"  # 4 colonnes: Allée, ES, Rails, SA
 
     # Format italique pour la colonne SA (info, plus discret)
     fmt_sa_info = workbook.add_format({"border": 1, "align": "right", "bg_color": "#F9FAFB",
@@ -1036,7 +1043,6 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     for i in range(nb_rows_left):
         rr = first_data_row + i
         excel_row = rr + 1  # 1-based
-        # Cellule allée : data validation + valeur préremplie si dispo
         ws.data_validation(rr, 0, rr, 0, {
             "validate": "list",
             "source": allee_source,
@@ -1048,28 +1054,25 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         else:
             ws.write_blank(rr, 0, None, fmt_cell)
 
-        # ES 1.5 / 2.1 / Rails ES : formules VLOOKUP
+        # ES (col 1) / Rails ES (col 2) / SA (col 3) : formules VLOOKUP
         ws.write_formula(rr, 1, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},2,FALSE),"")', fmt_num_calc)
         ws.write_formula(rr, 2, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},3,FALSE),"")', fmt_num_calc)
-        ws.write_formula(rr, 3, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},4,FALSE),"")', fmt_num_calc)
-        # SA : info (VLOOKUP col 5 du _Phasage_data)
-        ws.write_formula(rr, 4, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},5,FALSE),"")', fmt_sa_info)
+        ws.write_formula(rr, 3, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},4,FALSE),"")', fmt_sa_info)
 
-        # Nuit (col F = index 5) : data validation + valeur préremplie + format neutre
-        # (couleur appliquée via mise en forme conditionnelle plus bas)
-        ws.data_validation(rr, 5, rr, 5, {
+        # Nuit (col 4 = E) : data validation + valeur préremplie + format neutre
+        ws.data_validation(rr, 4, rr, 4, {
             "validate": "list",
             "source": nuit_labels,
         })
         if i < len(existing) and existing[i]["nuit"]:
-            ws.write_string(rr, 5, f"Nuit {existing[i]['nuit']}", fmt_nuit_cell)
+            ws.write_string(rr, 4, f"Nuit {existing[i]['nuit']}", fmt_nuit_cell)
         else:
-            ws.write_blank(rr, 5, None, fmt_nuit_cell)
+            ws.write_blank(rr, 4, None, fmt_nuit_cell)
 
     # ----- Tableau droite (formules SUMIFS, mise en forme conditionnelle pour les couleurs) -----
-    col_right = 7
-    ws.merge_range(start_left, col_right, start_left, col_right + 5, "Récap par nuit", fmt_title)
-    headers_right = ["Nuit", "Allées", "ES 1.5", "ES 2.1", "Rails ES", "SA"]
+    col_right = 6
+    ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
+    headers_right = ["Nuit", "Allées", "ES", "Rails ES", "SA"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
@@ -1103,13 +1106,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         allees_text = ", ".join(allees_sorted) if allees_sorted else ""
         ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
         ws.write_formula(rrow, col_right + 2,
-                         f'=SUMIFS({B_range},{F_range},"{nuit_label}")', fmt_num_neutral)
+                         f'=SUMIFS({B_range},{E_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 3,
-                         f'=SUMIFS({C_range},{F_range},"{nuit_label}")', fmt_num_neutral)
+                         f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 4,
-                         f'=SUMIFS({D_range},{F_range},"{nuit_label}")', fmt_num_neutral)
-        ws.write_formula(rrow, col_right + 5,
-                         f'=SUMIFS({E_range_sa},{F_range},"{nuit_label}")', fmt_sa_neutral)
+                         f'=SUMIFS({D_range_sa},{E_range},"{nuit_label}")', fmt_sa_neutral)
 
     # Ligne TOTAL (somme des nb_nuits lignes)
     rrow_total = first_data_row + nb_nuits
@@ -1119,30 +1120,30 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write_formula(rrow_total, col_right + 1,
                      f'=COUNTA({A_range})&" allées planifiées"',
                      fmt_total_lbl)
-    for offset in range(2, 6):
+    for offset in range(2, 5):
         col_letter = chr(ord('A') + col_right + offset)
         ws.write_formula(rrow_total, col_right + offset,
                          f"=SUM(${col_letter}${excel_total_first}:${col_letter}${excel_total_last})",
                          fmt_total_row)
 
     # ----- Mise en forme conditionnelle : couleur de la nuit appliquée à toute la ligne -----
-    # Tableau gauche : range A:F sur toutes les lignes data, formule basée sur la valeur en col F
+    # Tableau gauche : range A:E sur toutes les lignes data, formule basée sur la valeur en col E
     for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_left[n]
         ws.conditional_format(
-            first_data_row, 0, first_data_row + nb_rows_left - 1, 5,
+            first_data_row, 0, first_data_row + nb_rows_left - 1, 4,
             {
                 "type": "formula",
-                "criteria": f'=$F{first_data_row + 1}="Nuit {n}"',
+                "criteria": f'=$E{first_data_row + 1}="Nuit {n}"',
                 "format": cf_fmt,
             }
         )
-    # Tableau droit : range H:M sur les lignes data, formule basée sur valeur en col H (Nuit)
-    nuit_col_right_letter = chr(ord('A') + col_right)  # H
+    # Tableau droit : range G:K sur les lignes data, formule basée sur valeur en col G (Nuit)
+    nuit_col_right_letter = chr(ord('A') + col_right)  # G
     for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_right[n]
         ws.conditional_format(
-            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 5,
+            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 4,
             {
                 "type": "formula",
                 "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
@@ -1158,38 +1159,36 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         {"type": "duplicate", "format": fmt_duplicate}
     )
 
-    # ----- Graphique : répartition par nuit (barres empilées ES 1.5 + ES 2.1) -----
-    chart = workbook.add_chart({"type": "column", "subtype": "stacked"})
-    # Catégories + valeurs : couvrent les 30 nuits (les nuits inactives auront des cellules vides)
+    # ----- Graphique : répartition par nuit (barres ES + Rails ES) -----
+    chart = workbook.add_chart({"type": "column"})
     cat_ref = f"='Phasage de pose'!${chr(ord('A')+col_right)}${excel_total_first}:${chr(ord('A')+col_right)}${excel_total_last}"
-    es15_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+2)}${excel_total_first}:${chr(ord('A')+col_right+2)}${excel_total_last}"
-    es21_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+3)}${excel_total_first}:${chr(ord('A')+col_right+3)}${excel_total_last}"
+    es_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+2)}${excel_total_first}:${chr(ord('A')+col_right+2)}${excel_total_last}"
+    rails_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+3)}${excel_total_first}:${chr(ord('A')+col_right+3)}${excel_total_last}"
     chart.add_series({
-        "name": "ES 1.5",
+        "name": "ES",
         "categories": cat_ref,
-        "values": es15_ref,
+        "values": es_ref,
         "fill": {"color": "#10B981"},
     })
     chart.add_series({
-        "name": "ES 2.1",
+        "name": "Rails ES",
         "categories": cat_ref,
-        "values": es21_ref,
-        "fill": {"color": "#3B82F6"},
+        "values": rails_ref,
+        "fill": {"color": "#F59E0B"},
     })
-    chart.set_title({"name": "Répartition ES 1.5 / ES 2.1 par nuit"})
+    chart.set_title({"name": "Répartition ES par nuit"})
     chart.set_x_axis({"name": "Nuit"})
-    chart.set_y_axis({"name": "Quantité d'étiquettes"})
+    chart.set_y_axis({"name": "Quantité"})
     chart.set_size({"width": 720, "height": 360})
     chart.set_style(11)
-    # Place le graphique sous le tableau droit
     chart_row = rrow_total + 3
     ws.insert_chart(chart_row, col_right, chart, {"x_offset": 0, "y_offset": 0})
 
     # Petite note d'aide en bas
     note_row = max(first_data_row + nb_rows_left, chart_row + 20) + 1
-    ws.merge_range(note_row, 0, note_row, 12,
-                   "Astuce : Modifie « Nb nuits » (B2) pour ajuster dynamiquement le récap à droite. "
-                   "Sélectionne une allée et une nuit dans les colonnes déroulantes — les comptes ES/Rails/SA et le récap par nuit se mettent à jour automatiquement. "
+    ws.merge_range(note_row, 0, note_row, 10,
+                   "Astuce : sélectionne une allée et une nuit dans les colonnes déroulantes — "
+                   "les comptes (ES = somme ES 1.5 + ES 2.1, Rails ES, SA) et le récap par nuit se mettent à jour automatiquement. "
                    "La couleur de chaque ligne suit la nuit sélectionnée. "
                    "Les allées en DOUBLON sont surlignées en ROUGE dans la colonne « N° Allée ». "
                    "La colonne « Allées » du récap droit reflète l'état au moment de l'export — ré-exporte pour la rafraîchir.",

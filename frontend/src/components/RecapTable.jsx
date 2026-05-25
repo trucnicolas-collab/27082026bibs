@@ -136,7 +136,8 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                     <tbody>
                         {filtered.map((r, displayIdx) => {
                             const i = r._origIndex;
-                            const editable = r.kind === "empty" || r.kind === "manual";
+                            // Toutes les lignes sont éditables SAUF les en-têtes de section (TOTAL EEG, TOTAL Fixation, etc.)
+                            const editable = r.kind !== "header";
                             let rowClass = displayIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
                             if (r.kind === "header") rowClass = "row-total";
                             else if (r.kind === "inclineur") rowClass = "row-inclineur";
