@@ -911,7 +911,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ]
     fmt_night = {n: workbook.add_format({"border": 1, "align": "right",
                                           "bg_color": night_palette[(n - 1) % len(night_palette)]})
-                 for n in range(1, nb_nuits + 1)}
+                 for n in range(1, 31)}  # 30 nuits max
 
     # ----- En-tête supérieur -----
     ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
@@ -931,7 +931,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write(3, 2, "Total ES 2.1", fmt_lbl)
     ws.write_number(3, 3, totals["es_21"], fmt_num)
     ws.write(3, 4, "Total Rails ES", fmt_lbl)
-    ws.write_number(3, 6, totals["rails_es"], fmt_num)
+    ws.write_number(3, 5, totals["rails_es"], fmt_num)
 
     ws.write(5, 0, "Rails ES par désignation :", fmt_lbl)
     r = 6
@@ -941,6 +941,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         r += 1
 
     # ----- Tableau gauche (interactif) -----
+    MAX_NUITS = 30  # Toujours proposer jusqu'à 30 nuits dans les dropdowns/le récap
     start_left = r + 2
     ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
     headers_left = ["N° Allée", "ES 1.5", "ES 2.1", "Rails ES", "Nuit"]
@@ -953,14 +954,14 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Sources pour les data validations
     # _Phasage_data!$A$2:$A${n_allees+1}
     allee_source = f"=_Phasage_data!$A$2:$A${n_allees + 1}"
-    nuit_labels = [f"Nuit {n}" for n in range(1, nb_nuits + 1)]
+    nuit_labels = [f"Nuit {n}" for n in range(1, MAX_NUITS + 1)]
 
     # Pré-remplissage des assignations existantes (ordre = ordre du phasage utilisateur)
     existing = []
     for row in rows_assign:
         a = str(row.get("allee") or "").strip()
         n = row.get("nuit")
-        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
+        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= MAX_NUITS else None)})
 
     # Plages pour les formules (Excel 1-based)
     excel_first = first_data_row + 1
@@ -1003,29 +1004,39 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         else:
             ws.write_blank(rr, 4, None, fmt_cell)
 
-    # ----- Tableau droite (formules SUMIFS + TEXTJOIN) -----
+    # ----- Tableau droite (formules SUMIFS + concat IF) -----
     col_right = 6
     ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
     headers_right = ["Nuit", "Allées", "ES 1.5", "ES 2.1", "Rails ES"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
-    for i, n in enumerate(range(1, nb_nuits + 1), start=0):
+    # Formule "Allées" : concaténation conditionnelle ligne par ligne
+    # = IF(E18="Nuit X", A18 & ", ", "") & IF(E19="Nuit X", ...) ...
+    # Compatible toutes versions Excel (pas besoin de TEXTJOIN)
+    def _build_allees_formula(nuit_label: str) -> str:
+        parts = []
+        for row_idx in range(excel_first, excel_last + 1):
+            parts.append(f'IF($E${row_idx}="{nuit_label}",$A${row_idx}&", ","")')
+        joined = "&".join(parts)
+        # Retirer la dernière virgule traînante : LEFT(result, LEN(result)-2) ; mais si vide → ""
+        return f'=IFERROR(LEFT({joined},LEN({joined})-2),"")'
+
+    for i, n in enumerate(range(1, MAX_NUITS + 1), start=0):
         rrow = first_data_row + i
         nuit_label = f"Nuit {n}"
         fmt_n = fmt_night.get(n, fmt_cell)
         ws.write(rrow, col_right + 0, nuit_label, fmt_n)
-        # Liste des allées de cette nuit (array formula)
-        textjoin = f'=TEXTJOIN(", ",TRUE,IF({E_range}="{nuit_label}",{A_range},""))'
-        ws.write_array_formula(rrow, col_right + 1, rrow, col_right + 1, textjoin, fmt_n, "")
+        # Liste des allées de cette nuit (formule classique, compatible toutes versions)
+        ws.write_formula(rrow, col_right + 1, _build_allees_formula(nuit_label), fmt_n)
         ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{E_range},"{nuit_label}")', fmt_n)
         ws.write_formula(rrow, col_right + 3, f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_n)
         ws.write_formula(rrow, col_right + 4, f'=SUMIFS({D_range},{E_range},"{nuit_label}")', fmt_n)
 
     # Ligne TOTAL (somme des colonnes)
-    rrow_total = first_data_row + nb_nuits
+    rrow_total = first_data_row + MAX_NUITS
     excel_total_first = first_data_row + 1
-    excel_total_last = first_data_row + nb_nuits
+    excel_total_last = first_data_row + MAX_NUITS
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
     ws.write_formula(rrow_total, col_right + 1,
                      f'=COUNTA({A_range})&" allées planifiées"',
@@ -1045,7 +1056,8 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.merge_range(note_row, 0, note_row, 10,
                    "Astuce : modifiez le « Nb nuits » (jaune) pour recalculer la moyenne. "
                    "Sélectionnez une allée et une nuit dans les colonnes déroulantes — les comptes et "
-                   "le récap par nuit se mettent à jour automatiquement.",
+                   "le récap par nuit se mettent à jour automatiquement. "
+                   "Les nuits non utilisées restent à 0.",
                    fmt_italic)
 
 
