@@ -713,6 +713,14 @@ def _is_rail_es(desig: str) -> bool:
     return False
 
 
+def _is_valid_camera_desig(desig: str) -> bool:
+    """Caméra valide = désignation contient 'noir(e)' ou 'blanc(he)'."""
+    d = _norm_desig(desig)
+    if not d:
+        return False
+    return ("noir" in d) or ("blanc" in d)
+
+
 def compute_phasage_summary(d: dict) -> dict:
     """Pour chaque allée du dataset, calcule les comptes ES 1.5 / ES 2.1 / Rails ES,
     ainsi que les totaux globaux. Retourne un dict prêt à servir au frontend.
@@ -732,7 +740,7 @@ def compute_phasage_summary(d: dict) -> dict:
 
     # Agrégation par allée (clé = str de l'allée)
     by_allee: dict[str, dict] = {}
-    totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "rails_es": 0.0,
+    totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "rails_es": 0.0, "cameras": 0.0,
               "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS}}
 
     for r in raw_records:
@@ -764,11 +772,13 @@ def compute_phasage_summary(d: dict) -> dict:
             "es_21": 0.0,
             "sa": 0.0,
             "rails_es": 0.0,
+            "cameras": 0.0,
             "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS},
         })
 
         is_eeg = typ.lower() == "eeg"
         is_rail = typ.lower() == "rail"
+        is_camera = typ.lower() in ("caméra", "camera")
         if is_eeg and _is_es_15(desig):
             node["es_15"] += qty
             totals["es_15"] += qty
@@ -778,6 +788,9 @@ def compute_phasage_summary(d: dict) -> dict:
         elif is_eeg and _is_sa(desig):
             node["sa"] += qty
             totals["sa"] += qty
+        elif is_camera and _is_valid_camera_desig(desig):
+            node["cameras"] += qty
+            totals["cameras"] += qty
         elif is_rail and _is_rail_es(desig):
             node["rails_es"] += qty
             totals["rails_es"] += qty
@@ -829,12 +842,14 @@ def compute_phasage_summary(d: dict) -> dict:
         a["es_21"] = _r(a["es_21"])
         a["sa"] = _r(a["sa"])
         a["rails_es"] = _r(a["rails_es"])
+        a["cameras"] = _r(a.get("cameras", 0))
         a["rails_es_by_desig"] = {k: _r(v) for k, v in a["rails_es_by_desig"].items()}
     totals = {
         "es_15": _r(totals["es_15"]),
         "es_21": _r(totals["es_21"]),
         "sa": _r(totals["sa"]),
         "rails_es": _r(totals["rails_es"]),
+        "cameras": _r(totals.get("cameras", 0)),
         "rails_es_by_desig": {k: _r(v) for k, v in totals["rails_es_by_desig"].items()},
     }
 
@@ -845,15 +860,38 @@ def compute_phasage_summary(d: dict) -> dict:
     }
 
 
+def _normalize_phasage(stored: Any) -> dict:
+    """Normalise le phasage stocké en MongoDB (gère l'ancien format à plat)."""
+    if not isinstance(stored, dict):
+        return {
+            "es": {"nb_nuits": 3, "rows": []},
+            "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
+            "suivi": {"rows": []},
+        }
+    # Ancien format : {nb_nuits, rows} -> migrer vers .es
+    if "nb_nuits" in stored and "rows" in stored and "es" not in stored:
+        return {
+            "es": {"nb_nuits": stored.get("nb_nuits", 3), "rows": stored.get("rows", [])},
+            "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
+            "suivi": {"rows": []},
+        }
+    es = stored.get("es") or {"nb_nuits": 3, "rows": []}
+    cam = stored.get("cam") or {"nb_nuits": 3, "rows": [], "start_at_nuit": 5}
+    if "start_at_nuit" not in cam:
+        cam["start_at_nuit"] = 5
+    suivi = stored.get("suivi") or {"rows": []}
+    return {"es": es, "cam": cam, "suivi": suivi}
+
+
 @api_router.get("/dataset/{upload_id}/phasage-summary")
 async def get_phasage_summary(upload_id: str):
-    """Retourne la liste des allées avec leurs comptes ES 1.5 / ES 2.1 / Rails ES
-    + les totaux globaux pour l'onglet Phasage de pose."""
+    """Retourne la liste des allées avec leurs comptes ES / Rails ES / Caméras
+    + les totaux globaux + l'état du phasage (ES, Cam, Suivi)."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     summary = compute_phasage_summary(d)
-    summary["phasage"] = d.get("phasage") or {"nb_nuits": 3, "rows": []}
+    summary["phasage"] = _normalize_phasage(d.get("phasage"))
     return summary
 
 
@@ -863,21 +901,61 @@ class PhasageRow(BaseModel):
     nuit: Optional[int] = None
 
 
-class PhasageUpdate(BaseModel):
+class PhasagePlanning(BaseModel):
     nb_nuits: int
     rows: list[PhasageRow]
+    start_at_nuit: Optional[int] = None
+
+
+class SuiviRow(BaseModel):
+    nuit: int
+    es_reel: Optional[float] = None
+    cam_reel: Optional[float] = None
+    rails_geoloc: Optional[float] = None
+
+
+class PhasageFullUpdate(BaseModel):
+    es: PhasagePlanning
+    cam: PhasagePlanning
+    suivi: Optional[dict] = None  # {"rows": [SuiviRow]}
+
+
+def _sanitize_planning(p: PhasagePlanning) -> dict:
+    nb = max(1, min(int(p.nb_nuits), 30))
+    rows = [{"id": r.id, "allee": r.allee or "",
+             "nuit": r.nuit if r.nuit and 1 <= r.nuit <= nb else None}
+            for r in p.rows]
+    out = {"nb_nuits": nb, "rows": rows}
+    if p.start_at_nuit is not None:
+        out["start_at_nuit"] = max(1, int(p.start_at_nuit))
+    return out
 
 
 @api_router.patch("/dataset/{upload_id}/phasage")
-async def update_phasage(upload_id: str, payload: PhasageUpdate):
-    """Sauvegarde l'état du tableau de phasage (nb nuits + assignations)."""
+async def update_phasage(upload_id: str, payload: PhasageFullUpdate):
+    """Sauvegarde l'état complet : ES + Caméras + Suivi (réalité)."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    nb = max(1, min(int(payload.nb_nuits), 30))
-    rows = [{"id": r.id, "allee": r.allee or "", "nuit": r.nuit if r.nuit and 1 <= r.nuit <= nb else None}
-            for r in payload.rows]
-    d["phasage"] = {"nb_nuits": nb, "rows": rows}
+    es = _sanitize_planning(payload.es)
+    cam = _sanitize_planning(payload.cam)
+    if "start_at_nuit" not in cam:
+        cam["start_at_nuit"] = 5
+    suivi = payload.suivi or {"rows": []}
+    # Sanitize suivi
+    suivi_rows = []
+    for r in (suivi.get("rows") or []):
+        try:
+            nuit = int(r.get("nuit"))
+        except (ValueError, TypeError):
+            continue
+        suivi_rows.append({
+            "nuit": nuit,
+            "es_reel": r.get("es_reel"),
+            "cam_reel": r.get("cam_reel"),
+            "rails_geoloc": r.get("rails_geoloc"),
+        })
+    d["phasage"] = {"es": es, "cam": cam, "suivi": {"rows": suivi_rows}}
     try:
         await persist_phasage(upload_id, d["phasage"])
     except Exception as e:
@@ -901,7 +979,8 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
       - Feuille cachée "_Phasage_data" : table de référence des allées (allée -> es15/es21/rails)
     """
     summary = compute_phasage_summary(d)
-    phasage = d.get("phasage") or {"nb_nuits": 3, "rows": []}
+    phasage_full = _normalize_phasage(d.get("phasage"))
+    phasage = phasage_full["es"]
     nb_nuits = max(1, int(phasage.get("nb_nuits") or 3))
     rows_assign = phasage.get("rows") or []
     all_allees = summary["allees"]
@@ -1218,6 +1297,308 @@ def _allee_sort_key(v):
     except (ValueError, TypeError):
         return (1, str(v))
 
+def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
+    """Feuille "Phasage caméras" INTERACTIVE."""
+    summary = compute_phasage_summary(d)
+    phasage_full = _normalize_phasage(d.get("phasage"))
+    phasage = phasage_full["cam"]
+    nb_nuits = max(1, int(phasage.get("nb_nuits") or 3))
+    start_at = int(phasage.get("start_at_nuit") or 5)
+    rows_assign = phasage.get("rows") or []
+    all_allees = [a for a in summary["allees"] if (a.get("cameras") or 0) > 0]
+    totals = summary["totals"]
+    n_allees = len(all_allees)
+
+    if n_allees == 0:
+        ws = workbook.add_worksheet("Phasage caméras")
+        writer.sheets["Phasage caméras"] = ws
+        ws.write(0, 0, "Aucune caméra (noire/blanche) détectée.", fmt_header)
+        return
+
+    ws = workbook.add_worksheet("Phasage caméras")
+    writer.sheets["Phasage caméras"] = ws
+    ws.activate()
+    ws_data = workbook.add_worksheet("_Phasage_cam_data")
+    writer.sheets["_Phasage_cam_data"] = ws_data
+    ws_data.write_row(0, 0, ["Allée", "Caméras"])
+    for i, a in enumerate(all_allees, start=1):
+        ws_data.write_string(i, 0, str(a["allee"]))
+        ws_data.write_number(i, 1, a.get("cameras") or 0)
+    ws_data.hide()
+
+    for c in range(7):
+        ws.set_column(c, c, [12, 12, 12, 3, 12, 32, 12][c])
+
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#7C3AED", "font_color": "white",
+                                     "border": 1, "font_size": 12, "align": "left"})
+    fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "left"})
+    fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_num_calc = workbook.add_format({"border": 1, "align": "right", "bg_color": "#FAFAFA"})
+    fmt_input = workbook.add_format({"border": 1, "align": "center", "bg_color": "#FFFBEB", "bold": True})
+    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+    fmt_italic = workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"})
+    fmt_cell_neutral = workbook.add_format({"border": 1, "align": "center"})
+    fmt_num_neutral = workbook.add_format({"border": 1, "align": "right"})
+    fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
+
+    night_palette = ["#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
+                     "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB"]
+    cf_left, cf_right = {}, {}
+    for n in range(1, nb_nuits + 1):
+        color = night_palette[(n - 1) % len(night_palette)]
+        cf_left[n] = workbook.add_format({"bg_color": color, "border": 1})
+        cf_right[n] = workbook.add_format({"bg_color": color, "border": 1})
+
+    ws.merge_range(0, 0, 0, 6, "Phasage de pose des caméras (noire & blanche)", fmt_title)
+    ws.write(1, 0, "Nb nuits :", fmt_lbl)
+    ws.write_number(1, 1, nb_nuits, fmt_input)
+    ws.write(1, 2, "Démarrage :", fmt_lbl)
+    ws.write_number(1, 3, start_at, fmt_input)
+    ws.write(1, 4, "Info : ~300 caméras / nuit", fmt_italic)
+    ws.write(3, 0, "Total Caméras", fmt_lbl)
+    ws.write_number(3, 1, totals.get("cameras", 0), fmt_num)
+    ws.write(3, 2, "Moyenne / nuit :", fmt_lbl)
+    ws.write_formula(3, 3, "=IFERROR(ROUND(B4/B2,0),0)", fmt_num_calc)
+
+    nuit_labels = [f"Nuit {start_at + i}" for i in range(nb_nuits)]
+
+    existing = []
+    for row in rows_assign:
+        a = str(row.get("allee") or "").strip()
+        n = row.get("nuit")
+        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
+
+    start_left = 6
+    ws.merge_range(start_left, 0, start_left, 2, "Plan d'attribution par allée", fmt_title)
+    for ci, h in enumerate(["N° Allée", "Caméras", "Nuit"]):
+        ws.write(start_left + 1, ci, h, fmt_lbl)
+
+    first_data_row = start_left + 2
+    nb_rows_left = max(n_allees, len(rows_assign), 20)
+    allee_source = f"=_Phasage_cam_data!$A$2:$A${n_allees + 1}"
+    excel_first = first_data_row + 1
+    excel_last = first_data_row + nb_rows_left
+    A_range = f"$A${excel_first}:$A${excel_last}"
+    B_range = f"$B${excel_first}:$B${excel_last}"
+    C_range = f"$C${excel_first}:$C${excel_last}"
+    vlookup_range = f"_Phasage_cam_data!$A$2:$B${n_allees + 1}"
+
+    for i in range(nb_rows_left):
+        rr = first_data_row + i
+        excel_row = rr + 1
+        ws.data_validation(rr, 0, rr, 0, {"validate": "list", "source": allee_source})
+        if i < len(existing) and existing[i]["allee"]:
+            ws.write_string(rr, 0, existing[i]["allee"], fmt_cell)
+        else:
+            ws.write_blank(rr, 0, None, fmt_cell)
+        ws.write_formula(rr, 1, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},2,FALSE),"")', fmt_num_calc)
+        ws.data_validation(rr, 2, rr, 2, {"validate": "list", "source": nuit_labels})
+        if i < len(existing) and existing[i]["nuit"]:
+            local_n = existing[i]["nuit"]
+            ws.write_string(rr, 2, f"Nuit {start_at + local_n - 1}", fmt_cell_neutral)
+        else:
+            ws.write_blank(rr, 2, None, fmt_cell_neutral)
+
+    col_right = 4
+    ws.merge_range(start_left, col_right, start_left, col_right + 2, "Récap par nuit", fmt_title)
+    for ci, h in enumerate(["Nuit", "Allées", "Caméras"]):
+        ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
+
+    night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
+    for row in rows_assign:
+        a = str(row.get("allee") or "").strip()
+        n = row.get("nuit")
+        if a and n and 1 <= int(n) <= nb_nuits:
+            night_allees_static[int(n)].append(a)
+    smart_order = {str(a["allee"]): i for i, a in enumerate(all_allees)}
+    def _sak(a): return smart_order.get(str(a), 99999)
+
+    for i, n in enumerate(range(1, nb_nuits + 1)):
+        rrow = first_data_row + i
+        nuit_label = f"Nuit {start_at + n - 1}"
+        ws.write(rrow, col_right + 0, nuit_label, fmt_cell_neutral)
+        ws.write_string(rrow, col_right + 1, ", ".join(sorted(night_allees_static.get(n, []), key=_sak)), fmt_allees_neutral)
+        ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{C_range},"{nuit_label}")', fmt_num_neutral)
+
+    rrow_total = first_data_row + nb_nuits
+    ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
+    ws.write_formula(rrow_total, col_right + 1, f'=COUNTA({A_range})&" allées planifiées"', fmt_total_lbl)
+    ws.write_formula(rrow_total, col_right + 2,
+                     f"=SUM(${chr(ord('A')+col_right+2)}${excel_first}:${chr(ord('A')+col_right+2)}${first_data_row + nb_nuits})",
+                     fmt_total_row)
+
+    for n in range(1, nb_nuits + 1):
+        nuit_label = f"Nuit {start_at + n - 1}"
+        ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 2,
+            {"type": "formula", "criteria": f'=$C{first_data_row + 1}="{nuit_label}"', "format": cf_left[n]})
+        nuit_col = chr(ord('A') + col_right)
+        ws.conditional_format(first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 2,
+            {"type": "formula", "criteria": f'=${nuit_col}{first_data_row + 1}="{nuit_label}"', "format": cf_right[n]})
+    fmt_dup = workbook.add_format({"bg_color": "#FEE2E2", "font_color": "#991B1B", "border": 1, "bold": True})
+    ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 0,
+        {"type": "duplicate", "format": fmt_dup})
+
+
+def _build_consolidated_nuit_data(d, summary):
+    """Construit le planning consolidé { nuit_globale: {type, allees, es, cam} }."""
+    phasage_full = _normalize_phasage(d.get("phasage"))
+    es_plan = phasage_full["es"]
+    cam_plan = phasage_full["cam"]
+    start_at = int(cam_plan.get("start_at_nuit") or 5)
+    idx = {str(a["allee"]): a for a in summary["allees"]}
+    nuit_data: dict[int, dict] = {}
+    for r in es_plan.get("rows") or []:
+        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a: continue
+        node = idx.get(a)
+        if not node: continue
+        gn = int(n)
+        dn = nuit_data.setdefault(gn, {"type": "ES", "allees": [], "es": 0, "cam": 0})
+        dn["allees"].append(a)
+        dn["es"] += (node.get("es_15") or 0) + (node.get("es_21") or 0)
+    for r in cam_plan.get("rows") or []:
+        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a: continue
+        node = idx.get(a)
+        if not node: continue
+        gn = start_at + int(n) - 1
+        dn = nuit_data.setdefault(gn, {"type": "Caméras", "allees": [], "es": 0, "cam": 0})
+        if dn["es"] > 0:
+            dn["type"] = "Mixte"
+        elif dn["type"] != "Mixte":
+            dn["type"] = "Caméras"
+        dn["allees"].append(a)
+        dn["cam"] += node.get("cameras") or 0
+    return nuit_data
+
+
+def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
+    """Vue consolidée toutes les nuits (ES + caméras), lecture seule."""
+    summary = compute_phasage_summary(d)
+    nuit_data = _build_consolidated_nuit_data(d, summary)
+
+    ws = workbook.add_worksheet("Phasage full")
+    writer.sheets["Phasage full"] = ws
+    ws.set_column(0, 0, 8); ws.set_column(1, 1, 12)
+    ws.set_column(2, 2, 40); ws.set_column(3, 4, 12)
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+                                     "border": 1, "font_size": 12, "align": "left"})
+    fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center"})
+    fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+
+    ws.merge_range(0, 0, 0, 4, "Phasage full — Planning consolidé ES + Caméras", fmt_title)
+    for ci, h in enumerate(["Nuit", "Type", "Allées", "ES", "Caméras"]):
+        ws.write(2, ci, h, fmt_lbl)
+    r = 3
+    for n in sorted(nuit_data.keys()):
+        info = nuit_data[n]
+        ws.write_number(r, 0, n, fmt_num)
+        ws.write(r, 1, info["type"], fmt_num)
+        ws.write_string(r, 2, ", ".join(info["allees"]), fmt_num)
+        ws.write_number(r, 3, round(info["es"]), fmt_num)
+        ws.write_number(r, 4, round(info["cam"]), fmt_num)
+        r += 1
+    if r > 3:
+        ws.write(r, 0, "TOTAL", fmt_total_lbl)
+        ws.write(r, 1, "", fmt_total_lbl)
+        ws.write_formula(r, 2, f'=COUNTA(A4:A{r})&" nuits"', fmt_total_lbl)
+        ws.write_formula(r, 3, f"=SUM(D4:D{r})", fmt_total_row)
+        ws.write_formula(r, 4, f"=SUM(E4:E{r})", fmt_total_row)
+
+
+def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
+    """Comparaison prévu / réalité — éditable Excel via formules."""
+    summary = compute_phasage_summary(d)
+    nuit_data = _build_consolidated_nuit_data(d, summary)
+    phasage_full = _normalize_phasage(d.get("phasage"))
+    suivi = phasage_full.get("suivi") or {"rows": []}
+    suivi_idx = {int(r["nuit"]): r for r in (suivi.get("rows") or []) if r.get("nuit") is not None}
+
+    ws = workbook.add_worksheet("Suivi phasage")
+    writer.sheets["Suivi phasage"] = ws
+    widths = [8, 10, 32, 11, 11, 11, 11, 11, 11, 18]
+    for ci, w in enumerate(widths):
+        ws.set_column(ci, ci, w)
+
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#0E7490", "font_color": "white",
+                                     "border": 1, "font_size": 12, "align": "left"})
+    fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center",
+                                    "text_wrap": True})
+    fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_num_prev = workbook.add_format({"border": 1, "align": "right", "bg_color": "#F9FAFB"})
+    fmt_input = workbook.add_format({"border": 1, "align": "right", "bg_color": "#FFFBEB"})
+    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+    fmt_positive = workbook.add_format({"border": 1, "align": "right", "font_color": "#047857"})
+    fmt_negative = workbook.add_format({"border": 1, "align": "right", "font_color": "#B91C1C"})
+
+    ws.merge_range(0, 0, 0, 9, "Suivi phasage — Prévu vs Réalité", fmt_title)
+    for ci, h in enumerate(["Nuit", "Type", "Allées",
+                             "ES prévu", "ES réel", "Diff ES",
+                             "Cam prévue", "Cam réelle", "Diff Cam",
+                             "Rails ES géolocalisé"]):
+        ws.write(2, ci, h, fmt_lbl)
+
+    sorted_nuits = sorted(nuit_data.keys())
+    r = 3
+    first_excel = r + 1
+    for n in sorted_nuits:
+        info = nuit_data[n]
+        existing = suivi_idx.get(n, {})
+        excel_row = r + 1
+        ws.write_number(r, 0, n, fmt_num)
+        ws.write(r, 1, info["type"], fmt_num)
+        ws.write_string(r, 2, ", ".join(info["allees"]), fmt_num)
+        ws.write_number(r, 3, round(info["es"]), fmt_num_prev)
+        es_reel = existing.get("es_reel")
+        if es_reel not in (None, ""):
+            try: ws.write_number(r, 4, float(es_reel), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 4, None, fmt_input)
+        else:
+            ws.write_blank(r, 4, None, fmt_input)
+        ws.write_formula(r, 5, f'=IFERROR(E{excel_row}-D{excel_row},"")', fmt_num)
+        ws.write_number(r, 6, round(info["cam"]), fmt_num_prev)
+        cam_reel = existing.get("cam_reel")
+        if cam_reel not in (None, ""):
+            try: ws.write_number(r, 7, float(cam_reel), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 7, None, fmt_input)
+        else:
+            ws.write_blank(r, 7, None, fmt_input)
+        ws.write_formula(r, 8, f'=IFERROR(H{excel_row}-G{excel_row},"")', fmt_num)
+        rg = existing.get("rails_geoloc")
+        if rg not in (None, ""):
+            try: ws.write_number(r, 9, float(rg), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 9, None, fmt_input)
+        else:
+            ws.write_blank(r, 9, None, fmt_input)
+        r += 1
+    last_excel = r
+    if r > 3:
+        ws.write(r, 0, "TOTAL", fmt_total_lbl)
+        ws.write(r, 1, "", fmt_total_lbl)
+        ws.write_formula(r, 2, f'=COUNTA(A{first_excel}:A{last_excel})&" nuits"', fmt_total_lbl)
+        for col_letter, col_idx in [("D", 3), ("E", 4), ("F", 5), ("G", 6), ("H", 7), ("I", 8), ("J", 9)]:
+            ws.write_formula(r, col_idx, f"=SUM({col_letter}{first_excel}:{col_letter}{last_excel})", fmt_total_row)
+        # Couleurs Diff
+        ws.conditional_format(3, 5, last_excel - 1, 5,
+            {"type": "cell", "criteria": ">", "value": 0, "format": fmt_positive})
+        ws.conditional_format(3, 5, last_excel - 1, 5,
+            {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
+        ws.conditional_format(3, 8, last_excel - 1, 8,
+            {"type": "cell", "criteria": ">", "value": 0, "format": fmt_positive})
+        ws.conditional_format(3, 8, last_excel - 1, 8,
+            {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
+
+    ws.merge_range(r + 2, 0, r + 2, 9,
+                   "Saisis ES réel / Cam réelle / Rails ES géolocalisé (cellules jaunes). "
+                   "Les colonnes Diff et tous les totaux se recalculent automatiquement.",
+                   workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"}))
+
+
+
 
 def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur):
     """Génère 2 feuilles "Par Secteur" :
@@ -1489,6 +1870,15 @@ async def export_excel(upload_id: str, sheet: str = "all"):
 
         if sheet in ("all", "phasage"):
             _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
+
+        if sheet in ("all", "phasage_cam"):
+            _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
+
+        if sheet in ("all", "phasage_full"):
+            _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
+
+        if sheet in ("all", "suivi"):
+            _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
 
         if sheet in ("all", "comment"):
             ct = d.get("comment_table") or {"columns": [], "rows": []}

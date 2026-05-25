@@ -192,6 +192,9 @@ export default function App() {
             { id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 },
             { id: "phasage", label: "Tableau phasage", count: dataset.data.secteur.length },
             { id: "pose", label: "Phasage de pose", count: 0 },
+            { id: "pose_cam", label: "Phasage caméras", count: 0 },
+            { id: "pose_full", label: "Phasage full", count: 0 },
+            { id: "suivi", label: "Suivi phasage", count: 0 },
             { id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 },
         ];
     }, [dataset]);

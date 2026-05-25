@@ -50,7 +50,8 @@ export default function PhasageTab({ uploadId }) {
             .then((res) => {
                 if (!mounted) return;
                 setSummary(res.data);
-                const p = res.data.phasage || { nb_nuits: 3, rows: [] };
+                const ph = res.data.phasage || {};
+                const p = ph.es || { nb_nuits: 3, rows: [] };
                 setNbNuits(p.nb_nuits || 3);
                 setRows((p.rows || []).map((r) => ({
                     id: r.id || newRowId(),
@@ -63,14 +64,19 @@ export default function PhasageTab({ uploadId }) {
         return () => { mounted = false; };
     }, [uploadId]);
 
-    // Auto-save (debounce)
+    // Auto-save (debounce) — préserve cam et suivi en relisant le phasage complet
     useEffect(() => {
         if (!summary || !uploadId) return;
         const t = setTimeout(() => {
             setSaving(true);
+            const ph = summary.phasage || {};
             axios.patch(`${API}/dataset/${uploadId}/phasage`, {
-                nb_nuits: nbNuits,
-                rows: rows.map((r) => ({ id: r.id, allee: r.allee, nuit: r.nuit })),
+                es: {
+                    nb_nuits: nbNuits,
+                    rows: rows.map((r) => ({ id: r.id, allee: r.allee, nuit: r.nuit })),
+                },
+                cam: ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 },
+                suivi: ph.suivi || { rows: [] },
             }).catch((e) => console.error("Save phasage failed:", e))
               .finally(() => setSaving(false));
         }, 600);
