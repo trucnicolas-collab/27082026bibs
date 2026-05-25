@@ -1538,6 +1538,57 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.write(2, ci, h, fmt_lbl)
 
     sorted_nuits = sorted(nuit_data.keys())
+
+    # Bandeau d'avancement (row 1, Excel row 2) — 3 jauges qui pointent vers la ligne TOTAL
+    if sorted_nuits:
+        total_excel = 4 + len(sorted_nuits)  # 1-indexed Excel row of TOTAL
+        fmt_pct_label = workbook.add_format({
+            "bold": True, "bg_color": "#ECFDF5", "border": 1, "align": "right",
+            "font_color": "#065F46", "font_size": 11,
+        })
+        fmt_pct_value = workbook.add_format({
+            "bold": True, "border": 1, "align": "center", "num_format": "0%",
+            "bg_color": "#FFFFFF", "font_size": 12, "font_color": "#047857",
+        })
+        fmt_pct_label_cam = workbook.add_format({
+            "bold": True, "bg_color": "#FAF5FF", "border": 1, "align": "right",
+            "font_color": "#5B21B6", "font_size": 11,
+        })
+        fmt_pct_label_rails = workbook.add_format({
+            "bold": True, "bg_color": "#FFFBEB", "border": 1, "align": "right",
+            "font_color": "#92400E", "font_size": 11,
+        })
+        ws.set_row(1, 22)
+        # ES (cols A-B label, C-D value)
+        ws.merge_range(1, 0, 1, 1, "% Avancement ES :", fmt_pct_label)
+        ws.merge_range(1, 2, 1, 3,
+                       f'=IFERROR(E{total_excel}/D{total_excel},0)', fmt_pct_value)
+        # Caméras (cols E-F label, G-H value)
+        ws.merge_range(1, 4, 1, 5, "% Avancement Caméras :", fmt_pct_label_cam)
+        ws.merge_range(1, 6, 1, 7,
+                       f'=IFERROR(H{total_excel}/G{total_excel},0)', fmt_pct_value)
+        # Rails ES (cols I-J label, K-L value)
+        ws.merge_range(1, 8, 1, 9, "% Avancement Rails ES :", fmt_pct_label_rails)
+        ws.merge_range(1, 10, 1, 11,
+                       f'=IFERROR(K{total_excel}/J{total_excel},0)', fmt_pct_value)
+        # Format conditionnel sur les 3 cellules de %
+        fmt_pct_low = workbook.add_format({"bold": True, "border": 1, "align": "center",
+                                           "num_format": "0%", "bg_color": "#FEE2E2",
+                                           "font_size": 12, "font_color": "#991B1B"})
+        fmt_pct_mid = workbook.add_format({"bold": True, "border": 1, "align": "center",
+                                           "num_format": "0%", "bg_color": "#FEF3C7",
+                                           "font_size": 12, "font_color": "#92400E"})
+        fmt_pct_ok = workbook.add_format({"bold": True, "border": 1, "align": "center",
+                                          "num_format": "0%", "bg_color": "#D1FAE5",
+                                          "font_size": 12, "font_color": "#065F46"})
+        for col_first in (2, 6, 10):  # C, G, K
+            ws.conditional_format(1, col_first, 1, col_first + 1,
+                {"type": "cell", "criteria": ">=", "value": 0.9, "format": fmt_pct_ok})
+            ws.conditional_format(1, col_first, 1, col_first + 1,
+                {"type": "cell", "criteria": "between", "minimum": 0.5, "maximum": 0.8999, "format": fmt_pct_mid})
+            ws.conditional_format(1, col_first, 1, col_first + 1,
+                {"type": "cell", "criteria": "<", "value": 0.5, "format": fmt_pct_low})
+
     r = 3
     first_excel = r + 1
     for n in sorted_nuits:
