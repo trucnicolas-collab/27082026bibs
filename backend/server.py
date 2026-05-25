@@ -776,14 +776,34 @@ def compute_phasage_summary(d: dict) -> dict:
                     totals["rails_es_by_desig"][pat] += qty
                     break
 
-    # Tri "logique" : Secteur > Rayon > N° allée numérique
-    def _sort_key(v):
-        try:
-            return (str(v["secteur"]), str(v["rayon"]), (0, float(str(v["allee"]).replace(",", "."))))
-        except (ValueError, TypeError):
-            return (str(v["secteur"]), str(v["rayon"]), (1, str(v["allee"])))
+    # Tri "intelligent" des allées par N° d'allée croissant :
+    # - Tri numérique standard pour les nombres
+    # - Si l'allée X est un préfixe d'une autre allée Y (ex: "45" et "451"),
+    #   alors "451" est interprétée comme sous-allée "45/1" et placée juste après "45"
+    # Exemple : [1, 2, 5, 45, 451, 452, 46, 7] → [1, 2, 5, 7, 45, 451, 452, 46]
+    all_allee_keys = set(by_allee.keys())
 
-    allees = sorted(by_allee.values(), key=_sort_key)
+    def _smart_sort_key(v):
+        a_str = str(v["allee"]).strip()
+        # Cherche le plus long préfixe (au moins 1 char) qui correspond à une autre allée
+        prefix_match = None
+        for L in range(len(a_str) - 1, 0, -1):
+            candidate = a_str[:L]
+            if candidate in all_allee_keys and candidate != a_str:
+                prefix_match = candidate
+                break
+        if prefix_match:
+            suffix = a_str[len(prefix_match):]
+            try:
+                return (0, float(prefix_match), 0, float(suffix))
+            except (ValueError, TypeError):
+                return (0, float(prefix_match), 1, suffix)
+        try:
+            return (0, float(a_str.replace(",", ".")), 0, 0)
+        except (ValueError, TypeError):
+            return (1, 0, 1, a_str)
+
+    allees = sorted(by_allee.values(), key=_smart_sort_key)
     # Round pour transit JSON propre
     def _r(x):
         try:
@@ -987,10 +1007,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Sources pour les data validations
     # _Phasage_data!$A$2:$A${n_allees+1}
     allee_source = f"=_Phasage_data!$A$2:$A${n_allees + 1}"
-    # Constante : le tableau droit + la dropdown supportent toujours jusqu'à 30 nuits.
-    # L'affichage est piloté par la cellule B2 (Nb nuits) via des formules conditionnelles.
-    MAX_NUITS = 30
-    nuit_labels = [f"Nuit {n}" for n in range(1, MAX_NUITS + 1)]
+    # Constante : la dropdown de nuit propose exactement nb_nuits entrées.
+    # Le tableau droit fait également nb_nuits lignes.
+    nuit_labels = [f"Nuit {n}" for n in range(1, nb_nuits + 1)]
 
     # Pré-remplissage des assignations existantes (ordre = ordre du phasage utilisateur)
     existing = []
@@ -1062,11 +1081,12 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         if a and n and 1 <= int(n) <= nb_nuits:
             night_allees_static[int(n)].append(a)
 
+    # Tri intelligent (smart sort) des allées : utilise l'ordre déjà calculé
+    # dans summary["allees"] (qui gère les sous-allées comme 45/451)
+    smart_order = {str(a["allee"]): i for i, a in enumerate(all_allees)}
+
     def _sort_allee_key(a):
-        try:
-            return (0, float(str(a).replace(",", ".")))
-        except (ValueError, TypeError):
-            return (1, str(a))
+        return smart_order.get(str(a), 99999)
 
     fmt_cell_neutral = workbook.add_format({"border": 1, "align": "center"})
     fmt_num_neutral = workbook.add_format({"border": 1, "align": "right"})
@@ -1074,38 +1094,27 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                            "italic": True, "font_color": "#6B7280"})
     fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
 
-    for i, n in enumerate(range(1, MAX_NUITS + 1), start=0):
+    for i, n in enumerate(range(1, nb_nuits + 1), start=0):
         rrow = first_data_row + i
         nuit_label = f"Nuit {n}"
-        # Label conditionnel : affiché uniquement si N <= Nb nuits (cellule B2)
-        ws.write_formula(rrow, col_right + 0,
-                         f'=IF($B$2>={n},"{nuit_label}","")',
-                         fmt_cell_neutral)
+        ws.write(rrow, col_right + 0, nuit_label, fmt_cell_neutral)
         # Colonne "Allées" : texte statique (calculé à l'export)
-        if n <= nb_nuits:
-            allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
-            allees_text = ", ".join(allees_sorted) if allees_sorted else ""
-        else:
-            allees_text = ""
+        allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
+        allees_text = ", ".join(allees_sorted) if allees_sorted else ""
         ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
-        # SUMIFS conditionnels : calculés seulement si la nuit est active
         ws.write_formula(rrow, col_right + 2,
-                         f'=IF($B$2>={n},SUMIFS({B_range},{F_range},"{nuit_label}"),"")',
-                         fmt_num_neutral)
+                         f'=SUMIFS({B_range},{F_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 3,
-                         f'=IF($B$2>={n},SUMIFS({C_range},{F_range},"{nuit_label}"),"")',
-                         fmt_num_neutral)
+                         f'=SUMIFS({C_range},{F_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 4,
-                         f'=IF($B$2>={n},SUMIFS({D_range},{F_range},"{nuit_label}"),"")',
-                         fmt_num_neutral)
+                         f'=SUMIFS({D_range},{F_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 5,
-                         f'=IF($B$2>={n},SUMIFS({E_range_sa},{F_range},"{nuit_label}"),"")',
-                         fmt_sa_neutral)
+                         f'=SUMIFS({E_range_sa},{F_range},"{nuit_label}")', fmt_sa_neutral)
 
-    # Ligne TOTAL (somme des colonnes) — couvre les 30 lignes mais ignore les vides
-    rrow_total = first_data_row + MAX_NUITS
+    # Ligne TOTAL (somme des nb_nuits lignes)
+    rrow_total = first_data_row + nb_nuits
     excel_total_first = first_data_row + 1
-    excel_total_last = first_data_row + MAX_NUITS
+    excel_total_last = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
     ws.write_formula(rrow_total, col_right + 1,
                      f'=COUNTA({A_range})&" allées planifiées"',
@@ -1118,7 +1127,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # ----- Mise en forme conditionnelle : couleur de la nuit appliquée à toute la ligne -----
     # Tableau gauche : range A:F sur toutes les lignes data, formule basée sur la valeur en col F
-    for n in range(1, MAX_NUITS + 1):
+    for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_left[n]
         ws.conditional_format(
             first_data_row, 0, first_data_row + nb_rows_left - 1, 5,
@@ -1128,12 +1137,12 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 "format": cf_fmt,
             }
         )
-    # Tableau droit : range H:M sur les 30 lignes data, formule basée sur valeur en col H (Nuit)
+    # Tableau droit : range H:M sur les lignes data, formule basée sur valeur en col H (Nuit)
     nuit_col_right_letter = chr(ord('A') + col_right)  # H
-    for n in range(1, MAX_NUITS + 1):
+    for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_right[n]
         ws.conditional_format(
-            first_data_row, col_right, first_data_row + MAX_NUITS - 1, col_right + 5,
+            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 5,
             {
                 "type": "formula",
                 "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',

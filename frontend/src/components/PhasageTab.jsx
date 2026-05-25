@@ -123,16 +123,19 @@ export default function PhasageTab({ uploadId }) {
             tot[r.nuit].rails_es += node.rails_es || 0;
             tot[r.nuit].allees.push(String(r.allee));
         });
-        // Tri numérique des allées par nuit
+        // Tri "intelligent" via l'ordre déjà calculé côté serveur (summary.allees est trié smart).
+        const orderIndex = new Map();
+        (summary?.allees || []).forEach((a, i) => { orderIndex.set(String(a.allee), i); });
         Object.values(tot).forEach((t) => {
             t.allees.sort((a, b) => {
-                const na = parseFloat(a), nb = parseFloat(b);
-                if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                const ia = orderIndex.has(a) ? orderIndex.get(a) : 9999;
+                const ib = orderIndex.has(b) ? orderIndex.get(b) : 9999;
+                if (ia !== ib) return ia - ib;
                 return String(a).localeCompare(String(b), "fr", { numeric: true });
             });
         });
         return tot;
-    }, [rows, nbNuits, alleeIndex]);
+    }, [rows, nbNuits, alleeIndex, summary]);
 
     // Allées déjà utilisées (pour les exclure des selects)
     const usedAllees = useMemo(() => {
