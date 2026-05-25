@@ -1,0 +1,39 @@
+{
+  "summary": "End-to-end test of the 3 new phasage tabs (Phasage caméras, Phasage full, Suivi phasage) + Excel export. Backend: 10/10 new pytest tests pass (upload, nested phasage-summary, PATCH persistence of {es,cam,suivi}, exports for sheet=all/phasage_cam/phasage_full/suivi, openpyxl reopens OK, NO banned formulas (TEXTJOIN/FILTER/UNIQUE/XLOOKUP/etc.), VLOOKUP+SUMIFS present in Phasage caméras, IFERROR diff in Suivi). Regression: test_excel_inventory.py (8/8) still green. Frontend (Playwright): upload OK; Phasage caméras shows totals (Total caméras=8) + nb_nuits=3 + start_at=5 + Add row + selects fire debounced PATCH (1 PATCH observed at ~600ms); Phasage full renders consolidated row (Nuit 5/Caméras/cam=5); Suivi phasage computes Diff dynamically (ES réel=50 → +50, Cam réelle=100 → +95); Phasage de pose existing tab still works (no regression). No on-page errors. Minor non-blocking warnings only.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Phasage caméras / Phasage de pose", "issues": ["Recharts logs 'width(-1) height(-1)' warnings when the chart container is mounted while the tab is hidden — cosmetic only, chart renders correctly when visible. Consider gating <ResponsiveContainer> on tab activation or setting an explicit minHeight."]},
+      {"screen": "Phasage caméras (allee select)", "issues": ["React/Next dev-mode hydration warning: '<span> cannot be a child of <option>'. Caused by Emergent x-* source-tracking spans being injected inside <option> elements rendered from a map. Non-blocking, but the dev console error is noisy. Workaround: render option label as a plain string literal (not from an expression that triggers source-tracking span wrapping)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phasage_new_tabs.py",
+    "/app/test_reports/pytest/pytest_phasage_new.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GOOD: No TEXTJOIN / FILTER / UNIQUE / XLOOKUP / dynamic-array formulas anywhere in the generated workbook. Formulas restricted to IF / IFERROR / VLOOKUP / SUMIFS / COUNTA / SUM / ROUND — compatible with the user's old Excel.",
+    "GOOD: _normalize_phasage correctly migrates the old flat {nb_nuits,rows} schema into nested {es,cam,suivi}, preserves cam.start_at_nuit default = 5.",
+    "GOOD: PATCH /phasage uses Pydantic PhasageFullUpdate and _sanitize_planning to clamp nb_nuits to [1,30] and clear out-of-range nuit values. Suivi rows are filtered server-side (invalid nuit dropped).",
+    "GOOD: Phasage full uses _build_consolidated_nuit_data correctly mapping cam_local_nuit n -> global nuit (start_at + n - 1) and tagging type ES/Caméras/Mixte. Verified end-to-end: cam nuit 1 with start_at=5 -> Nuit 5 in Phasage full.",
+    "MINOR: server.py is 1924 lines — consider splitting export sheet writers (_write_phasage_sheet, _write_phasage_cam_sheet, _write_phasage_full_sheet, _write_suivi_sheet) into /app/backend/exporters/ for maintainability.",
+    "MINOR: line 978 has a stale code comment mentioning 'TEXTJOIN array formula' for the Allées column — actual implementation correctly uses a pre-computed Python string. Update the docstring to avoid confusion.",
+    "MINOR: The 32 pre-existing pytest errors in test_recap_row_edit.py are caused by a missing /tmp/sample.xlsx fixture file (unrelated to this scope). Consider regenerating it or making the fixture skip-on-missing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phasage_new_tabs.py (new)"
+  ],
+  "success_rate": {"backend": "100% (10/10 new + 8/8 regression)", "frontend": "100% (all flows verified)"},
+  "test_credentials": "N/A — no auth",
+  "seed_data_creation": "Used pre-existing /tmp/sample_full.xlsx (7 data rows, contains ES 1.5/2.1, rails ES, caméras noire+blanche). Each pytest test re-uploads & patches phasage idempotently.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 3 new phasage tabs + nested schema + export sheets verified green. test_phasage_new_tabs.py is the canonical regression suite for this feature. The 2 minor frontend warnings (recharts -1/-1, <span> in <option>) are cosmetic only and do not block any flow.",
+  "rca of the issue": "N/A — no bug found in current scope."
+}

@@ -10,6 +10,9 @@ import SecteurTable from "./components/SecteurTable";
 import ParSecteurTable from "./components/ParSecteurTable";
 import CommentTab from "./components/CommentTab";
 import PhasageTab from "./components/PhasageTab";
+import PhasageCamTab from "./components/PhasageCamTab";
+import PhasageFullTab from "./components/PhasageFullTab";
+import SuiviPhasageTab from "./components/SuiviPhasageTab";
 import "./App.css";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -263,6 +266,15 @@ export default function App() {
                             )}
                             {activeTab === "pose" && (
                                 <PhasageTab uploadId={dataset.upload_id} />
+                            )}
+                            {activeTab === "pose_cam" && (
+                                <PhasageCamTab uploadId={dataset.upload_id} />
+                            )}
+                            {activeTab === "pose_full" && (
+                                <PhasageFullTab uploadId={dataset.upload_id} />
+                            )}
+                            {activeTab === "suivi" && (
+                                <SuiviPhasageTab uploadId={dataset.upload_id} />
                             )}
                         </div>
                         <BottomTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
