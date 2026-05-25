@@ -124,7 +124,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                 Quantité
                             </th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-emerald-50">
-                                Spare (+5%)
+                                Spare
                             </th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-blue-50">
                                 Total + Spare

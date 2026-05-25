@@ -248,12 +248,23 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
             "spare": "",
             "total_plus_spare": "",
         })
-        # Une ligne par produit avec Quantité, Spare (+5%) et Total+Spare
+        # Une ligne par produit avec Quantité, Spare (2% pour certains produits caméra, 5% sinon) et Total+Spare
+        # Liste des produits à 2% (insensible à la casse, comparée à designation normalisée)
+        PRODUITS_SPARE_2PCT = {
+            "batterie caméra",
+            "caméra (blanche)",
+            "caméra (noire)",
+            "software caméra",
+            "support mobilier captana (blanc)",
+            "support mobilier captana (noir)",
+            "support ajustable adhésif captana",
+        }
         for _, r in grouped.iterrows():
             ref = "" if pd.isna(r[ref_col]) else str(r[ref_col])
             desig = "" if pd.isna(r[desig_col]) else str(r[desig_col])
             qty = float(r[qty_col])
-            spare = math.ceil(qty * 0.05)
+            spare_rate = 0.02 if desig.strip().lower() in PRODUITS_SPARE_2PCT else 0.05
+            spare = math.ceil(qty * spare_rate)
             rows.append({
                 "kind": "product",
                 "type": tp,
@@ -1676,17 +1687,17 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             ws.conditional_format(3, diff_col, last_excel - 1, diff_col,
                 {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
 
-        # CF "ligne traitée" : si au moins un Réel est saisi (F, J, N, Q), surligne TOUTE la ligne en vert.
+        # CF "ligne traitée" : si au moins un Réel est saisi (F, J, N, Q), surligne TOUTE la ligne en BLEU PÂLE.
         # On crée plusieurs formats pour préserver la lisibilité (alignement, format %) tout en imposant
-        # le bg vert clair sur les 18 colonnes.
+        # le bg bleu pâle sur les 18 colonnes.
         treated_criteria = '=COUNTA($F4,$J4,$N4,$Q4)>0'
-        fmt_t_label = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "bold": True,
-                                           "font_color": "#065F46", "align": "right"})
-        fmt_t_text = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46",
+        fmt_t_label = workbook.add_format({"bg_color": "#DBEAFE", "border": 1, "bold": True,
+                                           "font_color": "#1E3A8A", "align": "right"})
+        fmt_t_text = workbook.add_format({"bg_color": "#DBEAFE", "border": 1, "font_color": "#1E3A8A",
                                           "align": "left"})
-        fmt_t_num = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46",
+        fmt_t_num = workbook.add_format({"bg_color": "#DBEAFE", "border": 1, "font_color": "#1E3A8A",
                                          "align": "right"})
-        fmt_t_pct = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46",
+        fmt_t_pct = workbook.add_format({"bg_color": "#DBEAFE", "border": 1, "font_color": "#1E3A8A",
                                          "align": "right", "num_format": "0%"})
         # Cols A, B (Nuit, Type) — bold label
         ws.conditional_format(3, 0, last_excel - 1, 1,
@@ -1709,7 +1720,7 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.merge_range(r + 2, 0, r + 2, 17,
                    "Cellules jaunes = à remplir manuellement (Allée réelle / ES réel / Cam réelle "
                    "/ Rails ES réel / Géolocalisés). Diff, % et totaux se recalculent automatiquement. "
-                   "Les lignes traitées sont surlignées en vert.",
+                   "Les lignes traitées sont surlignées en bleu pâle.",
                    workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"}))
 
 
@@ -1926,7 +1937,7 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             recap = d["recap_rows"]
             ws = workbook.add_worksheet("Commandes")
             writer.sheets["Commandes"] = ws
-            headers = ["Type", "Référence", "Désignation", "Quantité", "Spare (+5%)", "Total + Spare"]
+            headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
             for col_i, h in enumerate(headers):
                 ws.write(0, col_i, h, fmt_header)
             for row_i, r in enumerate(recap, start=1):
