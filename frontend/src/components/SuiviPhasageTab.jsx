@@ -158,6 +158,42 @@ export default function SuiviPhasageTab({ uploadId }) {
     if (error) return <div className="p-8 text-sm text-red-600">Erreur : {error}</div>;
     if (!summary) return null;
 
+    // Pourcentages d'avancement (clamp 0-100 pour la jauge, mais on affiche la vraie valeur)
+    const pct = (reel, prevu) => prevu > 0 ? (reel / prevu) * 100 : null;
+    const pctES = pct(totals.esReel, totals.es);
+    const pctCam = pct(totals.camReel, totals.cam);
+    const pctRails = pct(totals.railsReel, totals.rails);
+    const gaugeColor = (p) => {
+        if (p == null) return { bar: "bg-gray-300", text: "text-gray-500" };
+        if (p >= 90) return { bar: "bg-emerald-500", text: "text-emerald-700" };
+        if (p >= 50) return { bar: "bg-amber-500", text: "text-amber-700" };
+        return { bar: "bg-red-500", text: "text-red-700" };
+    };
+
+    const Gauge = ({ label, p, reel, prevu, color, testid }) => {
+        const c = gaugeColor(p);
+        const width = p == null ? 0 : Math.min(100, Math.max(0, p));
+        return (
+            <div className="flex-1 min-w-[200px]" data-testid={testid}>
+                <div className="flex items-baseline justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                        <span className={`inline-block w-2 h-2 rounded-full ${color}`}></span>
+                        <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wide">{label}</span>
+                    </div>
+                    <span className={`text-sm font-mono-data font-bold ${c.text}`}>
+                        {p == null ? "—" : `${p.toFixed(0)}%`}
+                    </span>
+                </div>
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className={`h-full ${c.bar} transition-all duration-300`} style={{ width: `${width}%` }}></div>
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5 font-mono-data">
+                    {fmt(reel)} / {fmt(prevu)}
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="h-full flex flex-col bg-white" data-testid="suivi-phasage-tab">
             <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-cyan-50/40 flex-shrink-0">
@@ -173,6 +209,15 @@ export default function SuiviPhasageTab({ uploadId }) {
                     <Download className="w-3.5 h-3.5" /> Exporter cette vue
                 </button>
                 {saving && <span className="text-xs text-gray-500">Sauvegarde…</span>}
+            </div>
+
+            {/* Bandeau d'avancement global */}
+            <div className="border-b border-gray-200 px-4 py-3 bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
+                <div className="flex items-start gap-6 flex-wrap">
+                    <Gauge label="ES" p={pctES} reel={totals.esReel} prevu={totals.es} color="bg-emerald-500" testid="gauge-es" />
+                    <Gauge label="Caméras" p={pctCam} reel={totals.camReel} prevu={totals.cam} color="bg-purple-500" testid="gauge-cam" />
+                    <Gauge label="Rails ES" p={pctRails} reel={totals.railsReel} prevu={totals.rails} color="bg-amber-500" testid="gauge-rails" />
+                </div>
             </div>
 
             <div className="flex-1 overflow-auto custom-scroll p-3">
