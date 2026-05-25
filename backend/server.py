@@ -51,19 +51,23 @@ DATASTORE: dict[str, dict] = {}
 
 async def persist_dataset(upload_id: str, data: dict):
     """Stocke le dataset complet en MongoDB (gzippé) pour qu'il soit accessible
-    depuis n'importe quel replica K8s."""
+    depuis n'importe quel replica K8s.
+
+    Architecture : le gros `payload` (raw_records, ~20k lignes) est gzippé une seule fois.
+    Les champs éditables (recap_rows, comment_table, phasage) sont stockés en CHAMPS
+    SÉPARÉS pour éviter de re-sérialiser tout le payload à chaque édition (OOM en prod).
+    """
+    default_comment = {
+        "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
+        "rows": [["", "", "", "", ""] for _ in range(8)],
+    }
     payload = {
         "filename": data["filename"],
         "uploaded_at": data["uploaded_at"],
         "columns": data["columns"],
         "detected_cols": data["detected_cols"],
         "raw_records": data["raw_records"],
-        "recap_rows": data["recap_rows"],
         "secteur_rows": data["secteur_rows"],
-        "comment_table": data.get("comment_table") or {
-            "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
-            "rows": [["", "", "", "", ""] for _ in range(8)],
-        },
     }
     raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     compressed = gzip.compress(raw_bytes, compresslevel=6)
@@ -77,75 +81,61 @@ async def persist_dataset(upload_id: str, data: dict):
             "size_bytes": len(raw_bytes),
             "compressed_bytes": len(compressed),
             "payload": Binary(compressed),
+            # Champs éditables stockés EN CLAIR (petits) — update O(1)
+            "recap_rows": data["recap_rows"],
+            "comment_table": data.get("comment_table") or default_comment,
+            "phasage": data.get("phasage") or {
+                "es": {"nb_nuits": 3, "rows": []},
+                "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
+                "suivi": {"rows": []},
+            },
         },
         upsert=True,
     )
 
 
 async def persist_recap_rows(upload_id: str, recap_rows: list[dict]):
-    """Met à jour uniquement les recap_rows en base après une édition manuelle."""
-    if upload_id not in DATASTORE:
-        return
-    # Recharger payload existant, mettre à jour recap_rows, réenregistrer.
-    doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
-    if not doc:
-        # Pas en base ? Re-persister entièrement depuis le cache mémoire.
-        await persist_dataset(upload_id, DATASTORE[upload_id])
-        return
-    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
-    payload["recap_rows"] = recap_rows
-    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    """Update O(1) sur le champ recap_rows (hors payload gzippé)."""
     await db.datasets.update_one(
         {"upload_id": upload_id},
-        {"$set": {"payload": Binary(compressed), "size_bytes": len(raw_bytes), "compressed_bytes": len(compressed)}},
+        {"$set": {"recap_rows": recap_rows}},
     )
 
 
 async def persist_comment_table(upload_id: str, comment_table: dict):
-    """Met à jour uniquement le tableau de commentaires en base."""
-    if upload_id not in DATASTORE:
-        return
-    doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
-    if not doc:
-        await persist_dataset(upload_id, DATASTORE[upload_id])
-        return
-    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
-    payload["comment_table"] = comment_table
-    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    """Update O(1) sur le champ comment_table (hors payload gzippé)."""
     await db.datasets.update_one(
         {"upload_id": upload_id},
-        {"$set": {"payload": Binary(compressed), "size_bytes": len(raw_bytes), "compressed_bytes": len(compressed)}},
+        {"$set": {"comment_table": comment_table}},
     )
 
 
 async def persist_phasage(upload_id: str, phasage: dict):
-    """Met à jour uniquement le phasage de pose en base."""
-    if upload_id not in DATASTORE:
-        return
-    doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
-    if not doc:
-        await persist_dataset(upload_id, DATASTORE[upload_id])
-        return
-    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
-    payload["phasage"] = phasage
-    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    """Update O(1) sur le champ phasage (hors payload gzippé)."""
     await db.datasets.update_one(
         {"upload_id": upload_id},
-        {"$set": {"payload": Binary(compressed), "size_bytes": len(raw_bytes), "compressed_bytes": len(compressed)}},
+        {"$set": {"phasage": phasage}},
     )
 
 
 async def load_dataset(upload_id: str) -> Optional[dict]:
-    """Récupère un dataset : d'abord en cache mémoire, sinon depuis MongoDB."""
+    """Récupère un dataset : d'abord en cache mémoire, sinon depuis MongoDB.
+    Lit le payload gzippé + merge les champs éditables stockés à plat.
+    Rétro-compatible avec les anciens datasets où ces champs étaient dans le payload.
+    """
     if upload_id in DATASTORE:
         return DATASTORE[upload_id]
     doc = await db.datasets.find_one({"upload_id": upload_id}, {"_id": 0})
     if not doc:
         return None
     payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
+    # Champs éditables : champ Mongo plat prioritaire, sinon fallback ancien payload
+    if "recap_rows" in doc:
+        payload["recap_rows"] = doc["recap_rows"]
+    if "comment_table" in doc:
+        payload["comment_table"] = doc["comment_table"]
+    if "phasage" in doc:
+        payload["phasage"] = doc["phasage"]
     DATASTORE[upload_id] = payload
     return payload
 
