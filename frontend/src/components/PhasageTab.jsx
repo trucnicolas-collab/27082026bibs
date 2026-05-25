@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer, ReferenceLine } from "recharts";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -111,13 +112,14 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, rails_es: 0, allees: [] };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, rails_es: 0, allees: [] };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
             if (!node) return;
             tot[r.nuit].es_15 += node.es_15 || 0;
             tot[r.nuit].es_21 += node.es_21 || 0;
+            tot[r.nuit].sa += node.sa || 0;
             tot[r.nuit].rails_es += node.rails_es || 0;
             tot[r.nuit].allees.push(String(r.allee));
         });
@@ -200,6 +202,10 @@ export default function PhasageTab({ uploadId }) {
                     <span className="text-gray-600">Total Rails ES :</span>{" "}
                     <span className="font-mono-data font-bold text-amber-900" data-testid="total-railses">{fmt(totals.rails_es)}</span>
                 </div>
+                <div className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded italic">
+                    <span className="text-gray-500">Total SA (info) :</span>{" "}
+                    <span className="font-mono-data font-bold text-gray-700" data-testid="total-sa">{fmt(totals.sa || 0)}</span>
+                </div>
                 {(rails_es_patterns || []).map((p) => (
                     <div key={p} className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-gray-700">
                         <span className="text-gray-500">{p} :</span>{" "}
@@ -232,6 +238,7 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold">ES 1.5</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">ES 2.1</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info : toutes étiquettes SA (SA 1.5, SA 2.1, SA 4.2, etc.) — non incluse dans les calculs">SA</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
                                         <th className="px-2 py-1.5 w-8"></th>
                                     </tr>
@@ -239,7 +246,7 @@ export default function PhasageTab({ uploadId }) {
                                 <tbody>
                                     {rows.length === 0 && (
                                         <tr>
-                                            <td colSpan={6} className="px-3 py-6 text-center text-gray-500 italic">
+                                            <td colSpan={7} className="px-3 py-6 text-center text-gray-500 italic">
                                                 Cliquez sur « Ajouter une allée » pour commencer
                                             </td>
                                         </tr>
@@ -281,6 +288,7 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.es_15) : ""}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.es_21) : ""}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
+                                                <td className="px-2 py-1 text-right font-mono-data italic text-gray-500" title="Toutes étiquettes SA (info)">{node ? fmt(node.sa || 0) : ""}</td>
                                                 <td className="px-1 py-1">
                                                     <select
                                                         value={r.nuit ?? ""}
@@ -324,12 +332,13 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold">ES 1.5</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">ES 2.1</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info (non inclus dans Total ES)">SA</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Total ES</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, rails_es: 0, allees: [] };
+                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
                                         const over = totalES > 4500;
                                         const color = nightColor(n);
@@ -347,6 +356,7 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data">{fmt(t.es_15)}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data">{fmt(t.es_21)}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
+                                                <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">{fmt(t.sa || 0)}</td>
                                                 <td className={`px-2 py-1 text-right font-mono-data font-bold ${over ? "text-red-600" : "text-emerald-700"}`} title="Objectif : ≤ 4500 ES par nuit">
                                                     {fmt(Math.round(totalES))}
                                                 </td>
@@ -367,6 +377,9 @@ export default function PhasageTab({ uploadId }) {
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(Object.values(nightTotals).reduce((a, x) => a + (x.rails_es || 0), 0))}
                                         </td>
+                                        <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
+                                            {fmt(Object.values(nightTotals).reduce((a, x) => a + (x.sa || 0), 0))}
+                                        </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(Math.round(Object.values(nightTotals).reduce((a, x) => a + (x.es_15 || 0) + (x.es_21 || 0), 0)))}
                                         </td>
@@ -377,6 +390,45 @@ export default function PhasageTab({ uploadId }) {
                         <p className="text-[11px] text-gray-500 mt-1">
                             La colonne « Total ES » devient rouge si elle dépasse 4 500 (objectif/nuit).
                         </p>
+                    </div>
+                </div>
+
+                {/* ----- Graphique répartition par nuit ----- */}
+                <div className="mt-6" data-testid="phasage-chart">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-2">
+                        Répartition par nuit
+                    </h3>
+                    <div className="border border-gray-200 rounded p-3 bg-gray-50/30" style={{ height: 320 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={Array.from({ length: nbNuits }, (_, i) => {
+                                    const n = i + 1;
+                                    const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0 };
+                                    return {
+                                        name: `Nuit ${n}`,
+                                        "ES 1.5": Math.round(t.es_15 || 0),
+                                        "ES 2.1": Math.round(t.es_21 || 0),
+                                        "Rails ES": Math.round(t.rails_es || 0),
+                                        "SA": Math.round(t.sa || 0),
+                                    };
+                                })}
+                                margin={{ top: 12, right: 16, left: 0, bottom: 4 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                                <YAxis tick={{ fontSize: 11 }} />
+                                <Tooltip
+                                    contentStyle={{ fontSize: 12, borderRadius: 4 }}
+                                    formatter={(v) => new Intl.NumberFormat("fr-FR").format(v)}
+                                />
+                                <Legend wrapperStyle={{ fontSize: 12 }} />
+                                <ReferenceLine y={4500} stroke="#DC2626" strokeDasharray="4 4" label={{ value: "Objectif 4 500", fontSize: 10, fill: "#DC2626", position: "right" }} />
+                                <Bar dataKey="ES 1.5" stackId="es" fill="#10B981" />
+                                <Bar dataKey="ES 2.1" stackId="es" fill="#3B82F6" />
+                                <Bar dataKey="Rails ES" fill="#F59E0B" />
+                                <Bar dataKey="SA" fill="#9CA3AF" />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
             </div>
