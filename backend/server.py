@@ -1591,7 +1591,7 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.merge_range(1, 14, 1, 15, f'=IFERROR(N{total_excel}/M{total_excel},0)', fmt_pct_value)
         # Géolocalisés: label Q2 (16), value R2 (17)
         ws.write(1, 16, "Géoloc :", fmt_lbl_geo)
-        ws.write_formula(1, 17, f'=IFERROR(Q{total_excel}/M{total_excel},0)', fmt_pct_value)
+        ws.write_formula(1, 17, f'=IFERROR(Q{total_excel}/N{total_excel},0)', fmt_pct_value)
         # PAS de conditional formatting sur le bandeau (couleur neutre)
 
     r = 3
@@ -1646,7 +1646,7 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             except (ValueError, TypeError): ws.write_blank(r, 16, None, fmt_input)
         else:
             ws.write_blank(r, 16, None, fmt_input)
-        ws.write_formula(r, 17, f'=IF(Q{excel_row}="","",IFERROR(Q{excel_row}/M{excel_row},""))', fmt_pct_row)
+        ws.write_formula(r, 17, f'=IF(Q{excel_row}="","",IFERROR(Q{excel_row}/N{excel_row},""))', fmt_pct_row)
         r += 1
     last_excel = r
     if r > 3:
@@ -1667,7 +1667,7 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.write_formula(r, 7, f'=IFERROR(F{excel_total}/E{excel_total},0)', fmt_total_pct)
         ws.write_formula(r, 11, f'=IFERROR(J{excel_total}/I{excel_total},0)', fmt_total_pct)
         ws.write_formula(r, 15, f'=IFERROR(N{excel_total}/M{excel_total},0)', fmt_total_pct)
-        ws.write_formula(r, 17, f'=IFERROR(Q{excel_total}/M{excel_total},0)', fmt_total_pct)
+        ws.write_formula(r, 17, f'=IFERROR(Q{excel_total}/N{excel_total},0)', fmt_total_pct)
 
         # CF Diff (cols G=6, K=10, O=14) — rouge/vert sur les diffs non vides
         for diff_col in (6, 10, 14):
@@ -1676,26 +1676,35 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             ws.conditional_format(3, diff_col, last_excel - 1, diff_col,
                 {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
 
-        # CF "ligne traitée" : si au moins un Réel est saisi (F, J, N, Q), fond vert clair
-        # NB : applique seulement aux 4 premières colonnes (A-D) pour ne pas écraser les autres
-        # backgrounds (Prévu gris, Input jaune, etc). Permet de voir clairement quelles nuits sont
-        # traitées sans casser la lisibilité.
-        fmt_treated_main = workbook.add_format({
-            "bg_color": "#D1FAE5", "border": 1, "bold": True, "font_color": "#065F46",
-        })
-        fmt_treated_text = workbook.add_format({
-            "bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46", "align": "left",
-        })
-        # A-C (cols 0-2) : nuit / type / allée phasage
-        ws.conditional_format(3, 0, last_excel - 1, 2,
-            {"type": "formula",
-             "criteria": f'=COUNTA($F4,$J4,$N4,$Q4)>0',
-             "format": fmt_treated_main})
-        # D (col 3) : allée réelle (alignée à gauche)
+        # CF "ligne traitée" : si au moins un Réel est saisi (F, J, N, Q), surligne TOUTE la ligne en vert.
+        # On crée plusieurs formats pour préserver la lisibilité (alignement, format %) tout en imposant
+        # le bg vert clair sur les 18 colonnes.
+        treated_criteria = '=COUNTA($F4,$J4,$N4,$Q4)>0'
+        fmt_t_label = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "bold": True,
+                                           "font_color": "#065F46", "align": "right"})
+        fmt_t_text = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46",
+                                          "align": "left"})
+        fmt_t_num = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46",
+                                         "align": "right"})
+        fmt_t_pct = workbook.add_format({"bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46",
+                                         "align": "right", "num_format": "0%"})
+        # Cols A, B (Nuit, Type) — bold label
+        ws.conditional_format(3, 0, last_excel - 1, 1,
+            {"type": "formula", "criteria": treated_criteria, "format": fmt_t_label})
+        # Col C (Allée phasage) — right-aligned text
+        ws.conditional_format(3, 2, last_excel - 1, 2,
+            {"type": "formula", "criteria": treated_criteria, "format": fmt_t_label})
+        # Col D (Allée réelle) — left-aligned input
         ws.conditional_format(3, 3, last_excel - 1, 3,
-            {"type": "formula",
-             "criteria": f'=COUNTA($F4,$J4,$N4,$Q4)>0',
-             "format": fmt_treated_text})
+            {"type": "formula", "criteria": treated_criteria, "format": fmt_t_text})
+        # Cols numériques (E, F, G, I, J, K, M, N, O, Q)
+        for col in (4, 5, 6, 8, 9, 10, 12, 13, 14, 16):
+            ws.conditional_format(3, col, last_excel - 1, col,
+                {"type": "formula", "criteria": treated_criteria, "format": fmt_t_num})
+        # Cols % (H, L, P, R) — format %
+        for col in (7, 11, 15, 17):
+            ws.conditional_format(3, col, last_excel - 1, col,
+                {"type": "formula", "criteria": treated_criteria, "format": fmt_t_pct})
 
     ws.merge_range(r + 2, 0, r + 2, 17,
                    "Cellules jaunes = à remplir manuellement (Allée réelle / ES réel / Cam réelle "

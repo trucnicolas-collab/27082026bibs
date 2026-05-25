@@ -180,7 +180,8 @@ export default function SuiviPhasageTab({ uploadId }) {
     const pctES = pct(totals.esReel, totals.es);
     const pctCam = pct(totals.camReel, totals.cam);
     const pctRails = pct(totals.railsReel, totals.rails);
-    const pctGeoloc = pct(totals.geoloc, totals.rails);
+    // % Géoloc = géolocalisés / Rails ES RÉEL (ce qui a été posé)
+    const pctGeoloc = pct(totals.geoloc, totals.railsReel);
     const gaugeColor = (p) => {
         if (p == null) return { bar: "bg-gray-300", text: "text-gray-500" };
         if (p >= 90) return { bar: "bg-emerald-500", text: "text-emerald-700" };
@@ -235,7 +236,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                     <Gauge label="ES" p={pctES} reel={totals.esReel} prevu={totals.es} color="bg-emerald-500" testid="gauge-es" />
                     <Gauge label="Caméras" p={pctCam} reel={totals.camReel} prevu={totals.cam} color="bg-purple-500" testid="gauge-cam" />
                     <Gauge label="Rails ES" p={pctRails} reel={totals.railsReel} prevu={totals.rails} color="bg-amber-500" testid="gauge-rails" />
-                    <Gauge label="Géoloc" p={pctGeoloc} reel={totals.geoloc} prevu={totals.rails} color="bg-sky-500" testid="gauge-geoloc" />
+                    <Gauge label="Géoloc" p={pctGeoloc} reel={totals.geoloc} prevu={totals.railsReel} color="bg-sky-500" testid="gauge-geoloc" />
                 </div>
             </div>
 
@@ -292,7 +293,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                 const pEs = pctRow(sv.es_reel, r.es);
                                 const pCam = pctRow(sv.cam_reel, r.cam);
                                 const pRails = pctRow(sv.rails_geoloc, r.rails_es || 0);
-                                const pGeoloc = pctRow(sv.rails_geoloc_count, r.rails_es || 0);
+                                const pGeoloc = pctRow(sv.rails_geoloc_count, sv.rails_geoloc);
                                 const diffColor = (v) => {
                                     if (v == null) return "text-gray-400";
                                     if (v > 0) return "text-emerald-700";
@@ -300,6 +301,12 @@ export default function SuiviPhasageTab({ uploadId }) {
                                     return "text-gray-700";
                                 };
                                 const fmtPct = (p) => p == null ? "" : `${p.toFixed(0)}%`;
+                                const inputCls = treated
+                                    ? "w-20 h-6 px-1 text-xs border border-emerald-300 bg-emerald-50 rounded text-right font-mono-data focus:ring-1 focus:ring-emerald-500 outline-none"
+                                    : "w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none";
+                                const textInputCls = treated
+                                    ? "w-full h-6 px-1 text-xs border border-emerald-300 bg-emerald-50 rounded text-left font-mono-data focus:ring-1 focus:ring-emerald-500 outline-none"
+                                    : "w-full h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-left font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none";
                                 return (
                                     <tr key={r.nuit} className={`border-t border-gray-100 ${treated ? "font-semibold" : ""}`}
                                         style={rowStyle}
@@ -318,7 +325,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                                 type="text" value={sv.allee_reelle || ""}
                                                 onChange={(e) => updateSuivi(r.nuit, "allee_reelle", e.target.value)}
                                                 data-testid={`suivi-allee-reelle-${r.nuit}`}
-                                                className="w-full h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-left font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                className={textInputCls}
                                                 placeholder="ex: 1A bis"
                                             />
                                         </td>
@@ -329,7 +336,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                                 type="number" value={sv.es_reel}
                                                 onChange={(e) => updateSuivi(r.nuit, "es_reel", e.target.value)}
                                                 data-testid={`suivi-es-reel-${r.nuit}`}
-                                                className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                className={inputCls}
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dEs)}`} data-testid={`suivi-es-diff-${r.nuit}`}>
@@ -345,7 +352,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                                 type="number" value={sv.cam_reel}
                                                 onChange={(e) => updateSuivi(r.nuit, "cam_reel", e.target.value)}
                                                 data-testid={`suivi-cam-reel-${r.nuit}`}
-                                                className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                className={inputCls}
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dCam)}`} data-testid={`suivi-cam-diff-${r.nuit}`}>
@@ -361,7 +368,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                                 type="number" value={sv.rails_geoloc}
                                                 onChange={(e) => updateSuivi(r.nuit, "rails_geoloc", e.target.value)}
                                                 data-testid={`suivi-rails-reel-${r.nuit}`}
-                                                className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                className={inputCls}
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dRails)}`} data-testid={`suivi-rails-diff-${r.nuit}`}>
@@ -376,7 +383,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                                 type="number" value={sv.rails_geoloc_count}
                                                 onChange={(e) => updateSuivi(r.nuit, "rails_geoloc_count", e.target.value)}
                                                 data-testid={`suivi-geoloc-${r.nuit}`}
-                                                className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                className={inputCls}
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pGeoloc)}`} data-testid={`suivi-geoloc-pct-${r.nuit}`}>
