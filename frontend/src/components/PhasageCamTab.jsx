@@ -140,6 +140,15 @@ export default function PhasageCamTab({ uploadId }) {
         window.location.href = `${API}/export/${uploadId}?sheet=phasage_cam`;
     };
 
+    // Totaux globaux du récap (ligne TOTAL) — mémoïsé
+    const grandTotals = useMemo(() => {
+        const values = Object.values(nightTotals);
+        return {
+            nbAllees: values.reduce((a, x) => a + (x.allees?.length || 0), 0),
+            cameras: values.reduce((a, x) => a + (x.cameras || 0), 0),
+        };
+    }, [nightTotals]);
+
     if (loading) return <div className="p-8 text-sm text-gray-500" data-testid="phasagecam-loading">Chargement…</div>;
     if (error) return <div className="p-8 text-sm text-red-600">Erreur : {error}</div>;
     if (!summary) return null;
@@ -316,10 +325,10 @@ export default function PhasageCamTab({ uploadId }) {
                                     <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
                                         <td className="px-2 py-1 text-gray-900">TOTAL</td>
                                         <td className="px-2 py-1 text-gray-500 text-[11px]">
-                                            {Object.values(nightTotals).reduce((a, x) => a + (x.allees?.length || 0), 0)} allées
+                                            {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(Object.values(nightTotals).reduce((a, x) => a + (x.cameras || 0), 0)))}
+                                            {fmt(Math.round(grandTotals.cameras))}
                                         </td>
                                     </tr>
                                 </tbody>

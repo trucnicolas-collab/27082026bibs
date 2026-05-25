@@ -37,9 +37,9 @@ export default function RawTable({ rows, columns, search }) {
                 className={`flex border-b border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50`}
                 data-testid={`raw-row-${index}`}
             >
-                {columns.map((c, i) => (
+                {columns.map((c) => (
                     <div
-                        key={i}
+                        key={c}
                         className="px-3 py-1.5 text-sm border-r border-gray-200 last:border-r-0 truncate font-mono-data"
                         style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
                         title={formatCell(r[c])}
@@ -57,9 +57,9 @@ export default function RawTable({ rows, columns, search }) {
                 <div style={{ minWidth: totalWidth }}>
                     {/* Header */}
                     <div className="flex sticky top-0 z-10 bg-gray-100 thead-sticky">
-                        {columns.map((c, i) => (
+                        {columns.map((c) => (
                             <div
-                                key={i}
+                                key={c}
                                 className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider border-r border-gray-300 last:border-r-0 truncate"
                                 style={{ width: COL_WIDTH, minWidth: COL_WIDTH }}
                                 title={c}

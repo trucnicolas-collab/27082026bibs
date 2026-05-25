@@ -150,6 +150,17 @@ export default function PhasageTab({ uploadId }) {
         return s;
     }, [rows]);
 
+    // Totaux globaux du récap (ligne TOTAL) — mémoïsé pour éviter 4× reduce à chaque render
+    const grandTotals = useMemo(() => {
+        const values = Object.values(nightTotals);
+        return {
+            nbAllees: values.reduce((a, x) => a + (x.allees?.length || 0), 0),
+            es: values.reduce((a, x) => a + (x.es_15 || 0) + (x.es_21 || 0), 0),
+            rails: values.reduce((a, x) => a + (x.rails_es || 0), 0),
+            sa: values.reduce((a, x) => a + (x.sa || 0), 0),
+        };
+    }, [nightTotals]);
+
     const handleExport = () => {
         window.location.href = `${API}/export/${uploadId}?sheet=phasage`;
     };
@@ -365,16 +376,16 @@ export default function PhasageTab({ uploadId }) {
                                     <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
                                         <td className="px-2 py-1 text-gray-900">TOTAL</td>
                                         <td className="px-2 py-1 text-gray-500 text-[11px]">
-                                            {Object.values(nightTotals).reduce((a, x) => a + (x.allees?.length || 0), 0)} allées
+                                            {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(Object.values(nightTotals).reduce((a, x) => a + (x.es_15 || 0) + (x.es_21 || 0), 0)))}
+                                            {fmt(Math.round(grandTotals.es))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Object.values(nightTotals).reduce((a, x) => a + (x.rails_es || 0), 0))}
+                                            {fmt(grandTotals.rails)}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
-                                            {fmt(Object.values(nightTotals).reduce((a, x) => a + (x.sa || 0), 0))}
+                                            {fmt(grandTotals.sa)}
                                         </td>
                                     </tr>
                                 </tbody>
