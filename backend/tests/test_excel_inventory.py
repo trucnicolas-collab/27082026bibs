@@ -169,10 +169,10 @@ class TestExport:
         wb = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True)
         sheet_names = wb.sheetnames
         assert "Données" in sheet_names, f"Missing 'Données' sheet: {sheet_names}"
-        assert "Récapitulatif" in sheet_names, f"Missing 'Récapitulatif' sheet: {sheet_names}"
-        assert "Phasage" in sheet_names, f"Missing 'Phasage' sheet: {sheet_names}"
-        assert "Par Secteur (rayon)" in sheet_names, f"Missing 'Par Secteur (rayon)' sheet: {sheet_names}"
-        assert "Par Secteur (global)" in sheet_names, f"Missing 'Par Secteur (global)' sheet: {sheet_names}"
+        assert "Commandes" in sheet_names, f"Missing 'Commandes' sheet: {sheet_names}"
+        assert "Tableau phasage" in sheet_names, f"Missing 'Tableau phasage' sheet: {sheet_names}"
+        assert "Recap par secteur" in sheet_names, f"Missing 'Recap par secteur' sheet: {sheet_names}"
+        assert "Recap par secteur (global)" in sheet_names, f"Missing 'Recap par secteur (global)' sheet: {sheet_names}"
         wb.close()
 
     def test_export_not_found(self):

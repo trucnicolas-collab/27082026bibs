@@ -1238,8 +1238,8 @@ def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         if row == 0:
             ws.write(0, 0, "Aucune donnée", fmt_header)
 
-    _write_sheet("Par Secteur (rayon)", "rayon")
-    _write_sheet("Par Secteur (global)", "global")
+    _write_sheet("Recap par secteur", "rayon")
+    _write_sheet("Recap par secteur (global)", "global")
 
 
 
@@ -1282,8 +1282,8 @@ async def export_excel(upload_id: str, sheet: str = "all"):
 
         if sheet in ("all", "recap"):
             recap = d["recap_rows"]
-            ws = workbook.add_worksheet("Récapitulatif")
-            writer.sheets["Récapitulatif"] = ws
+            ws = workbook.add_worksheet("Commandes")
+            writer.sheets["Commandes"] = ws
             headers = ["Type", "Référence", "Désignation", "Quantité", "Spare (+5%)", "Total + Spare"]
             for col_i, h in enumerate(headers):
                 ws.write(0, col_i, h, fmt_header)
@@ -1311,10 +1311,13 @@ async def export_excel(upload_id: str, sheet: str = "all"):
                 ws.autofilter(0, 0, len(recap), 5)
                 ws.freeze_panes(1, 0)
 
+        if sheet in ("all", "parsecteur"):
+            _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur)
+
         if sheet in ("all", "secteur"):
             secteur = d["secteur_rows"]
-            ws = workbook.add_worksheet("Phasage")
-            writer.sheets["Phasage"] = ws
+            ws = workbook.add_worksheet("Tableau phasage")
+            writer.sheets["Tableau phasage"] = ws
             headers = ["Secteur", "Rayon", "N° Allée", "EEG ES", "EEG SA", "Rails", "Caméras"]
             for col_i, h in enumerate(headers):
                 ws.write(0, col_i, h, fmt_header)
@@ -1337,9 +1340,6 @@ async def export_excel(upload_id: str, sheet: str = "all"):
             if len(secteur) > 0:
                 ws.autofilter(0, 0, len(secteur), 6)
                 ws.freeze_panes(1, 0)
-
-        if sheet in ("all", "parsecteur"):
-            _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur)
 
         if sheet in ("all", "phasage"):
             _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
