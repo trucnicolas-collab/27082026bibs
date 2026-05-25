@@ -901,7 +901,9 @@ class SuiviRow(BaseModel):
     nuit: int
     es_reel: Optional[float] = None
     cam_reel: Optional[float] = None
-    rails_geoloc: Optional[float] = None
+    rails_geoloc: Optional[float] = None  # = Rails ES réel (champ DB historique)
+    rails_geoloc_count: Optional[float] = None  # = nb rails géolocalisés (scan GPS)
+    allee_reelle: Optional[str] = None    # = allée effectivement posée (saisie libre)
 
 
 class PhasageFullUpdate(BaseModel):
@@ -944,6 +946,8 @@ async def update_phasage(upload_id: str, payload: PhasageFullUpdate):
             "es_reel": r.get("es_reel"),
             "cam_reel": r.get("cam_reel"),
             "rails_geoloc": r.get("rails_geoloc"),
+            "rails_geoloc_count": r.get("rails_geoloc_count"),
+            "allee_reelle": r.get("allee_reelle"),
         })
     d["phasage"] = {"es": es, "cam": cam, "suivi": {"rows": suivi_rows}}
     try:
@@ -1501,10 +1505,21 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
 
 
 def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
-    """Comparaison prévu / réalité — éditable Excel via formules.
-    Colonnes : Nuit | Type | Allées | ES prévu | ES réel | Diff ES |
-               Cam prévue | Cam réelle | Diff Cam |
-               Rails ES prévu | Rails ES réel | Diff Rails ES
+    """Comparaison prévu / réalité — entièrement éditable dans Excel via formules natives.
+
+    Layout 18 colonnes :
+      A Nuit | B Type | C Allée phasage | D Allée réelle |
+      E ES prévu | F ES réel | G Diff ES | H % ES |
+      I Cam prévue | J Cam réelle | K Diff Cam | L % Cam |
+      M Rails ES prévu | N Rails ES réel | O Diff Rails | P % Rails |
+      Q Géolocalisés | R % Géoloc
+
+    Règles :
+    - Diff/% sont vides si la cellule Réel est vide (formule IF(F="","",...))
+    - Bandeau ligne 2 : % sans coloration rouge/verte (neutre)
+    - Ligne data : background vert clair si au moins un Réel est saisi
+    - Diff per row : font rouge si négatif / vert si positif (CF)
+    - Compatible vieil Excel : pas de TEXTJOIN, pas de formules array
     """
     summary = compute_phasage_summary(d)
     nuit_data = _build_consolidated_nuit_data(d, summary)
@@ -1514,7 +1529,11 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     ws = workbook.add_worksheet("Suivi phasage")
     writer.sheets["Suivi phasage"] = ws
-    widths = [8, 10, 32, 11, 11, 11, 11, 11, 11, 12, 12, 12]
+    widths = [8, 10, 28, 14,
+              11, 11, 11, 8,
+              11, 11, 11, 8,
+              12, 12, 12, 8,
+              11, 8]
     for ci, w in enumerate(widths):
         ws.set_column(ci, ci, w)
 
@@ -1525,69 +1544,55 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     fmt_num = workbook.add_format({"border": 1, "align": "right"})
     fmt_num_prev = workbook.add_format({"border": 1, "align": "right", "bg_color": "#F9FAFB"})
     fmt_input = workbook.add_format({"border": 1, "align": "right", "bg_color": "#FFFBEB"})
+    fmt_input_text = workbook.add_format({"border": 1, "align": "left", "bg_color": "#FFFBEB"})
+    fmt_pct_row = workbook.add_format({"border": 1, "align": "right", "num_format": "0%",
+                                       "bg_color": "#F9FAFB", "font_color": "#374151"})
     fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_pct = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right",
+                                         "num_format": "0%"})
     fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
     fmt_positive = workbook.add_format({"border": 1, "align": "right", "font_color": "#047857"})
     fmt_negative = workbook.add_format({"border": 1, "align": "right", "font_color": "#B91C1C"})
 
-    ws.merge_range(0, 0, 0, 11, "Suivi phasage — Prévu vs Réalité", fmt_title)
-    for ci, h in enumerate(["Nuit", "Type", "Allées",
-                             "ES prévu", "ES réel", "Diff ES",
-                             "Cam prévue", "Cam réelle", "Diff Cam",
-                             "Rails ES prévu", "Rails ES réel", "Diff Rails ES"]):
+    ws.merge_range(0, 0, 0, 17, "Suivi phasage — Prévu vs Réalité", fmt_title)
+    for ci, h in enumerate(["Nuit", "Type", "Allée phasage", "Allée réelle",
+                             "ES prévu", "ES réel", "Diff ES", "% ES",
+                             "Cam prévue", "Cam réelle", "Diff Cam", "% Cam",
+                             "Rails ES prévu", "Rails ES réel", "Diff Rails ES", "% Rails",
+                             "Géolocalisés", "% Géoloc"]):
         ws.write(2, ci, h, fmt_lbl)
 
     sorted_nuits = sorted(nuit_data.keys())
 
-    # Bandeau d'avancement (row 1, Excel row 2) — 3 jauges qui pointent vers la ligne TOTAL
+    # Bandeau d'avancement (row 1) — 4 jauges neutres (sans CF rouge/vert)
     if sorted_nuits:
-        total_excel = 4 + len(sorted_nuits)  # 1-indexed Excel row of TOTAL
-        fmt_pct_label = workbook.add_format({
-            "bold": True, "bg_color": "#ECFDF5", "border": 1, "align": "right",
-            "font_color": "#065F46", "font_size": 11,
-        })
+        total_excel = 4 + len(sorted_nuits)
         fmt_pct_value = workbook.add_format({
             "bold": True, "border": 1, "align": "center", "num_format": "0%",
-            "bg_color": "#FFFFFF", "font_size": 12, "font_color": "#047857",
+            "bg_color": "#FFFFFF", "font_size": 12, "font_color": "#374151",
         })
-        fmt_pct_label_cam = workbook.add_format({
-            "bold": True, "bg_color": "#FAF5FF", "border": 1, "align": "right",
-            "font_color": "#5B21B6", "font_size": 11,
-        })
-        fmt_pct_label_rails = workbook.add_format({
-            "bold": True, "bg_color": "#FFFBEB", "border": 1, "align": "right",
-            "font_color": "#92400E", "font_size": 11,
-        })
+        fmt_lbl_es = workbook.add_format({"bold": True, "bg_color": "#ECFDF5", "border": 1,
+                                          "align": "right", "font_color": "#065F46", "font_size": 11})
+        fmt_lbl_cam = workbook.add_format({"bold": True, "bg_color": "#FAF5FF", "border": 1,
+                                           "align": "right", "font_color": "#5B21B6", "font_size": 11})
+        fmt_lbl_rails = workbook.add_format({"bold": True, "bg_color": "#FFFBEB", "border": 1,
+                                             "align": "right", "font_color": "#92400E", "font_size": 11})
+        fmt_lbl_geo = workbook.add_format({"bold": True, "bg_color": "#F0F9FF", "border": 1,
+                                           "align": "right", "font_color": "#075985", "font_size": 11})
         ws.set_row(1, 22)
-        # ES (cols A-B label, C-D value)
-        ws.merge_range(1, 0, 1, 1, "% Avancement ES :", fmt_pct_label)
-        ws.merge_range(1, 2, 1, 3,
-                       f'=IFERROR(E{total_excel}/D{total_excel},0)', fmt_pct_value)
-        # Caméras (cols E-F label, G-H value)
-        ws.merge_range(1, 4, 1, 5, "% Avancement Caméras :", fmt_pct_label_cam)
-        ws.merge_range(1, 6, 1, 7,
-                       f'=IFERROR(H{total_excel}/G{total_excel},0)', fmt_pct_value)
-        # Rails ES (cols I-J label, K-L value)
-        ws.merge_range(1, 8, 1, 9, "% Avancement Rails ES :", fmt_pct_label_rails)
-        ws.merge_range(1, 10, 1, 11,
-                       f'=IFERROR(K{total_excel}/J{total_excel},0)', fmt_pct_value)
-        # Format conditionnel sur les 3 cellules de %
-        fmt_pct_low = workbook.add_format({"bold": True, "border": 1, "align": "center",
-                                           "num_format": "0%", "bg_color": "#FEE2E2",
-                                           "font_size": 12, "font_color": "#991B1B"})
-        fmt_pct_mid = workbook.add_format({"bold": True, "border": 1, "align": "center",
-                                           "num_format": "0%", "bg_color": "#FEF3C7",
-                                           "font_size": 12, "font_color": "#92400E"})
-        fmt_pct_ok = workbook.add_format({"bold": True, "border": 1, "align": "center",
-                                          "num_format": "0%", "bg_color": "#D1FAE5",
-                                          "font_size": 12, "font_color": "#065F46"})
-        for col_first in (2, 6, 10):  # C, G, K
-            ws.conditional_format(1, col_first, 1, col_first + 1,
-                {"type": "cell", "criteria": ">=", "value": 0.9, "format": fmt_pct_ok})
-            ws.conditional_format(1, col_first, 1, col_first + 1,
-                {"type": "cell", "criteria": "between", "minimum": 0.5, "maximum": 0.8999, "format": fmt_pct_mid})
-            ws.conditional_format(1, col_first, 1, col_first + 1,
-                {"type": "cell", "criteria": "<", "value": 0.5, "format": fmt_pct_low})
+        # ES: label A2:D2 (cols 0-3), value E2:H2 (cols 4-7)
+        ws.merge_range(1, 0, 1, 3, "% Avancement ES :", fmt_lbl_es)
+        ws.merge_range(1, 4, 1, 7, f'=IFERROR(F{total_excel}/E{total_excel},0)', fmt_pct_value)
+        # Caméras: label I2:J2 (8-9), value K2:L2 (10-11)
+        ws.merge_range(1, 8, 1, 9, "Caméras :", fmt_lbl_cam)
+        ws.merge_range(1, 10, 1, 11, f'=IFERROR(J{total_excel}/I{total_excel},0)', fmt_pct_value)
+        # Rails ES: label M2:N2 (12-13), value O2:P2 (14-15)
+        ws.merge_range(1, 12, 1, 13, "Rails ES :", fmt_lbl_rails)
+        ws.merge_range(1, 14, 1, 15, f'=IFERROR(N{total_excel}/M{total_excel},0)', fmt_pct_value)
+        # Géolocalisés: label Q2 (16), value R2 (17)
+        ws.write(1, 16, "Géoloc :", fmt_lbl_geo)
+        ws.write_formula(1, 17, f'=IFERROR(Q{total_excel}/M{total_excel},0)', fmt_pct_value)
+        # PAS de conditional formatting sur le bandeau (couleur neutre)
 
     r = 3
     first_excel = r + 1
@@ -1595,54 +1600,107 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         info = nuit_data[n]
         existing = suivi_idx.get(n, {})
         excel_row = r + 1
+        # A=Nuit, B=Type, C=Allée phasage, D=Allée réelle
         ws.write_number(r, 0, n, fmt_num)
         ws.write(r, 1, info["type"], fmt_num)
         ws.write_string(r, 2, ", ".join(info["allees"]), fmt_num)
-        ws.write_number(r, 3, round(info["es"]), fmt_num_prev)
+        allee_reelle = existing.get("allee_reelle")
+        if allee_reelle not in (None, ""):
+            ws.write_string(r, 3, str(allee_reelle), fmt_input_text)
+        else:
+            ws.write_blank(r, 3, None, fmt_input_text)
+        # ES (E=4, F=5 input, G=6 Diff, H=7 %)
+        ws.write_number(r, 4, round(info["es"]), fmt_num_prev)
         es_reel = existing.get("es_reel")
         if es_reel not in (None, ""):
-            try: ws.write_number(r, 4, float(es_reel), fmt_input)
-            except (ValueError, TypeError): ws.write_blank(r, 4, None, fmt_input)
+            try: ws.write_number(r, 5, float(es_reel), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 5, None, fmt_input)
         else:
-            ws.write_blank(r, 4, None, fmt_input)
-        ws.write_formula(r, 5, f'=IFERROR(E{excel_row}-D{excel_row},"")', fmt_num)
-        ws.write_number(r, 6, round(info["cam"]), fmt_num_prev)
+            ws.write_blank(r, 5, None, fmt_input)
+        ws.write_formula(r, 6, f'=IF(F{excel_row}="","",F{excel_row}-E{excel_row})', fmt_num)
+        ws.write_formula(r, 7, f'=IF(F{excel_row}="","",IFERROR(F{excel_row}/E{excel_row},""))', fmt_pct_row)
+        # Cam (I=8, J=9, K=10, L=11)
+        ws.write_number(r, 8, round(info["cam"]), fmt_num_prev)
         cam_reel = existing.get("cam_reel")
         if cam_reel not in (None, ""):
-            try: ws.write_number(r, 7, float(cam_reel), fmt_input)
-            except (ValueError, TypeError): ws.write_blank(r, 7, None, fmt_input)
+            try: ws.write_number(r, 9, float(cam_reel), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 9, None, fmt_input)
         else:
-            ws.write_blank(r, 7, None, fmt_input)
-        ws.write_formula(r, 8, f'=IFERROR(H{excel_row}-G{excel_row},"")', fmt_num)
-        # Rails ES : Prévu (calculé) | Réel (input, champ DB = rails_geoloc) | Diff
-        ws.write_number(r, 9, round(info.get("rails_es") or 0), fmt_num_prev)
+            ws.write_blank(r, 9, None, fmt_input)
+        ws.write_formula(r, 10, f'=IF(J{excel_row}="","",J{excel_row}-I{excel_row})', fmt_num)
+        ws.write_formula(r, 11, f'=IF(J{excel_row}="","",IFERROR(J{excel_row}/I{excel_row},""))', fmt_pct_row)
+        # Rails ES (M=12, N=13, O=14, P=15)
+        ws.write_number(r, 12, round(info.get("rails_es") or 0), fmt_num_prev)
         rg = existing.get("rails_geoloc")
         if rg not in (None, ""):
-            try: ws.write_number(r, 10, float(rg), fmt_input)
-            except (ValueError, TypeError): ws.write_blank(r, 10, None, fmt_input)
+            try: ws.write_number(r, 13, float(rg), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 13, None, fmt_input)
         else:
-            ws.write_blank(r, 10, None, fmt_input)
-        ws.write_formula(r, 11, f'=IFERROR(K{excel_row}-J{excel_row},"")', fmt_num)
+            ws.write_blank(r, 13, None, fmt_input)
+        ws.write_formula(r, 14, f'=IF(N{excel_row}="","",N{excel_row}-M{excel_row})', fmt_num)
+        ws.write_formula(r, 15, f'=IF(N{excel_row}="","",IFERROR(N{excel_row}/M{excel_row},""))', fmt_pct_row)
+        # Géoloc (Q=16, R=17)
+        gc = existing.get("rails_geoloc_count")
+        if gc not in (None, ""):
+            try: ws.write_number(r, 16, float(gc), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 16, None, fmt_input)
+        else:
+            ws.write_blank(r, 16, None, fmt_input)
+        ws.write_formula(r, 17, f'=IF(Q{excel_row}="","",IFERROR(Q{excel_row}/M{excel_row},""))', fmt_pct_row)
         r += 1
     last_excel = r
     if r > 3:
+        # Ligne TOTAL
         ws.write(r, 0, "TOTAL", fmt_total_lbl)
         ws.write(r, 1, "", fmt_total_lbl)
         ws.write_formula(r, 2, f'=COUNTA(A{first_excel}:A{last_excel})&" nuits"', fmt_total_lbl)
-        for col_letter, col_idx in [("D", 3), ("E", 4), ("F", 5),
-                                     ("G", 6), ("H", 7), ("I", 8),
-                                     ("J", 9), ("K", 10), ("L", 11)]:
-            ws.write_formula(r, col_idx, f"=SUM({col_letter}{first_excel}:{col_letter}{last_excel})", fmt_total_row)
-        # Couleurs Diff (cols F=5, I=8, L=11)
-        for diff_col in (5, 8, 11):
+        ws.write(r, 3, "", fmt_total_lbl)
+        # Sommes (colonnes numériques sauf %)
+        for col_letter, col_idx in [("E", 4), ("F", 5), ("G", 6),
+                                     ("I", 8), ("J", 9), ("K", 10),
+                                     ("M", 12), ("N", 13), ("O", 14),
+                                     ("Q", 16)]:
+            ws.write_formula(r, col_idx,
+                f"=SUM({col_letter}{first_excel}:{col_letter}{last_excel})", fmt_total_row)
+        # % du TOTAL (toujours calculés, même si Réel sommé = 0)
+        excel_total = r + 1
+        ws.write_formula(r, 7, f'=IFERROR(F{excel_total}/E{excel_total},0)', fmt_total_pct)
+        ws.write_formula(r, 11, f'=IFERROR(J{excel_total}/I{excel_total},0)', fmt_total_pct)
+        ws.write_formula(r, 15, f'=IFERROR(N{excel_total}/M{excel_total},0)', fmt_total_pct)
+        ws.write_formula(r, 17, f'=IFERROR(Q{excel_total}/M{excel_total},0)', fmt_total_pct)
+
+        # CF Diff (cols G=6, K=10, O=14) — rouge/vert sur les diffs non vides
+        for diff_col in (6, 10, 14):
             ws.conditional_format(3, diff_col, last_excel - 1, diff_col,
                 {"type": "cell", "criteria": ">", "value": 0, "format": fmt_positive})
             ws.conditional_format(3, diff_col, last_excel - 1, diff_col,
                 {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
 
-    ws.merge_range(r + 2, 0, r + 2, 11,
-                   "Saisis ES réel / Cam réelle / Rails ES réel (cellules jaunes). "
-                   "Les colonnes Diff et tous les totaux se recalculent automatiquement.",
+        # CF "ligne traitée" : si au moins un Réel est saisi (F, J, N, Q), fond vert clair
+        # NB : applique seulement aux 4 premières colonnes (A-D) pour ne pas écraser les autres
+        # backgrounds (Prévu gris, Input jaune, etc). Permet de voir clairement quelles nuits sont
+        # traitées sans casser la lisibilité.
+        fmt_treated_main = workbook.add_format({
+            "bg_color": "#D1FAE5", "border": 1, "bold": True, "font_color": "#065F46",
+        })
+        fmt_treated_text = workbook.add_format({
+            "bg_color": "#D1FAE5", "border": 1, "font_color": "#065F46", "align": "left",
+        })
+        # A-C (cols 0-2) : nuit / type / allée phasage
+        ws.conditional_format(3, 0, last_excel - 1, 2,
+            {"type": "formula",
+             "criteria": f'=COUNTA($F4,$J4,$N4,$Q4)>0',
+             "format": fmt_treated_main})
+        # D (col 3) : allée réelle (alignée à gauche)
+        ws.conditional_format(3, 3, last_excel - 1, 3,
+            {"type": "formula",
+             "criteria": f'=COUNTA($F4,$J4,$N4,$Q4)>0',
+             "format": fmt_treated_text})
+
+    ws.merge_range(r + 2, 0, r + 2, 17,
+                   "Cellules jaunes = à remplir manuellement (Allée réelle / ES réel / Cam réelle "
+                   "/ Rails ES réel / Géolocalisés). Diff, % et totaux se recalculent automatiquement. "
+                   "Les lignes traitées sont surlignées en vert.",
                    workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"}))
 
 

@@ -47,6 +47,8 @@ export default function SuiviPhasageTab({ uploadId }) {
                         es_reel: r.es_reel ?? "",
                         cam_reel: r.cam_reel ?? "",
                         rails_geoloc: r.rails_geoloc ?? "",
+                        rails_geoloc_count: r.rails_geoloc_count ?? "",
+                        allee_reelle: r.allee_reelle ?? "",
                     };
                 });
                 setSuivi(idx);
@@ -113,6 +115,9 @@ export default function SuiviPhasageTab({ uploadId }) {
                 es_reel: v.es_reel === "" ? null : Number(v.es_reel),
                 cam_reel: v.cam_reel === "" ? null : Number(v.cam_reel),
                 rails_geoloc: v.rails_geoloc === "" ? null : Number(v.rails_geoloc),
+                rails_geoloc_count: v.rails_geoloc_count === "" || v.rails_geoloc_count == null
+                    ? null : Number(v.rails_geoloc_count),
+                allee_reelle: (v.allee_reelle == null || v.allee_reelle === "") ? null : String(v.allee_reelle),
             }));
             axios.patch(`${API}/dataset/${uploadId}/phasage`, {
                 es: ph.es || { nb_nuits: 3, rows: [] },
@@ -137,17 +142,29 @@ export default function SuiviPhasageTab({ uploadId }) {
         if (r == null) return null;
         return r - prevu;
     };
+    const pctRow = (reel, prevu) => {
+        const r = toNum(reel);
+        if (r == null || !prevu) return null;
+        return (r / prevu) * 100;
+    };
+    const pctCellColor = (p) => {
+        if (p == null) return "text-gray-400";
+        if (p >= 90) return "text-emerald-700 font-bold";
+        if (p >= 50) return "text-amber-700 font-bold";
+        return "text-red-700 font-bold";
+    };
 
     const totals = useMemo(() => {
-        let es = 0, cam = 0, rails = 0, esReel = 0, camReel = 0, railsReel = 0;
+        let es = 0, cam = 0, rails = 0, esReel = 0, camReel = 0, railsReel = 0, geoloc = 0;
         consolidated.forEach((r) => {
             es += r.es; cam += r.cam; rails += r.rails_es || 0;
             const sv = suivi[r.nuit] || {};
             esReel += Number(sv.es_reel) || 0;
             camReel += Number(sv.cam_reel) || 0;
             railsReel += Number(sv.rails_geoloc) || 0;
+            geoloc += Number(sv.rails_geoloc_count) || 0;
         });
-        return { es, cam, rails, esReel, camReel, railsReel };
+        return { es, cam, rails, esReel, camReel, railsReel, geoloc };
     }, [consolidated, suivi]);
 
     const handleExport = () => {
@@ -163,6 +180,7 @@ export default function SuiviPhasageTab({ uploadId }) {
     const pctES = pct(totals.esReel, totals.es);
     const pctCam = pct(totals.camReel, totals.cam);
     const pctRails = pct(totals.railsReel, totals.rails);
+    const pctGeoloc = pct(totals.geoloc, totals.rails);
     const gaugeColor = (p) => {
         if (p == null) return { bar: "bg-gray-300", text: "text-gray-500" };
         if (p >= 90) return { bar: "bg-emerald-500", text: "text-emerald-700" };
@@ -217,6 +235,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                     <Gauge label="ES" p={pctES} reel={totals.esReel} prevu={totals.es} color="bg-emerald-500" testid="gauge-es" />
                     <Gauge label="Caméras" p={pctCam} reel={totals.camReel} prevu={totals.cam} color="bg-purple-500" testid="gauge-cam" />
                     <Gauge label="Rails ES" p={pctRails} reel={totals.railsReel} prevu={totals.rails} color="bg-amber-500" testid="gauge-rails" />
+                    <Gauge label="Géoloc" p={pctGeoloc} reel={totals.geoloc} prevu={totals.rails} color="bg-sky-500" testid="gauge-geoloc" />
                 </div>
             </div>
 
@@ -227,104 +246,162 @@ export default function SuiviPhasageTab({ uploadId }) {
                             <tr>
                                 <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Nuit</th>
                                 <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Type</th>
-                                <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Allées</th>
-                                <th colSpan={3} className="px-2 py-1 text-center font-semibold bg-emerald-50 border-l border-b">ES</th>
-                                <th colSpan={3} className="px-2 py-1 text-center font-semibold bg-purple-50 border-l border-b">Caméras</th>
-                                <th colSpan={3} className="px-2 py-1 text-center font-semibold bg-amber-50 border-l border-b">Rails ES</th>
+                                <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Allée phasage</th>
+                                <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b bg-yellow-50">Allée réelle</th>
+                                <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-emerald-50 border-l border-b">ES</th>
+                                <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-purple-50 border-l border-b">Caméras</th>
+                                <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-amber-50 border-l border-b">Rails ES</th>
+                                <th colSpan={2} className="px-2 py-1 text-center font-semibold bg-sky-50 border-l border-b">Géoloc</th>
                             </tr>
                             <tr>
                                 <th className="px-2 py-1 text-right font-semibold bg-emerald-50 border-l">Prévu</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-emerald-50">Réel</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-emerald-50">Diff</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-emerald-50">%</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50 border-l">Prévue</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50">Réelle</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50">Diff</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-purple-50">%</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-amber-50 border-l">Prévu</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-amber-50">Réel</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-amber-50">Diff</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-amber-50">%</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-sky-50 border-l" title="Nombre de rails géolocalisés (scan GPS)">Nb</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-sky-50" title="Géolocalisés / Rails ES prévu">%</th>
                             </tr>
                         </thead>
                         <tbody>
                             {consolidated.length === 0 && (
-                                <tr><td colSpan={12} className="px-3 py-8 text-center text-gray-500 italic">
+                                <tr><td colSpan={18} className="px-3 py-8 text-center text-gray-500 italic">
                                     Aucune nuit planifiée. Renseigne « Phasage de pose » ou « Phasage caméras » d'abord.
                                 </td></tr>
                             )}
                             {consolidated.map((r) => {
-                                const sv = suivi[r.nuit] || { es_reel: "", cam_reel: "", rails_geoloc: "" };
+                                const sv = suivi[r.nuit] || { es_reel: "", cam_reel: "", rails_geoloc: "", rails_geoloc_count: "", allee_reelle: "" };
+                                const treated = (sv.es_reel !== "" && sv.es_reel != null)
+                                    || (sv.cam_reel !== "" && sv.cam_reel != null)
+                                    || (sv.rails_geoloc !== "" && sv.rails_geoloc != null)
+                                    || (sv.rails_geoloc_count !== "" && sv.rails_geoloc_count != null);
                                 const color = nightColor(r.nuit);
+                                const rowStyle = treated
+                                    ? { backgroundColor: "#D1FAE5", borderLeft: "4px solid #10B981" }
+                                    : (color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {});
                                 const dEs = diff(sv.es_reel, r.es);
                                 const dCam = diff(sv.cam_reel, r.cam);
                                 const dRails = diff(sv.rails_geoloc, r.rails_es || 0);
+                                const pEs = pctRow(sv.es_reel, r.es);
+                                const pCam = pctRow(sv.cam_reel, r.cam);
+                                const pRails = pctRow(sv.rails_geoloc, r.rails_es || 0);
+                                const pGeoloc = pctRow(sv.rails_geoloc_count, r.rails_es || 0);
                                 const diffColor = (v) => {
                                     if (v == null) return "text-gray-400";
                                     if (v > 0) return "text-emerald-700";
                                     if (v < 0) return "text-red-700";
                                     return "text-gray-700";
                                 };
+                                const fmtPct = (p) => p == null ? "" : `${p.toFixed(0)}%`;
                                 return (
-                                    <tr key={r.nuit} className="border-t border-gray-100"
-                                        style={color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {}}
+                                    <tr key={r.nuit} className={`border-t border-gray-100 ${treated ? "font-semibold" : ""}`}
+                                        style={rowStyle}
                                         data-testid={`suivi-nuit-${r.nuit}`}>
-                                        <td className="px-2 py-1 font-medium text-gray-900">Nuit {r.nuit}</td>
+                                        <td className="px-2 py-1 font-medium text-gray-900">
+                                            Nuit {r.nuit}
+                                            {treated && <span className="ml-1 text-emerald-700" title="Traitée">✓</span>}
+                                        </td>
                                         <td className="px-2 py-1 text-gray-700 text-[11px]">{r.type}</td>
-                                        <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[200px] truncate" title={r.allees.join(", ")}>
+                                        <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate" title={r.allees.join(", ")}>
                                             {r.allees.join(", ")}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data text-gray-700">{r.es > 0 ? fmt(r.es) : "—"}</td>
+                                        {/* Allée réelle */}
                                         <td className="px-1 py-1">
                                             <input
-                                                type="number"
-                                                value={sv.es_reel}
+                                                type="text" value={sv.allee_reelle || ""}
+                                                onChange={(e) => updateSuivi(r.nuit, "allee_reelle", e.target.value)}
+                                                data-testid={`suivi-allee-reelle-${r.nuit}`}
+                                                className="w-full h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-left font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                placeholder="ex: 1A bis"
+                                            />
+                                        </td>
+                                        {/* ES */}
+                                        <td className="px-2 py-1 text-right font-mono-data text-gray-700 border-l">{r.es > 0 ? fmt(r.es) : "—"}</td>
+                                        <td className="px-1 py-1">
+                                            <input
+                                                type="number" value={sv.es_reel}
                                                 onChange={(e) => updateSuivi(r.nuit, "es_reel", e.target.value)}
                                                 data-testid={`suivi-es-reel-${r.nuit}`}
                                                 className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dEs)}`} data-testid={`suivi-es-diff-${r.nuit}`}>
-                                            {dEs == null ? "—" : (dEs > 0 ? `+${fmt(dEs)}` : fmt(dEs))}
+                                            {dEs == null ? "" : (dEs > 0 ? `+${fmt(dEs)}` : fmt(dEs))}
                                         </td>
+                                        <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pEs)}`} data-testid={`suivi-es-pct-${r.nuit}`}>
+                                            {fmtPct(pEs)}
+                                        </td>
+                                        {/* Caméras */}
                                         <td className="px-2 py-1 text-right font-mono-data text-gray-700 border-l">{r.cam > 0 ? fmt(r.cam) : "—"}</td>
                                         <td className="px-1 py-1">
                                             <input
-                                                type="number"
-                                                value={sv.cam_reel}
+                                                type="number" value={sv.cam_reel}
                                                 onChange={(e) => updateSuivi(r.nuit, "cam_reel", e.target.value)}
                                                 data-testid={`suivi-cam-reel-${r.nuit}`}
                                                 className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dCam)}`} data-testid={`suivi-cam-diff-${r.nuit}`}>
-                                            {dCam == null ? "—" : (dCam > 0 ? `+${fmt(dCam)}` : fmt(dCam))}
+                                            {dCam == null ? "" : (dCam > 0 ? `+${fmt(dCam)}` : fmt(dCam))}
                                         </td>
+                                        <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pCam)}`} data-testid={`suivi-cam-pct-${r.nuit}`}>
+                                            {fmtPct(pCam)}
+                                        </td>
+                                        {/* Rails ES */}
                                         <td className="px-2 py-1 text-right font-mono-data text-gray-700 border-l">{r.rails_es > 0 ? fmt(r.rails_es) : "—"}</td>
                                         <td className="px-1 py-1">
                                             <input
-                                                type="number"
-                                                value={sv.rails_geoloc}
+                                                type="number" value={sv.rails_geoloc}
                                                 onChange={(e) => updateSuivi(r.nuit, "rails_geoloc", e.target.value)}
                                                 data-testid={`suivi-rails-reel-${r.nuit}`}
                                                 className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
                                             />
                                         </td>
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dRails)}`} data-testid={`suivi-rails-diff-${r.nuit}`}>
-                                            {dRails == null ? "—" : (dRails > 0 ? `+${fmt(dRails)}` : fmt(dRails))}
+                                            {dRails == null ? "" : (dRails > 0 ? `+${fmt(dRails)}` : fmt(dRails))}
+                                        </td>
+                                        <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pRails)}`} data-testid={`suivi-rails-pct-${r.nuit}`}>
+                                            {fmtPct(pRails)}
+                                        </td>
+                                        {/* Géolocalisés */}
+                                        <td className="px-1 py-1 border-l">
+                                            <input
+                                                type="number" value={sv.rails_geoloc_count}
+                                                onChange={(e) => updateSuivi(r.nuit, "rails_geoloc_count", e.target.value)}
+                                                data-testid={`suivi-geoloc-${r.nuit}`}
+                                                className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                            />
+                                        </td>
+                                        <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pGeoloc)}`} data-testid={`suivi-geoloc-pct-${r.nuit}`}>
+                                            {fmtPct(pGeoloc)}
                                         </td>
                                     </tr>
                                 );
                             })}
                             {consolidated.length > 0 && (
                                 <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
-                                    <td className="px-2 py-1 text-gray-900" colSpan={3}>TOTAL ({consolidated.length} nuits)</td>
-                                    <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.es)}</td>
+                                    <td className="px-2 py-1 text-gray-900" colSpan={4}>TOTAL ({consolidated.length} nuits)</td>
+                                    <td className="px-2 py-1 text-right font-mono-data border-l">{fmt(totals.es)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.esReel)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.esReel - totals.es)}</td>
+                                    <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pctES)}`}>{pctES == null ? "—" : `${pctES.toFixed(0)}%`}</td>
                                     <td className="px-2 py-1 text-right font-mono-data border-l">{fmt(totals.cam)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.camReel)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.camReel - totals.cam)}</td>
+                                    <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pctCam)}`}>{pctCam == null ? "—" : `${pctCam.toFixed(0)}%`}</td>
                                     <td className="px-2 py-1 text-right font-mono-data border-l">{fmt(totals.rails)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.railsReel)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.railsReel - totals.rails)}</td>
+                                    <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pctRails)}`}>{pctRails == null ? "—" : `${pctRails.toFixed(0)}%`}</td>
+                                    <td className="px-2 py-1 text-right font-mono-data border-l">{fmt(totals.geoloc)}</td>
+                                    <td className={`px-2 py-1 text-right font-mono-data text-[11px] ${pctCellColor(pctGeoloc)}`}>{pctGeoloc == null ? "—" : `${pctGeoloc.toFixed(0)}%`}</td>
                                 </tr>
                             )}
                         </tbody>
