@@ -79,6 +79,13 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
+## Feature additions (25/05/2026, v2) — Améliorations Phasage de pose
+- [x] Tableau gauche : **select déroulant** avec uniquement les allées qui existent dans le fichier (libellé = numéro + secteur/rayon, fini la saisie libre)
+- [x] **Auto-exclusion** : une fois sélectionnée, l'allée disparaît du menu déroulant des autres lignes (zéro doublon possible)
+- [x] **Lignes colorées par nuit** (palette douce) : Nuit 1 jaune, Nuit 2 bleu, Nuit 3 vert, Nuit 4 rose, etc. (10 couleurs en rotation). Bordure gauche colorée pour distinction rapide
+- [x] Tableau droit : nouvelle colonne **Allées** listant les n° d'allées assignées à chaque nuit (ex. "1, 2, 5"), ligne TOTAL indique le nb total d'allées
+- [x] Même cohérence visuelle dans l'export Excel : colonne "Allées" + même tri numérique
+
 ## Feature additions (25/05/2026) — Onglet "Phasage de pose"
 - [x] Nouvel onglet **Phasage de pose** (5ème onglet en bas) pour planifier la pose d'étiquettes ES 1.5 / ES 2.1 par nuit
 - [x] Sélecteur **Nombre de nuits** (1-30) + calcul automatique **Moyenne / nuit = (ES 1.5 + ES 2.1) / nb nuits**

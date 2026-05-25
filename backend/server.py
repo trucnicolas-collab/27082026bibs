@@ -857,9 +857,10 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.set_column(4, 4, 12)
     ws.set_column(5, 5, 4)
     ws.set_column(6, 6, 10)
-    ws.set_column(7, 7, 14)
+    ws.set_column(7, 7, 32)
     ws.set_column(8, 8, 14)
     ws.set_column(9, 9, 14)
+    ws.set_column(10, 10, 14)
 
     fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
                                      "border": 1, "font_size": 12, "align": "left"})
@@ -926,27 +927,42 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         rr += 1
 
     col_right = 6
-    ws.merge_range(start_left, col_right, start_left, col_right + 3, "Récap par nuit", fmt_title)
-    headers_right = ["Nuit", "ES 1.5", "ES 2.1", "Rails ES"]
+    ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
+    headers_right = ["Nuit", "Allées", "ES 1.5", "ES 2.1", "Rails ES"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
+    night_allees: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
+    for row in rows_assign:
+        allee = str(row.get("allee") or "").strip()
+        nuit = row.get("nuit")
+        if allee and nuit and 1 <= int(nuit) <= nb_nuits:
+            night_allees[int(nuit)].append(allee)
+    # Tri num des allées par nuit
+    def _sort_allee(a):
+        try:
+            return (0, float(str(a).replace(",", ".")))
+        except (ValueError, TypeError):
+            return (1, str(a))
     total_es15 = 0
     total_es21 = 0
     total_rails = 0
     for i, n in enumerate(range(1, nb_nuits + 1), start=0):
         rrow = start_left + 2 + i
+        allees_list = sorted(night_allees[n], key=_sort_allee)
         ws.write(rrow, col_right + 0, f"Nuit {n}", fmt_cell)
-        ws.write_number(rrow, col_right + 1, round(night_totals[n]["es_15"], 2), fmt_num)
-        ws.write_number(rrow, col_right + 2, round(night_totals[n]["es_21"], 2), fmt_num)
-        ws.write_number(rrow, col_right + 3, round(night_totals[n]["rails_es"], 2), fmt_num)
+        ws.write(rrow, col_right + 1, ", ".join(allees_list) if allees_list else "—", fmt_cell)
+        ws.write_number(rrow, col_right + 2, round(night_totals[n]["es_15"], 2), fmt_num)
+        ws.write_number(rrow, col_right + 3, round(night_totals[n]["es_21"], 2), fmt_num)
+        ws.write_number(rrow, col_right + 4, round(night_totals[n]["rails_es"], 2), fmt_num)
         total_es15 += night_totals[n]["es_15"]
         total_es21 += night_totals[n]["es_21"]
         total_rails += night_totals[n]["rails_es"]
     rrow_total = start_left + 2 + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
-    ws.write_number(rrow_total, col_right + 1, round(total_es15, 2), fmt_total_row)
-    ws.write_number(rrow_total, col_right + 2, round(total_es21, 2), fmt_total_row)
-    ws.write_number(rrow_total, col_right + 3, round(total_rails, 2), fmt_total_row)
+    ws.write(rrow_total, col_right + 1, f"{sum(len(v) for v in night_allees.values())} allées", fmt_total_lbl)
+    ws.write_number(rrow_total, col_right + 2, round(total_es15, 2), fmt_total_row)
+    ws.write_number(rrow_total, col_right + 3, round(total_es21, 2), fmt_total_row)
+    ws.write_number(rrow_total, col_right + 4, round(total_rails, 2), fmt_total_row)
 
 
 
