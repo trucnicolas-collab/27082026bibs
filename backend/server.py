@@ -120,6 +120,24 @@ async def persist_comment_table(upload_id: str, comment_table: dict):
     )
 
 
+async def persist_phasage(upload_id: str, phasage: dict):
+    """Met à jour uniquement le phasage de pose en base."""
+    if upload_id not in DATASTORE:
+        return
+    doc = await db.datasets.find_one({"upload_id": upload_id}, {"payload": 1, "_id": 0})
+    if not doc:
+        await persist_dataset(upload_id, DATASTORE[upload_id])
+        return
+    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
+    payload["phasage"] = phasage
+    raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    compressed = gzip.compress(raw_bytes, compresslevel=6)
+    await db.datasets.update_one(
+        {"upload_id": upload_id},
+        {"$set": {"payload": Binary(compressed), "size_bytes": len(raw_bytes), "compressed_bytes": len(compressed)}},
+    )
+
+
 async def load_dataset(upload_id: str) -> Optional[dict]:
     """Récupère un dataset : d'abord en cache mémoire, sinon depuis MongoDB."""
     if upload_id in DATASTORE:
@@ -625,6 +643,315 @@ async def update_comment_table(upload_id: str, payload: CommentTableUpdate):
     return {"ok": True, "comment_table": d["comment_table"]}
 
 
+# === PHASAGE DE POSE ==========================================================
+
+# Liste exacte des désignations comptées comme "Rails ES" (substring, casse insensible)
+RAILS_ES_PATTERNS = [
+    "1187 mm (noir)",
+    "1240 mm (noir)",
+    "1320 mm (blanc)",
+    "1320 mm (noir)",
+    "650 mm (noir)",
+    "990 mm (blanc)",
+    "990 mm (noir)",
+]
+
+
+def _norm_desig(s: Any) -> str:
+    if s is None:
+        return ""
+    try:
+        if isinstance(s, float) and math.isnan(s):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(s).strip().lower()
+
+
+def _is_es_15(desig: str) -> bool:
+    """Détecte 'ES 1.5' (insensible à la casse, accepte virgule décimale)."""
+    d = _norm_desig(desig)
+    return "es 1.5" in d or "es 1,5" in d
+
+
+def _is_es_21(desig: str) -> bool:
+    d = _norm_desig(desig)
+    return "es 2.1" in d or "es 2,1" in d
+
+
+def _is_rail_es(desig: str) -> bool:
+    """Vérifie si la désignation contient une des longueurs de rail ES."""
+    d = _norm_desig(desig)
+    if not d:
+        return False
+    for pat in RAILS_ES_PATTERNS:
+        if pat.lower() in d:
+            return True
+    return False
+
+
+def compute_phasage_summary(d: dict) -> dict:
+    """Pour chaque allée du dataset, calcule les comptes ES 1.5 / ES 2.1 / Rails ES,
+    ainsi que les totaux globaux. Retourne un dict prêt à servir au frontend.
+    """
+    raw_records = d.get("raw_records", []) or []
+    if not raw_records:
+        return {"allees": [], "totals": {"es_15": 0, "es_21": 0, "rails_es": 0, "rails_es_by_desig": {}}}
+
+    columns = list(raw_records[0].keys())
+    # Détection colonnes
+    secteur_col = next((c for c in ["Secteur"] if c in columns), None)
+    rayon_col = next((c for c in ["Rayon"] if c in columns), None)
+    allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in columns), None)
+    type_col = next((c for c in ["Type"] if c in columns), None)
+    desig_col = next((c for c in ["Désignation", "Designation"] if c in columns), None)
+    qty_col = next((c for c in ["Quantité", "Quantite"] if c in columns), None)
+
+    # Agrégation par allée (clé = str de l'allée)
+    by_allee: dict[str, dict] = {}
+    totals = {"es_15": 0.0, "es_21": 0.0, "rails_es": 0.0, "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS}}
+
+    for r in raw_records:
+        allee_raw = r.get(allee_col) if allee_col else None
+        if allee_raw is None or (isinstance(allee_raw, float) and math.isnan(allee_raw)):
+            continue
+        # Normalisation : 1.0 -> "1"
+        try:
+            f = float(allee_raw)
+            if f.is_integer():
+                allee_key = str(int(f))
+            else:
+                allee_key = str(allee_raw)
+        except (ValueError, TypeError):
+            allee_key = str(allee_raw).strip()
+
+        typ = str(r.get(type_col) or "").strip() if type_col else ""
+        desig = str(r.get(desig_col) or "") if desig_col else ""
+        try:
+            qty = float(r.get(qty_col) or 0) if qty_col else 0
+        except (ValueError, TypeError):
+            qty = 0
+
+        node = by_allee.setdefault(allee_key, {
+            "allee": allee_key,
+            "secteur": str(r.get(secteur_col) or "") if secteur_col else "",
+            "rayon": str(r.get(rayon_col) or "") if rayon_col else "",
+            "es_15": 0.0,
+            "es_21": 0.0,
+            "rails_es": 0.0,
+            "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS},
+        })
+
+        is_eeg = typ.lower() == "eeg"
+        is_rail = typ.lower() == "rail"
+        if is_eeg and _is_es_15(desig):
+            node["es_15"] += qty
+            totals["es_15"] += qty
+        elif is_eeg and _is_es_21(desig):
+            node["es_21"] += qty
+            totals["es_21"] += qty
+        elif is_rail and _is_rail_es(desig):
+            node["rails_es"] += qty
+            totals["rails_es"] += qty
+            # détection précise du pattern pour le breakdown
+            d_low = _norm_desig(desig)
+            for pat in RAILS_ES_PATTERNS:
+                if pat.lower() in d_low:
+                    node["rails_es_by_desig"][pat] += qty
+                    totals["rails_es_by_desig"][pat] += qty
+                    break
+
+    # Tri "logique" : Secteur > Rayon > N° allée numérique
+    def _sort_key(v):
+        try:
+            return (str(v["secteur"]), str(v["rayon"]), (0, float(str(v["allee"]).replace(",", "."))))
+        except (ValueError, TypeError):
+            return (str(v["secteur"]), str(v["rayon"]), (1, str(v["allee"])))
+
+    allees = sorted(by_allee.values(), key=_sort_key)
+    # Round pour transit JSON propre
+    def _r(x):
+        try:
+            f = float(x)
+            return int(f) if f.is_integer() else round(f, 2)
+        except (ValueError, TypeError):
+            return 0
+    for a in allees:
+        a["es_15"] = _r(a["es_15"])
+        a["es_21"] = _r(a["es_21"])
+        a["rails_es"] = _r(a["rails_es"])
+        a["rails_es_by_desig"] = {k: _r(v) for k, v in a["rails_es_by_desig"].items()}
+    totals = {
+        "es_15": _r(totals["es_15"]),
+        "es_21": _r(totals["es_21"]),
+        "rails_es": _r(totals["rails_es"]),
+        "rails_es_by_desig": {k: _r(v) for k, v in totals["rails_es_by_desig"].items()},
+    }
+
+    return {
+        "allees": allees,
+        "totals": totals,
+        "rails_es_patterns": RAILS_ES_PATTERNS,
+    }
+
+
+@api_router.get("/dataset/{upload_id}/phasage-summary")
+async def get_phasage_summary(upload_id: str):
+    """Retourne la liste des allées avec leurs comptes ES 1.5 / ES 2.1 / Rails ES
+    + les totaux globaux pour l'onglet Phasage de pose."""
+    d = await load_dataset(upload_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    summary = compute_phasage_summary(d)
+    summary["phasage"] = d.get("phasage") or {"nb_nuits": 3, "rows": []}
+    return summary
+
+
+class PhasageRow(BaseModel):
+    id: str
+    allee: str = ""
+    nuit: Optional[int] = None
+
+
+class PhasageUpdate(BaseModel):
+    nb_nuits: int
+    rows: list[PhasageRow]
+
+
+@api_router.patch("/dataset/{upload_id}/phasage")
+async def update_phasage(upload_id: str, payload: PhasageUpdate):
+    """Sauvegarde l'état du tableau de phasage (nb nuits + assignations)."""
+    d = await load_dataset(upload_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    nb = max(1, min(int(payload.nb_nuits), 30))
+    rows = [{"id": r.id, "allee": r.allee or "", "nuit": r.nuit if r.nuit and 1 <= r.nuit <= nb else None}
+            for r in payload.rows]
+    d["phasage"] = {"nb_nuits": nb, "rows": rows}
+    try:
+        await persist_phasage(upload_id, d["phasage"])
+    except Exception as e:
+        logger.warning(f"Mongo persist phasage failed: {e}")
+    return {"ok": True, "phasage": d["phasage"]}
+
+
+
+def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
+    """Génère la feuille "Phasage de pose" avec :
+      - En-tête : nb nuits, moyenne/nuit (ES1.5+ES2.1)
+      - Bloc totaux globaux (ES 1.5, ES 2.1, breakdown rails ES par longueur)
+      - Tableau gauche : assignations allée -> nuit (avec comptes auto)
+      - Tableau droite : agrégation par nuit
+    """
+    summary = compute_phasage_summary(d)
+    phasage = d.get("phasage") or {"nb_nuits": 3, "rows": []}
+    nb_nuits = max(1, int(phasage.get("nb_nuits") or 3))
+    rows_assign = phasage.get("rows") or []
+
+    ws = workbook.add_worksheet("Phasage de pose")
+    writer.sheets["Phasage de pose"] = ws
+    ws.set_column(0, 0, 12)
+    ws.set_column(1, 1, 14)
+    ws.set_column(2, 2, 14)
+    ws.set_column(3, 3, 14)
+    ws.set_column(4, 4, 12)
+    ws.set_column(5, 5, 4)
+    ws.set_column(6, 6, 10)
+    ws.set_column(7, 7, 14)
+    ws.set_column(8, 8, 14)
+    ws.set_column(9, 9, 14)
+
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+                                     "border": 1, "font_size": 12, "align": "left"})
+    fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "left"})
+    fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+
+    totals = summary["totals"]
+    avg_per_night = (totals["es_15"] + totals["es_21"]) / nb_nuits if nb_nuits else 0
+
+    ws.merge_range(0, 0, 0, 9, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
+    ws.write(1, 0, "Nb nuits :", fmt_lbl)
+    ws.write_number(1, 1, nb_nuits, fmt_num)
+    ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
+    ws.write_number(1, 3, round(avg_per_night, 1), fmt_num)
+    ws.write(1, 4, "(ES1.5 + ES2.1) / nb nuits", workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"}))
+
+    ws.write(3, 0, "Total ES 1.5", fmt_lbl)
+    ws.write_number(3, 1, totals["es_15"], fmt_num)
+    ws.write(3, 2, "Total ES 2.1", fmt_lbl)
+    ws.write_number(3, 3, totals["es_21"], fmt_num)
+    ws.write(3, 4, "Total Rails ES", fmt_lbl)
+    ws.write_number(3, 6, totals["rails_es"], fmt_num)
+
+    ws.write(5, 0, "Rails ES par désignation :", fmt_lbl)
+    r = 6
+    for pat in RAILS_ES_PATTERNS:
+        ws.write(r, 0, pat, fmt_cell)
+        ws.write_number(r, 1, totals["rails_es_by_desig"].get(pat, 0), fmt_num)
+        r += 1
+
+    start_left = r + 2
+    ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
+    headers_left = ["N° Allée", "ES 1.5", "ES 2.1", "Rails ES", "Nuit"]
+    for ci, h in enumerate(headers_left):
+        ws.write(start_left + 1, ci, h, fmt_lbl)
+
+    allee_index = {str(a["allee"]): a for a in summary["allees"]}
+
+    night_totals = {n: {"es_15": 0.0, "es_21": 0.0, "rails_es": 0.0} for n in range(1, nb_nuits + 1)}
+    rr = start_left + 2
+    for row in rows_assign:
+        allee = str(row.get("allee") or "").strip()
+        nuit = row.get("nuit")
+        node = allee_index.get(allee)
+        es15 = node["es_15"] if node else 0
+        es21 = node["es_21"] if node else 0
+        rails = node["rails_es"] if node else 0
+        try:
+            ws.write_number(rr, 0, int(allee), fmt_cell)
+        except (ValueError, TypeError):
+            ws.write(rr, 0, allee, fmt_cell)
+        ws.write_number(rr, 1, es15, fmt_num)
+        ws.write_number(rr, 2, es21, fmt_num)
+        ws.write_number(rr, 3, rails, fmt_num)
+        if nuit and 1 <= int(nuit) <= nb_nuits:
+            ws.write(rr, 4, f"Nuit {int(nuit)}", fmt_num)
+            night_totals[int(nuit)]["es_15"] += es15
+            night_totals[int(nuit)]["es_21"] += es21
+            night_totals[int(nuit)]["rails_es"] += rails
+        else:
+            ws.write(rr, 4, "—", fmt_num)
+        rr += 1
+
+    col_right = 6
+    ws.merge_range(start_left, col_right, start_left, col_right + 3, "Récap par nuit", fmt_title)
+    headers_right = ["Nuit", "ES 1.5", "ES 2.1", "Rails ES"]
+    for ci, h in enumerate(headers_right):
+        ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
+    total_es15 = 0
+    total_es21 = 0
+    total_rails = 0
+    for i, n in enumerate(range(1, nb_nuits + 1), start=0):
+        rrow = start_left + 2 + i
+        ws.write(rrow, col_right + 0, f"Nuit {n}", fmt_cell)
+        ws.write_number(rrow, col_right + 1, round(night_totals[n]["es_15"], 2), fmt_num)
+        ws.write_number(rrow, col_right + 2, round(night_totals[n]["es_21"], 2), fmt_num)
+        ws.write_number(rrow, col_right + 3, round(night_totals[n]["rails_es"], 2), fmt_num)
+        total_es15 += night_totals[n]["es_15"]
+        total_es21 += night_totals[n]["es_21"]
+        total_rails += night_totals[n]["rails_es"]
+    rrow_total = start_left + 2 + nb_nuits
+    ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
+    ws.write_number(rrow_total, col_right + 1, round(total_es15, 2), fmt_total_row)
+    ws.write_number(rrow_total, col_right + 2, round(total_es21, 2), fmt_total_row)
+    ws.write_number(rrow_total, col_right + 3, round(total_rails, 2), fmt_total_row)
+
+
+
+
+
 def _detect_element_col(columns: list[str]) -> Optional[str]:
     """Trouve la colonne 'N° élément' / Gondole dans les données brutes (insensible à la casse)."""
     candidates = ["N° élément", "N° element", "Élément", "Element", "N° gondole", "Gondole"]
@@ -913,6 +1240,8 @@ async def export_excel(upload_id: str, sheet: str = "all"):
         if sheet in ("all", "parsecteur"):
             _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur)
 
+        if sheet in ("all", "phasage"):
+            _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
 
         if sheet in ("all", "comment"):
             ct = d.get("comment_table") or {"columns": [], "rows": []}
