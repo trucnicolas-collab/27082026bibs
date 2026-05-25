@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer, ReferenceLine } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -336,7 +336,6 @@ export default function PhasageTab({ uploadId }) {
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
                                         const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
-                                        const over = totalES > 4500;
                                         const color = nightColor(n);
                                         return (
                                             <tr
@@ -349,7 +348,7 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate" title={t.allees.join(", ")}>
                                                     {t.allees.length ? t.allees.join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
-                                                <td className={`px-2 py-1 text-right font-mono-data font-bold ${over ? "text-red-600" : "text-emerald-700"}`} title="Total ES 1.5 + ES 2.1 — objectif : ≤ 4500 par nuit">
+                                                <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" title="Total ES 1.5 + ES 2.1">
                                                     {fmt(Math.round(totalES))}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
@@ -375,9 +374,6 @@ export default function PhasageTab({ uploadId }) {
                                 </tbody>
                             </table>
                         </div>
-                        <p className="text-[11px] text-gray-500 mt-1">
-                            La colonne « Total ES » devient rouge si elle dépasse 4 500 (objectif/nuit).
-                        </p>
                     </div>
                 </div>
 
@@ -408,7 +404,6 @@ export default function PhasageTab({ uploadId }) {
                                     formatter={(v) => new Intl.NumberFormat("fr-FR").format(v)}
                                 />
                                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                                <ReferenceLine y={4500} stroke="#DC2626" strokeDasharray="4 4" label={{ value: "Objectif 4 500", fontSize: 10, fill: "#DC2626", position: "right" }} />
                                 <Bar dataKey="ES" fill="#10B981" />
                                 <Bar dataKey="Rails ES" fill="#F59E0B" />
                             </BarChart>
