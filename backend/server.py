@@ -1431,7 +1431,7 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
 
 
 def _build_consolidated_nuit_data(d, summary):
-    """Construit le planning consolidé { nuit_globale: {type, allees, es, cam} }."""
+    """Construit le planning consolidé { nuit_globale: {type, allees, es, cam, rails_es} }."""
     phasage_full = _normalize_phasage(d.get("phasage"))
     es_plan = phasage_full["es"]
     cam_plan = phasage_full["cam"]
@@ -1444,16 +1444,17 @@ def _build_consolidated_nuit_data(d, summary):
         node = idx.get(a)
         if not node: continue
         gn = int(n)
-        dn = nuit_data.setdefault(gn, {"type": "ES", "allees": [], "es": 0, "cam": 0})
+        dn = nuit_data.setdefault(gn, {"type": "ES", "allees": [], "es": 0, "cam": 0, "rails_es": 0})
         dn["allees"].append(a)
         dn["es"] += (node.get("es_15") or 0) + (node.get("es_21") or 0)
+        dn["rails_es"] += node.get("rails_es") or 0
     for r in cam_plan.get("rows") or []:
         n, a = r.get("nuit"), str(r.get("allee") or "").strip()
         if not n or not a: continue
         node = idx.get(a)
         if not node: continue
         gn = start_at + int(n) - 1
-        dn = nuit_data.setdefault(gn, {"type": "Caméras", "allees": [], "es": 0, "cam": 0})
+        dn = nuit_data.setdefault(gn, {"type": "Caméras", "allees": [], "es": 0, "cam": 0, "rails_es": 0})
         if dn["es"] > 0:
             dn["type"] = "Mixte"
         elif dn["type"] != "Mixte":
@@ -1500,7 +1501,11 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
 
 
 def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
-    """Comparaison prévu / réalité — éditable Excel via formules."""
+    """Comparaison prévu / réalité — éditable Excel via formules.
+    Colonnes : Nuit | Type | Allées | ES prévu | ES réel | Diff ES |
+               Cam prévue | Cam réelle | Diff Cam |
+               Rails ES prévu | Rails ES réel | Diff Rails ES
+    """
     summary = compute_phasage_summary(d)
     nuit_data = _build_consolidated_nuit_data(d, summary)
     phasage_full = _normalize_phasage(d.get("phasage"))
@@ -1509,7 +1514,7 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     ws = workbook.add_worksheet("Suivi phasage")
     writer.sheets["Suivi phasage"] = ws
-    widths = [8, 10, 32, 11, 11, 11, 11, 11, 11, 18]
+    widths = [8, 10, 32, 11, 11, 11, 11, 11, 11, 12, 12, 12]
     for ci, w in enumerate(widths):
         ws.set_column(ci, ci, w)
 
@@ -1525,11 +1530,11 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     fmt_positive = workbook.add_format({"border": 1, "align": "right", "font_color": "#047857"})
     fmt_negative = workbook.add_format({"border": 1, "align": "right", "font_color": "#B91C1C"})
 
-    ws.merge_range(0, 0, 0, 9, "Suivi phasage — Prévu vs Réalité", fmt_title)
+    ws.merge_range(0, 0, 0, 11, "Suivi phasage — Prévu vs Réalité", fmt_title)
     for ci, h in enumerate(["Nuit", "Type", "Allées",
                              "ES prévu", "ES réel", "Diff ES",
                              "Cam prévue", "Cam réelle", "Diff Cam",
-                             "Rails ES géolocalisé"]):
+                             "Rails ES prévu", "Rails ES réel", "Diff Rails ES"]):
         ws.write(2, ci, h, fmt_lbl)
 
     sorted_nuits = sorted(nuit_data.keys())
@@ -1558,32 +1563,34 @@ def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         else:
             ws.write_blank(r, 7, None, fmt_input)
         ws.write_formula(r, 8, f'=IFERROR(H{excel_row}-G{excel_row},"")', fmt_num)
+        # Rails ES : Prévu (calculé) | Réel (input, champ DB = rails_geoloc) | Diff
+        ws.write_number(r, 9, round(info.get("rails_es") or 0), fmt_num_prev)
         rg = existing.get("rails_geoloc")
         if rg not in (None, ""):
-            try: ws.write_number(r, 9, float(rg), fmt_input)
-            except (ValueError, TypeError): ws.write_blank(r, 9, None, fmt_input)
+            try: ws.write_number(r, 10, float(rg), fmt_input)
+            except (ValueError, TypeError): ws.write_blank(r, 10, None, fmt_input)
         else:
-            ws.write_blank(r, 9, None, fmt_input)
+            ws.write_blank(r, 10, None, fmt_input)
+        ws.write_formula(r, 11, f'=IFERROR(K{excel_row}-J{excel_row},"")', fmt_num)
         r += 1
     last_excel = r
     if r > 3:
         ws.write(r, 0, "TOTAL", fmt_total_lbl)
         ws.write(r, 1, "", fmt_total_lbl)
         ws.write_formula(r, 2, f'=COUNTA(A{first_excel}:A{last_excel})&" nuits"', fmt_total_lbl)
-        for col_letter, col_idx in [("D", 3), ("E", 4), ("F", 5), ("G", 6), ("H", 7), ("I", 8), ("J", 9)]:
+        for col_letter, col_idx in [("D", 3), ("E", 4), ("F", 5),
+                                     ("G", 6), ("H", 7), ("I", 8),
+                                     ("J", 9), ("K", 10), ("L", 11)]:
             ws.write_formula(r, col_idx, f"=SUM({col_letter}{first_excel}:{col_letter}{last_excel})", fmt_total_row)
-        # Couleurs Diff
-        ws.conditional_format(3, 5, last_excel - 1, 5,
-            {"type": "cell", "criteria": ">", "value": 0, "format": fmt_positive})
-        ws.conditional_format(3, 5, last_excel - 1, 5,
-            {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
-        ws.conditional_format(3, 8, last_excel - 1, 8,
-            {"type": "cell", "criteria": ">", "value": 0, "format": fmt_positive})
-        ws.conditional_format(3, 8, last_excel - 1, 8,
-            {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
+        # Couleurs Diff (cols F=5, I=8, L=11)
+        for diff_col in (5, 8, 11):
+            ws.conditional_format(3, diff_col, last_excel - 1, diff_col,
+                {"type": "cell", "criteria": ">", "value": 0, "format": fmt_positive})
+            ws.conditional_format(3, diff_col, last_excel - 1, diff_col,
+                {"type": "cell", "criteria": "<", "value": 0, "format": fmt_negative})
 
-    ws.merge_range(r + 2, 0, r + 2, 9,
-                   "Saisis ES réel / Cam réelle / Rails ES géolocalisé (cellules jaunes). "
+    ws.merge_range(r + 2, 0, r + 2, 11,
+                   "Saisis ES réel / Cam réelle / Rails ES réel (cellules jaunes). "
                    "Les colonnes Diff et tous les totaux se recalculent automatiquement.",
                    workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"}))
 

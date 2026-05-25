@@ -71,9 +71,10 @@ export default function SuiviPhasageTab({ uploadId }) {
             if (!n || !a) return;
             const node = idx[a]; if (!node) return;
             const gn = Number(n);
-            if (!nuits[gn]) nuits[gn] = { type: "ES", allees: new Set(), es: 0, cam: 0 };
+            if (!nuits[gn]) nuits[gn] = { type: "ES", allees: new Set(), es: 0, cam: 0, rails_es: 0 };
             nuits[gn].allees.add(a);
             nuits[gn].es += (node.es_15 || 0) + (node.es_21 || 0);
+            nuits[gn].rails_es += node.rails_es || 0;
         });
         (cam.rows || []).forEach((r) => {
             const n = r.nuit, a = String(r.allee || "").trim();
@@ -81,7 +82,7 @@ export default function SuiviPhasageTab({ uploadId }) {
             const node = idx[a]; if (!node) return;
             const gn = startAt + Number(n) - 1;
             if (!nuits[gn]) {
-                nuits[gn] = { type: "Caméras", allees: new Set(), es: 0, cam: 0 };
+                nuits[gn] = { type: "Caméras", allees: new Set(), es: 0, cam: 0, rails_es: 0 };
             } else if (nuits[gn].es > 0) {
                 nuits[gn].type = "Mixte";
             }
@@ -97,6 +98,7 @@ export default function SuiviPhasageTab({ uploadId }) {
             allees: Array.from(nuits[gn].allees).sort((a, b) => (orderIndex.get(a) ?? 9999) - (orderIndex.get(b) ?? 9999)),
             es: Math.round(nuits[gn].es),
             cam: Math.round(nuits[gn].cam),
+            rails_es: Math.round(nuits[gn].rails_es || 0),
         }));
     }, [summary]);
 
@@ -137,15 +139,15 @@ export default function SuiviPhasageTab({ uploadId }) {
     };
 
     const totals = useMemo(() => {
-        let es = 0, cam = 0, esReel = 0, camReel = 0, rails = 0;
+        let es = 0, cam = 0, rails = 0, esReel = 0, camReel = 0, railsReel = 0;
         consolidated.forEach((r) => {
-            es += r.es; cam += r.cam;
+            es += r.es; cam += r.cam; rails += r.rails_es || 0;
             const sv = suivi[r.nuit] || {};
             esReel += Number(sv.es_reel) || 0;
             camReel += Number(sv.cam_reel) || 0;
-            rails += Number(sv.rails_geoloc) || 0;
+            railsReel += Number(sv.rails_geoloc) || 0;
         });
-        return { es, cam, esReel, camReel, rails };
+        return { es, cam, rails, esReel, camReel, railsReel };
     }, [consolidated, suivi]);
 
     const handleExport = () => {
@@ -183,7 +185,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                 <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Allées</th>
                                 <th colSpan={3} className="px-2 py-1 text-center font-semibold bg-emerald-50 border-l border-b">ES</th>
                                 <th colSpan={3} className="px-2 py-1 text-center font-semibold bg-purple-50 border-l border-b">Caméras</th>
-                                <th rowSpan={2} className="px-2 py-1.5 text-right font-semibold border-l border-b bg-amber-50">Rails ES géoloc.</th>
+                                <th colSpan={3} className="px-2 py-1 text-center font-semibold bg-amber-50 border-l border-b">Rails ES</th>
                             </tr>
                             <tr>
                                 <th className="px-2 py-1 text-right font-semibold bg-emerald-50 border-l">Prévu</th>
@@ -192,11 +194,14 @@ export default function SuiviPhasageTab({ uploadId }) {
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50 border-l">Prévue</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50">Réelle</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50">Diff</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-amber-50 border-l">Prévu</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-amber-50">Réel</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-amber-50">Diff</th>
                             </tr>
                         </thead>
                         <tbody>
                             {consolidated.length === 0 && (
-                                <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-500 italic">
+                                <tr><td colSpan={12} className="px-3 py-8 text-center text-gray-500 italic">
                                     Aucune nuit planifiée. Renseigne « Phasage de pose » ou « Phasage caméras » d'abord.
                                 </td></tr>
                             )}
@@ -205,6 +210,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                 const color = nightColor(r.nuit);
                                 const dEs = diff(sv.es_reel, r.es);
                                 const dCam = diff(sv.cam_reel, r.cam);
+                                const dRails = diff(sv.rails_geoloc, r.rails_es || 0);
                                 const diffColor = (v) => {
                                     if (v == null) return "text-gray-400";
                                     if (v > 0) return "text-emerald-700";
@@ -246,14 +252,18 @@ export default function SuiviPhasageTab({ uploadId }) {
                                         <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dCam)}`} data-testid={`suivi-cam-diff-${r.nuit}`}>
                                             {dCam == null ? "—" : (dCam > 0 ? `+${fmt(dCam)}` : fmt(dCam))}
                                         </td>
-                                        <td className="px-1 py-1 border-l">
+                                        <td className="px-2 py-1 text-right font-mono-data text-gray-700 border-l">{r.rails_es > 0 ? fmt(r.rails_es) : "—"}</td>
+                                        <td className="px-1 py-1">
                                             <input
                                                 type="number"
                                                 value={sv.rails_geoloc}
                                                 onChange={(e) => updateSuivi(r.nuit, "rails_geoloc", e.target.value)}
-                                                data-testid={`suivi-rails-${r.nuit}`}
-                                                className="w-24 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
+                                                data-testid={`suivi-rails-reel-${r.nuit}`}
+                                                className="w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none"
                                             />
+                                        </td>
+                                        <td className={`px-2 py-1 text-right font-mono-data font-bold ${diffColor(dRails)}`} data-testid={`suivi-rails-diff-${r.nuit}`}>
+                                            {dRails == null ? "—" : (dRails > 0 ? `+${fmt(dRails)}` : fmt(dRails))}
                                         </td>
                                     </tr>
                                 );
@@ -268,6 +278,8 @@ export default function SuiviPhasageTab({ uploadId }) {
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.camReel)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.camReel - totals.cam)}</td>
                                     <td className="px-2 py-1 text-right font-mono-data border-l">{fmt(totals.rails)}</td>
+                                    <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.railsReel)}</td>
+                                    <td className="px-2 py-1 text-right font-mono-data">{fmt(totals.railsReel - totals.rails)}</td>
                                 </tr>
                             )}
                         </tbody>
