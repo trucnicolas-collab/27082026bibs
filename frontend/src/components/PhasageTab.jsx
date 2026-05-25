@@ -409,7 +409,6 @@ export default function PhasageTab({ uploadId }) {
                                         "ES 1.5": Math.round(t.es_15 || 0),
                                         "ES 2.1": Math.round(t.es_21 || 0),
                                         "Rails ES": Math.round(t.rails_es || 0),
-                                        "SA": Math.round(t.sa || 0),
                                     };
                                 })}
                                 margin={{ top: 12, right: 16, left: 0, bottom: 4 }}
@@ -426,7 +425,6 @@ export default function PhasageTab({ uploadId }) {
                                 <Bar dataKey="ES 1.5" stackId="es" fill="#10B981" />
                                 <Bar dataKey="ES 2.1" stackId="es" fill="#3B82F6" />
                                 <Bar dataKey="Rails ES" fill="#F59E0B" />
-                                <Bar dataKey="SA" fill="#9CA3AF" />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
