@@ -917,9 +917,6 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
     ws.write(1, 0, "Nb nuits :", fmt_lbl)
     ws.write_number(1, 1, nb_nuits, fmt_input)
-    ws.data_validation(1, 1, 1, 1, {"validate": "integer", "criteria": "between",
-                                     "minimum": 1, "maximum": 30,
-                                     "error_message": "Nombre de nuits entre 1 et 30"})
     ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
     # Moyenne = (Total ES 1.5 + Total ES 2.1) / Nb nuits (cellules B4 et D4 ci-dessous)
     ws.write_formula(1, 3, "=IFERROR((B4+D4)/B2,0)", fmt_num_calc)
@@ -941,7 +938,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         r += 1
 
     # ----- Tableau gauche (interactif) -----
-    MAX_NUITS = 30  # Toujours proposer jusqu'à 30 nuits dans les dropdowns/le récap
+    # Nb de nuits = ce que l'utilisateur a saisi dans l'app (sera la taille du tableau droit et de la dropdown)
     start_left = r + 2
     ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
     headers_left = ["N° Allée", "ES 1.5", "ES 2.1", "Rails ES", "Nuit"]
@@ -954,14 +951,14 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Sources pour les data validations
     # _Phasage_data!$A$2:$A${n_allees+1}
     allee_source = f"=_Phasage_data!$A$2:$A${n_allees + 1}"
-    nuit_labels = [f"Nuit {n}" for n in range(1, MAX_NUITS + 1)]
+    nuit_labels = [f"Nuit {n}" for n in range(1, nb_nuits + 1)]
 
     # Pré-remplissage des assignations existantes (ordre = ordre du phasage utilisateur)
     existing = []
     for row in rows_assign:
         a = str(row.get("allee") or "").strip()
         n = row.get("nuit")
-        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= MAX_NUITS else None)})
+        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
 
     # Plages pour les formules (Excel 1-based)
     excel_first = first_data_row + 1
@@ -1022,7 +1019,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         # Retirer la dernière virgule traînante : LEFT(result, LEN(result)-2) ; mais si vide → ""
         return f'=IFERROR(LEFT({joined},LEN({joined})-2),"")'
 
-    for i, n in enumerate(range(1, MAX_NUITS + 1), start=0):
+    for i, n in enumerate(range(1, nb_nuits + 1), start=0):
         rrow = first_data_row + i
         nuit_label = f"Nuit {n}"
         fmt_n = fmt_night.get(n, fmt_cell)
@@ -1034,9 +1031,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.write_formula(rrow, col_right + 4, f'=SUMIFS({D_range},{E_range},"{nuit_label}")', fmt_n)
 
     # Ligne TOTAL (somme des colonnes)
-    rrow_total = first_data_row + MAX_NUITS
+    rrow_total = first_data_row + nb_nuits
     excel_total_first = first_data_row + 1
-    excel_total_last = first_data_row + MAX_NUITS
+    excel_total_last = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
     ws.write_formula(rrow_total, col_right + 1,
                      f'=COUNTA({A_range})&" allées planifiées"',
@@ -1054,10 +1051,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Petite note d'aide en bas
     note_row = max(first_data_row + nb_rows_left, rrow_total + 1) + 1
     ws.merge_range(note_row, 0, note_row, 10,
-                   "Astuce : modifiez le « Nb nuits » (jaune) pour recalculer la moyenne. "
-                   "Sélectionnez une allée et une nuit dans les colonnes déroulantes — les comptes et "
-                   "le récap par nuit se mettent à jour automatiquement. "
-                   "Les nuits non utilisées restent à 0.",
+                   "Astuce : sélectionnez une allée et une nuit dans les colonnes déroulantes — "
+                   "les comptes (ES 1.5, ES 2.1, Rails ES) et le récap par nuit se mettent à jour automatiquement. "
+                   "Pour changer le nombre de nuits, modifiez-le dans l'application puis ré-exportez.",
                    fmt_italic)
 
 
