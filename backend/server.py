@@ -927,14 +927,21 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
     fmt_italic = workbook.add_format({"italic": True, "border": 1, "font_color": "#6B7280"})
 
-    # Couleurs douces par nuit (10 couleurs en rotation, identiques au frontend)
+    # Format neutre pour les cellules Nuit (la couleur sera appliquée via mise en forme conditionnelle)
+    fmt_nuit_cell = workbook.add_format({"border": 1, "align": "center"})
+
+    # Couleurs douces par nuit (10 couleurs en rotation, identiques au frontend) — utilisées
+    # uniquement pour générer les RÈGLES de mise en forme conditionnelle.
     night_palette = [
         "#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
         "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB",
     ]
-    fmt_night = {n: workbook.add_format({"border": 1, "align": "right",
-                                          "bg_color": night_palette[(n - 1) % len(night_palette)]})
-                 for n in range(1, 31)}  # 30 nuits max
+    cf_formats_left = {}  # par nuit → format pour ligne du tableau gauche
+    cf_formats_right = {}  # par nuit → format pour ligne du tableau droit
+    for n in range(1, 31):
+        color = night_palette[(n - 1) % len(night_palette)]
+        cf_formats_left[n] = workbook.add_format({"bg_color": color, "border": 1})
+        cf_formats_right[n] = workbook.add_format({"bg_color": color, "border": 1})
 
     # ----- En-tête supérieur -----
     ws.merge_range(0, 0, 0, 12, "Phasage de pose des étiquettes (ES 1.5 / ES 2.1)", fmt_title)
@@ -942,7 +949,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write_number(1, 1, nb_nuits, fmt_input)
     ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
     # Moyenne = (Total ES 1.5 + Total ES 2.1) / Nb nuits (cellules B4 et D4 ci-dessous)
-    ws.write_formula(1, 3, "=IFERROR((B4+D4)/B2,0)", fmt_num_calc)
+    ws.write_formula(1, 3, "=IFERROR(ROUND((B4+D4)/B2,0),0)", fmt_num_calc)
     ws.write(1, 4, "(ES 1.5 + ES 2.1) / Nb nuits", fmt_italic)
 
     # ----- Totaux globaux du fichier (statiques) -----
@@ -1026,48 +1033,56 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         # SA : info (VLOOKUP col 5 du _Phasage_data)
         ws.write_formula(rr, 4, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},5,FALSE),"")', fmt_sa_info)
 
-        # Nuit (col F = index 5) : data validation + valeur préremplie + couleur de la nuit si assignée
+        # Nuit (col F = index 5) : data validation + valeur préremplie + format neutre
+        # (couleur appliquée via mise en forme conditionnelle plus bas)
         ws.data_validation(rr, 5, rr, 5, {
             "validate": "list",
             "source": nuit_labels,
         })
         if i < len(existing) and existing[i]["nuit"]:
-            nuit = existing[i]["nuit"]
-            ws.write_string(rr, 5, f"Nuit {nuit}", fmt_night.get(nuit, fmt_cell))
+            ws.write_string(rr, 5, f"Nuit {existing[i]['nuit']}", fmt_nuit_cell)
         else:
-            ws.write_blank(rr, 5, None, fmt_cell)
+            ws.write_blank(rr, 5, None, fmt_nuit_cell)
 
-    # ----- Tableau droite (formules SUMIFS + concat IF) -----
+    # ----- Tableau droite (formules SUMIFS, mise en forme conditionnelle pour les couleurs) -----
     col_right = 7
     ws.merge_range(start_left, col_right, start_left, col_right + 5, "Récap par nuit", fmt_title)
     headers_right = ["Nuit", "Allées", "ES 1.5", "ES 2.1", "Rails ES", "SA"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
-    # Formule "Allées" : concaténation conditionnelle ligne par ligne
-    # = IF(F18="Nuit X", A18 & ", ", "") & IF(F19="Nuit X", ...) ...
-    # Compatible toutes versions Excel (pas besoin de TEXTJOIN)
-    def _build_allees_formula(nuit_label: str) -> str:
-        parts = []
-        for row_idx in range(excel_first, excel_last + 1):
-            parts.append(f'IF($F${row_idx}="{nuit_label}",$A${row_idx}&", ","")')
-        joined = "&".join(parts)
-        return f'=IFERROR(LEFT({joined},LEN({joined})-2),"")'
+    # Pré-calcul des allées par nuit pour la colonne "Allées" (texte statique)
+    night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
+    for row in rows_assign:
+        a = str(row.get("allee") or "").strip()
+        n = row.get("nuit")
+        if a and n and 1 <= int(n) <= nb_nuits:
+            night_allees_static[int(n)].append(a)
+
+    def _sort_allee_key(a):
+        try:
+            return (0, float(str(a).replace(",", ".")))
+        except (ValueError, TypeError):
+            return (1, str(a))
+
+    fmt_cell_neutral = workbook.add_format({"border": 1, "align": "center"})
+    fmt_num_neutral = workbook.add_format({"border": 1, "align": "right"})
+    fmt_sa_neutral = workbook.add_format({"border": 1, "align": "right",
+                                           "italic": True, "font_color": "#6B7280"})
+    fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
 
     for i, n in enumerate(range(1, nb_nuits + 1), start=0):
         rrow = first_data_row + i
         nuit_label = f"Nuit {n}"
-        fmt_n = fmt_night.get(n, fmt_cell)
-        fmt_n_sa = workbook.add_format({"border": 1, "align": "right",
-                                         "bg_color": night_palette[(n - 1) % len(night_palette)],
-                                         "italic": True, "font_color": "#6B7280"})
-        ws.write(rrow, col_right + 0, nuit_label, fmt_n)
-        ws.write_formula(rrow, col_right + 1, _build_allees_formula(nuit_label), fmt_n)
-        ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{F_range},"{nuit_label}")', fmt_n)
-        ws.write_formula(rrow, col_right + 3, f'=SUMIFS({C_range},{F_range},"{nuit_label}")', fmt_n)
-        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({D_range},{F_range},"{nuit_label}")', fmt_n)
-        # SA : info (italique + grisé)
-        ws.write_formula(rrow, col_right + 5, f'=SUMIFS({E_range_sa},{F_range},"{nuit_label}")', fmt_n_sa)
+        ws.write(rrow, col_right + 0, nuit_label, fmt_cell_neutral)
+        # Colonne "Allées" : texte statique (mise à jour seulement à l'export)
+        allees_sorted = sorted(night_allees_static[n], key=_sort_allee_key)
+        allees_text = ", ".join(allees_sorted) if allees_sorted else ""
+        ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
+        ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{F_range},"{nuit_label}")', fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 3, f'=SUMIFS({C_range},{F_range},"{nuit_label}")', fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({D_range},{F_range},"{nuit_label}")', fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 5, f'=SUMIFS({E_range_sa},{F_range},"{nuit_label}")', fmt_sa_neutral)
 
     # Ligne TOTAL (somme des colonnes)
     rrow_total = first_data_row + nb_nuits
@@ -1082,6 +1097,31 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.write_formula(rrow_total, col_right + offset,
                          f"=SUM(${col_letter}${excel_total_first}:${col_letter}${excel_total_last})",
                          fmt_total_row)
+
+    # ----- Mise en forme conditionnelle : couleur de la nuit appliquée à toute la ligne -----
+    # Tableau gauche : range A:F sur toutes les lignes data, formule basée sur la valeur en col F
+    for n in range(1, nb_nuits + 1):
+        cf_fmt = cf_formats_left[n]
+        ws.conditional_format(
+            first_data_row, 0, first_data_row + nb_rows_left - 1, 5,
+            {
+                "type": "formula",
+                "criteria": f'=$F{first_data_row + 1}="Nuit {n}"',
+                "format": cf_fmt,
+            }
+        )
+    # Tableau droit : range H:M sur les lignes data, formule basée sur valeur en col H (Nuit)
+    nuit_col_right_letter = chr(ord('A') + col_right)  # H
+    for n in range(1, nb_nuits + 1):
+        cf_fmt = cf_formats_right[n]
+        ws.conditional_format(
+            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 5,
+            {
+                "type": "formula",
+                "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
+                "format": cf_fmt,
+            }
+        )
 
     # ----- Graphique : répartition par nuit (barres empilées ES 1.5 + ES 2.1) -----
     chart = workbook.add_chart({"type": "column", "subtype": "stacked"})
@@ -1115,8 +1155,10 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.merge_range(note_row, 0, note_row, 12,
                    "Astuce : sélectionnez une allée et une nuit dans les colonnes déroulantes — "
                    "les comptes (ES 1.5, ES 2.1, Rails ES, SA) et le récap par nuit se mettent à jour automatiquement. "
-                   "La colonne SA est informative (toutes étiquettes SA : SA 1.5, SA 2.1, SA 4.2, etc.). "
-                   "Pour changer le nombre de nuits, modifiez-le dans l'application puis ré-exportez.",
+                   "La couleur de chaque ligne suit la nuit sélectionnée. "
+                   "La colonne « Allées » du tableau droit reflète les assignations au moment de l'export "
+                   "(modifie tes assignations dans l'app et ré-exporte pour la rafraîchir). "
+                   "La colonne SA est informative (toutes étiquettes SA additionnées).",
                    fmt_italic)
 
 
