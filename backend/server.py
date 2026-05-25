@@ -987,7 +987,10 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Sources pour les data validations
     # _Phasage_data!$A$2:$A${n_allees+1}
     allee_source = f"=_Phasage_data!$A$2:$A${n_allees + 1}"
-    nuit_labels = [f"Nuit {n}" for n in range(1, nb_nuits + 1)]
+    # Constante : le tableau droit + la dropdown supportent toujours jusqu'à 30 nuits.
+    # L'affichage est piloté par la cellule B2 (Nb nuits) via des formules conditionnelles.
+    MAX_NUITS = 30
+    nuit_labels = [f"Nuit {n}" for n in range(1, MAX_NUITS + 1)]
 
     # Pré-remplissage des assignations existantes (ordre = ordre du phasage utilisateur)
     existing = []
@@ -1071,23 +1074,38 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                            "italic": True, "font_color": "#6B7280"})
     fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
 
-    for i, n in enumerate(range(1, nb_nuits + 1), start=0):
+    for i, n in enumerate(range(1, MAX_NUITS + 1), start=0):
         rrow = first_data_row + i
         nuit_label = f"Nuit {n}"
-        ws.write(rrow, col_right + 0, nuit_label, fmt_cell_neutral)
-        # Colonne "Allées" : texte statique (mise à jour seulement à l'export)
-        allees_sorted = sorted(night_allees_static[n], key=_sort_allee_key)
-        allees_text = ", ".join(allees_sorted) if allees_sorted else ""
+        # Label conditionnel : affiché uniquement si N <= Nb nuits (cellule B2)
+        ws.write_formula(rrow, col_right + 0,
+                         f'=IF($B$2>={n},"{nuit_label}","")',
+                         fmt_cell_neutral)
+        # Colonne "Allées" : texte statique (calculé à l'export)
+        if n <= nb_nuits:
+            allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
+            allees_text = ", ".join(allees_sorted) if allees_sorted else ""
+        else:
+            allees_text = ""
         ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
-        ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{F_range},"{nuit_label}")', fmt_num_neutral)
-        ws.write_formula(rrow, col_right + 3, f'=SUMIFS({C_range},{F_range},"{nuit_label}")', fmt_num_neutral)
-        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({D_range},{F_range},"{nuit_label}")', fmt_num_neutral)
-        ws.write_formula(rrow, col_right + 5, f'=SUMIFS({E_range_sa},{F_range},"{nuit_label}")', fmt_sa_neutral)
+        # SUMIFS conditionnels : calculés seulement si la nuit est active
+        ws.write_formula(rrow, col_right + 2,
+                         f'=IF($B$2>={n},SUMIFS({B_range},{F_range},"{nuit_label}"),"")',
+                         fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 3,
+                         f'=IF($B$2>={n},SUMIFS({C_range},{F_range},"{nuit_label}"),"")',
+                         fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 4,
+                         f'=IF($B$2>={n},SUMIFS({D_range},{F_range},"{nuit_label}"),"")',
+                         fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 5,
+                         f'=IF($B$2>={n},SUMIFS({E_range_sa},{F_range},"{nuit_label}"),"")',
+                         fmt_sa_neutral)
 
-    # Ligne TOTAL (somme des colonnes)
-    rrow_total = first_data_row + nb_nuits
+    # Ligne TOTAL (somme des colonnes) — couvre les 30 lignes mais ignore les vides
+    rrow_total = first_data_row + MAX_NUITS
     excel_total_first = first_data_row + 1
-    excel_total_last = first_data_row + nb_nuits
+    excel_total_last = first_data_row + MAX_NUITS
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
     ws.write_formula(rrow_total, col_right + 1,
                      f'=COUNTA({A_range})&" allées planifiées"',
@@ -1100,7 +1118,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # ----- Mise en forme conditionnelle : couleur de la nuit appliquée à toute la ligne -----
     # Tableau gauche : range A:F sur toutes les lignes data, formule basée sur la valeur en col F
-    for n in range(1, nb_nuits + 1):
+    for n in range(1, MAX_NUITS + 1):
         cf_fmt = cf_formats_left[n]
         ws.conditional_format(
             first_data_row, 0, first_data_row + nb_rows_left - 1, 5,
@@ -1110,12 +1128,12 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 "format": cf_fmt,
             }
         )
-    # Tableau droit : range H:M sur les lignes data, formule basée sur valeur en col H (Nuit)
+    # Tableau droit : range H:M sur les 30 lignes data, formule basée sur valeur en col H (Nuit)
     nuit_col_right_letter = chr(ord('A') + col_right)  # H
-    for n in range(1, nb_nuits + 1):
+    for n in range(1, MAX_NUITS + 1):
         cf_fmt = cf_formats_right[n]
         ws.conditional_format(
-            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 5,
+            first_data_row, col_right, first_data_row + MAX_NUITS - 1, col_right + 5,
             {
                 "type": "formula",
                 "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
@@ -1123,9 +1141,17 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             }
         )
 
+    # Mise en forme conditionnelle : surligner en ROUGE les allées en DOUBLON
+    fmt_duplicate = workbook.add_format({"bg_color": "#FEE2E2", "font_color": "#991B1B",
+                                          "border": 1, "bold": True})
+    ws.conditional_format(
+        first_data_row, 0, first_data_row + nb_rows_left - 1, 0,
+        {"type": "duplicate", "format": fmt_duplicate}
+    )
+
     # ----- Graphique : répartition par nuit (barres empilées ES 1.5 + ES 2.1) -----
     chart = workbook.add_chart({"type": "column", "subtype": "stacked"})
-    # Catégories : labels des nuits
+    # Catégories + valeurs : couvrent les 30 nuits (les nuits inactives auront des cellules vides)
     cat_ref = f"='Phasage de pose'!${chr(ord('A')+col_right)}${excel_total_first}:${chr(ord('A')+col_right)}${excel_total_last}"
     es15_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+2)}${excel_total_first}:${chr(ord('A')+col_right+2)}${excel_total_last}"
     es21_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+3)}${excel_total_first}:${chr(ord('A')+col_right+3)}${excel_total_last}"
@@ -1153,12 +1179,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Petite note d'aide en bas
     note_row = max(first_data_row + nb_rows_left, chart_row + 20) + 1
     ws.merge_range(note_row, 0, note_row, 12,
-                   "Astuce : sélectionnez une allée et une nuit dans les colonnes déroulantes — "
-                   "les comptes (ES 1.5, ES 2.1, Rails ES, SA) et le récap par nuit se mettent à jour automatiquement. "
+                   "Astuce : Modifie « Nb nuits » (B2) pour ajuster dynamiquement le récap à droite. "
+                   "Sélectionne une allée et une nuit dans les colonnes déroulantes — les comptes ES/Rails/SA et le récap par nuit se mettent à jour automatiquement. "
                    "La couleur de chaque ligne suit la nuit sélectionnée. "
-                   "La colonne « Allées » du tableau droit reflète les assignations au moment de l'export "
-                   "(modifie tes assignations dans l'app et ré-exporte pour la rafraîchir). "
-                   "La colonne SA est informative (toutes étiquettes SA additionnées).",
+                   "Les allées en DOUBLON sont surlignées en ROUGE dans la colonne « N° Allée ». "
+                   "La colonne « Allées » du récap droit reflète l'état au moment de l'export — ré-exporte pour la rafraîchir.",
                    fmt_italic)
 
 
