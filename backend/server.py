@@ -1480,39 +1480,141 @@ def _build_consolidated_nuit_data(d, summary):
 
 
 def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
-    """Vue consolidée toutes les nuits (ES + caméras), lecture seule."""
+    """Vue consolidée Excel — Phasage étiquettes/rails et Phasage caméras côte à côte,
+    alignés sur une colonne Nuit centrale partagée."""
     summary = compute_phasage_summary(d)
-    nuit_data = _build_consolidated_nuit_data(d, summary)
+    phasage_full = _normalize_phasage(d.get("phasage"))
+    es_plan = phasage_full["es"]
+    cam_plan = phasage_full["cam"]
+    start_at = int(cam_plan.get("start_at_nuit") or 5)
+    idx = {str(a["allee"]): a for a in summary["allees"]}
+
+    # Construit pour chaque nuit globale les agrégats ES et Cam séparés
+    per_nuit: dict[int, dict] = {}
+    for r in es_plan.get("rows") or []:
+        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a: continue
+        node = idx.get(a)
+        if not node: continue
+        gn = int(n)
+        dn = per_nuit.setdefault(gn, {
+            "es_allees": [], "es": 0, "rails_es": 0, "sa": 0,
+            "cam_allees": [], "cam": 0,
+        })
+        dn["es_allees"].append(a)
+        dn["es"] += (node.get("es_15") or 0) + (node.get("es_21") or 0)
+        dn["rails_es"] += node.get("rails_es") or 0
+        dn["sa"] += node.get("sa") or 0
+    for r in cam_plan.get("rows") or []:
+        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a: continue
+        node = idx.get(a)
+        if not node: continue
+        gn = start_at + int(n) - 1
+        dn = per_nuit.setdefault(gn, {
+            "es_allees": [], "es": 0, "rails_es": 0, "sa": 0,
+            "cam_allees": [], "cam": 0,
+        })
+        dn["cam_allees"].append(a)
+        dn["cam"] += node.get("cameras") or 0
+
+    # Tri smart des allées dans chaque liste
+    order_idx = {str(a["allee"]): i for i, a in enumerate(summary["allees"])}
+    for dn in per_nuit.values():
+        dn["es_allees"].sort(key=lambda x: order_idx.get(x, 9999))
+        dn["cam_allees"].sort(key=lambda x: order_idx.get(x, 9999))
+
+    sorted_nuits = sorted(per_nuit.keys())
 
     ws = workbook.add_worksheet("Phasage full")
     writer.sheets["Phasage full"] = ws
-    ws.set_column(0, 0, 8); ws.set_column(1, 1, 12)
-    ws.set_column(2, 2, 40); ws.set_column(3, 4, 12)
-    fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
-                                     "border": 1, "font_size": 12, "align": "left"})
-    fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center"})
-    fmt_num = workbook.add_format({"border": 1, "align": "right"})
-    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
-    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "left"})
+    # 7 colonnes : A B C D | E (Nuit) | F G
+    ws.set_column(0, 0, 32)   # A Allées (ES)
+    ws.set_column(1, 1, 10)   # B ES
+    ws.set_column(2, 2, 10)   # C Rails ES
+    ws.set_column(3, 3, 8)    # D SA
+    ws.set_column(4, 4, 10)   # E Nuit (partagée)
+    ws.set_column(5, 5, 28)   # F Allées (Cam)
+    ws.set_column(6, 6, 10)   # G Caméras
 
-    ws.merge_range(0, 0, 0, 4, "Phasage full — Planning consolidé ES + Caméras", fmt_title)
-    for ci, h in enumerate(["Nuit", "Type", "Allées", "ES", "Caméras"]):
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+                                     "border": 1, "font_size": 13, "align": "center"})
+    fmt_subtitle_es = workbook.add_format({"bold": True, "bg_color": "#D1FAE5", "font_color": "#065F46",
+                                            "border": 1, "font_size": 11, "align": "center"})
+    fmt_subtitle_cam = workbook.add_format({"bold": True, "bg_color": "#EDE9FE", "font_color": "#5B21B6",
+                                             "border": 1, "font_size": 11, "align": "center"})
+    fmt_subtitle_nuit = workbook.add_format({"bold": True, "bg_color": "#1F2937", "font_color": "white",
+                                              "border": 1, "font_size": 11, "align": "center"})
+    fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center"})
+    fmt_text = workbook.add_format({"border": 1, "align": "left", "text_wrap": True})
+    fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    fmt_nuit = workbook.add_format({"bold": True, "border": 1, "align": "center", "bg_color": "#F9FAFB"})
+    fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+    fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "center"})
+
+    # Row 0 : titre global (fusionné A:G)
+    ws.merge_range(0, 0, 0, 6, "Phasage full — Planning consolidé", fmt_title)
+    # Row 1 : sous-titres distincts pour chaque bloc
+    ws.merge_range(1, 0, 1, 3, "Phasage étiquettes et rails", fmt_subtitle_es)
+    ws.write(1, 4, "Nuit", fmt_subtitle_nuit)
+    ws.merge_range(1, 5, 1, 6, "Phasage caméras", fmt_subtitle_cam)
+    # Row 2 : en-têtes de colonnes
+    headers = ["Allées", "ES", "Rails ES", "SA", "Nuit", "Allées", "Caméras"]
+    for ci, h in enumerate(headers):
         ws.write(2, ci, h, fmt_lbl)
+
+    # Couleurs douces par nuit (10 couleurs en rotation) — appliquées via CF
+    night_palette = [
+        "#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
+        "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB",
+    ]
+
     r = 3
-    for n in sorted(nuit_data.keys()):
-        info = nuit_data[n]
-        ws.write_number(r, 0, n, fmt_num)
-        ws.write(r, 1, info["type"], fmt_num)
-        ws.write_string(r, 2, ", ".join(info["allees"]), fmt_num)
-        ws.write_number(r, 3, round(info["es"]), fmt_num)
-        ws.write_number(r, 4, round(info["cam"]), fmt_num)
+    first_excel = r + 1
+    for n in sorted_nuits:
+        info = per_nuit[n]
+        # Bloc ES (cols A-D)
+        if info["es_allees"]:
+            ws.write_string(r, 0, ", ".join(info["es_allees"]), fmt_text)
+            ws.write_number(r, 1, round(info["es"]), fmt_num)
+            ws.write_number(r, 2, round(info["rails_es"]), fmt_num)
+            ws.write_number(r, 3, round(info["sa"]), fmt_num)
+        else:
+            for c in range(0, 4):
+                ws.write_blank(r, c, None, fmt_num)
+        # Nuit (col E, centrée, couleur par CF)
+        ws.write_number(r, 4, n, fmt_nuit)
+        # Bloc Cam (cols F-G)
+        if info["cam_allees"]:
+            ws.write_string(r, 5, ", ".join(info["cam_allees"]), fmt_text)
+            ws.write_number(r, 6, round(info["cam"]), fmt_num)
+        else:
+            for c in range(5, 7):
+                ws.write_blank(r, c, None, fmt_num)
         r += 1
+    last_excel = r
+
+    # Ligne TOTAL
     if r > 3:
-        ws.write(r, 0, "TOTAL", fmt_total_lbl)
-        ws.write(r, 1, "", fmt_total_lbl)
-        ws.write_formula(r, 2, f'=COUNTA(A4:A{r})&" nuits"', fmt_total_lbl)
-        ws.write_formula(r, 3, f"=SUM(D4:D{r})", fmt_total_row)
-        ws.write_formula(r, 4, f"=SUM(E4:E{r})", fmt_total_row)
+        ws.write(r, 0, "", fmt_total_lbl)
+        ws.write_formula(r, 1, f"=SUM(B{first_excel}:B{last_excel})", fmt_total_row)
+        ws.write_formula(r, 2, f"=SUM(C{first_excel}:C{last_excel})", fmt_total_row)
+        ws.write_formula(r, 3, f"=SUM(D{first_excel}:D{last_excel})", fmt_total_row)
+        ws.write_formula(r, 4, f'=COUNTA(E{first_excel}:E{last_excel})&" nuits"', fmt_total_lbl)
+        ws.write(r, 5, "", fmt_total_lbl)
+        ws.write_formula(r, 6, f"=SUM(G{first_excel}:G{last_excel})", fmt_total_row)
+
+        # Mise en forme conditionnelle par nuit : colore TOUTE la ligne (A-G) selon le numéro de nuit
+        # Utilisation de la formule =$E4=N (référence absolue colonne E)
+        for night_num in range(1, max(sorted_nuits) + 1):
+            color = night_palette[(night_num - 1) % len(night_palette)]
+            fmt_night = workbook.add_format({"bg_color": color, "border": 1})
+            ws.conditional_format(3, 0, last_excel - 1, 6,
+                {"type": "formula",
+                 "criteria": f'=$E4={night_num}',
+                 "format": fmt_night})
+
+    ws.freeze_panes(3, 0)
 
 
 def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
