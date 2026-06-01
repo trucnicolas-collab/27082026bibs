@@ -312,18 +312,6 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
         "total_plus_spare": "",
     })
 
-    # Ligne Surface (SA 2.1 noir uniquement) — quantité selon surface choisie
-    # Les valeurs sont remplies par l'endpoint /surface ; init à vide (catégorie non choisie).
-    rows.append({
-        "kind": "surface",
-        "type": "SA",
-        "reference": "",
-        "designation": "SA 2.1 (noir)",
-        "quantite": "",
-        "spare": "",
-        "total_plus_spare": "",
-    })
-
     # 3 lignes vides
     for _ in range(3):
         rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": "", "total_plus_spare": ""})
@@ -651,24 +639,76 @@ class SurfaceUpdate(BaseModel):
 
 @api_router.patch("/dataset/{upload_id}/surface")
 async def update_surface(upload_id: str, payload: SurfaceUpdate):
-    """Définit la catégorie surface du magasin et met à jour les 2 lignes 'surface'
-    du recap (SA 2.1 noir + Support individuel alu SA) avec 6000 (+10000m²) ou
-    4000 (-10000m²) ou vide (catégorie effacée)."""
+    """Définit la catégorie surface du magasin. Ajoute 6000 (+10000m²) ou 4000 (-10000m²)
+    à la ligne 'SA 2.1 (noir)' du recap, sans créer de ligne dédiée.
+
+    Mécanisme : on stocke `_surface_base` (qté d'origine sans surface) dans la ligne.
+    À chaque changement de catégorie, on resette à _surface_base puis on ajoute le nouveau delta.
+    Si la ligne SA 2.1 (noir) n'existe pas dans le fichier, on en crée une (kind='surface_added')."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cat = payload.category
     if cat not in (None, "plus_10000", "moins_10000"):
         raise HTTPException(status_code=400, detail="Catégorie surface invalide")
-    qty = 6000 if cat == "plus_10000" else (4000 if cat == "moins_10000" else "")
+    delta = 6000 if cat == "plus_10000" else (4000 if cat == "moins_10000" else 0)
     d["surface_category"] = cat
     rows = d["recap_rows"]
+    # Helper local: recalc spare + total selon les règles globales pour SA 2.1 (noir)
+    def _recalc(row):
+        try:
+            q = float(row.get("quantite") or 0)
+        except (ValueError, TypeError):
+            return
+        desig_norm = (row.get("designation") or "").strip().lower()
+        # SA 2.1 (noir) n'est pas dans la liste 2pct/sans-spare → 5%
+        spare = math.ceil(q * 0.05) if q > 0 else 0
+        row["spare"] = spare
+        row["total_plus_spare"] = q + spare
+
+    # 1) Cherche ligne existante SA 2.1 (noir)
+    target = None
     for r in rows:
-        if r.get("kind") == "surface":
-            r["quantite"] = qty
-            r["spare"] = ""
-            r["total_plus_spare"] = qty if qty != "" else ""
-    # Persister recap + surface_category séparément
+        if (r.get("designation") or "").strip().lower() == "sa 2.1 (noir)":
+            target = r
+            break
+    if target is not None:
+        # Mémorise la base (qté d'origine du fichier brut) la 1ère fois
+        if "_surface_base" not in target:
+            try:
+                target["_surface_base"] = float(target.get("quantite") or 0)
+            except (ValueError, TypeError):
+                target["_surface_base"] = 0
+        base = target["_surface_base"]
+        new_qty = base + delta
+        target["quantite"] = new_qty if new_qty > 0 else ""
+        _recalc(target)
+    else:
+        # Pas trouvé : on ajoute/supprime une ligne dédiée (kind='surface_added') en fin
+        # (avant les 3 lignes empty si présentes)
+        # Cherche si ligne déjà créée par un précédent appel
+        added = next((r for r in rows if r.get("kind") == "surface_added"), None)
+        if delta == 0:
+            if added: rows.remove(added)
+        else:
+            if added is None:
+                # Trouver insertion juste avant les empty
+                last_empty_idx = next((i for i, r in enumerate(rows) if r.get("kind") == "empty"), len(rows))
+                added = {
+                    "kind": "surface_added",
+                    "type": "SA",
+                    "reference": "",
+                    "designation": "SA 2.1 (noir)",
+                    "quantite": delta,
+                    "spare": math.ceil(delta * 0.05),
+                    "total_plus_spare": delta + math.ceil(delta * 0.05),
+                    "_surface_base": 0,
+                }
+                rows.insert(last_empty_idx, added)
+            else:
+                added["quantite"] = delta
+                _recalc(added)
+    # Persister recap + surface_category
     try:
         await persist_recap_rows(upload_id, rows)
         await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"surface_category": cat}})
@@ -852,7 +892,7 @@ def compute_phasage_summary(d: dict) -> dict:
         elif is_camera and _is_valid_camera_desig(desig):
             node["cameras"] += qty
             totals["cameras"] += qty
-            # Capture le N° élément pour le détail par allée
+            # Capture le N° élément pour le détail par allée (autant de fois que la quantité)
             elem_v = r.get(elem_col) if elem_col else None
             if elem_v is not None and not (isinstance(elem_v, float) and math.isnan(elem_v)):
                 try:
@@ -861,7 +901,11 @@ def compute_phasage_summary(d: dict) -> dict:
                 except (ValueError, TypeError):
                     elem_key = str(elem_v).strip()
                 if elem_key not in (None, ""):
-                    node["camera_elems"].append(elem_key)
+                    try:
+                        cnt = max(1, int(qty))
+                    except (ValueError, TypeError):
+                        cnt = 1
+                    node["camera_elems"].extend([elem_key] * cnt)
         elif is_rail and _is_rail_es(desig):
             node["rails_es"] += qty
             totals["rails_es"] += qty
@@ -914,17 +958,13 @@ def compute_phasage_summary(d: dict) -> dict:
         a["sa"] = _r(a["sa"])
         a["rails_es"] = _r(a["rails_es"])
         a["cameras"] = _r(a.get("cameras", 0))
-        # Tri smart numérique des n° éléments-caméras (ordre croissant), dédup
+        # Tri smart numérique des n° éléments-caméras (ordre croissant) — on garde les doublons
+        # car cela indique plusieurs caméras sur le même élément (à afficher en rouge)
         elems = a.get("camera_elems") or []
-        seen = set(); uniq = []
-        for e in elems:
-            ek = str(e)
-            if ek not in seen:
-                seen.add(ek); uniq.append(e)
         def _elem_sort_key(v):
             try: return (0, float(str(v).replace(",", ".")))
             except (ValueError, TypeError): return (1, str(v))
-        a["camera_elems"] = sorted(uniq, key=_elem_sort_key)
+        a["camera_elems"] = sorted(elems, key=_elem_sort_key)
         a["rails_es_by_desig"] = {k: _r(v) for k, v in a["rails_es_by_desig"].items()}
     totals = {
         "es_15": _r(totals["es_15"]),
@@ -1649,6 +1689,9 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         ws.merge_range(detail_start, 0, detail_start, 2, "Détail caméras par allée", fmt_title)
         ws.write(detail_start + 1, 0, "Allées", fmt_lbl)
         ws.merge_range(detail_start + 1, 1, detail_start + 1, 2, "N° Elements", fmt_lbl)
+        # Polices pour les rich strings (normal + rouge gras pour doublons)
+        font_normal = workbook.add_format({"font_color": "#374151"})
+        font_dup = workbook.add_format({"font_color": "#DC2626", "bold": True})
         # Cellules colorées par nuit (couleur identique au récap par nuit)
         for i, (n, a, elems) in enumerate(detail_rows):
             rr = detail_start + 2 + i
@@ -1656,8 +1699,22 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
             fmt_night_left = workbook.add_format({"bg_color": color, "border": 1, "align": "center"})
             fmt_night_right = workbook.add_format({"bg_color": color, "border": 1, "align": "left"})
             ws.write_string(rr, 0, a, fmt_night_left)
-            elems_str = ", ".join(str(e) for e in elems) if elems else ""
-            ws.merge_range(rr, 1, rr, 2, elems_str, fmt_night_right)
+            # Construire la rich_string : éléments en rouge si doublons
+            counts = {}
+            for e in elems: counts[str(e)] = counts.get(str(e), 0) + 1
+            if not elems:
+                ws.merge_range(rr, 1, rr, 2, "", fmt_night_right)
+            else:
+                parts = []
+                for idx, e in enumerate(elems):
+                    if idx > 0:
+                        parts.extend([font_normal, ", "])
+                    is_dup = counts[str(e)] > 1
+                    parts.extend([font_dup if is_dup else font_normal, str(e)])
+                # write_rich_string ne supporte pas merge_range, donc on écrit dans la 1ère cellule
+                # et on merge avec border seulement
+                ws.merge_range(rr, 1, rr, 2, "", fmt_night_right)
+                ws.write_rich_string(rr, 1, *parts, fmt_night_right)
 
 
 def _build_consolidated_nuit_data(d, summary):

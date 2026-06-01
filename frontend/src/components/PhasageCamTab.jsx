@@ -365,14 +365,29 @@ export default function PhasageCamTab({ uploadId }) {
                                     .map((r) => {
                                         const node = alleeIndex[String(r.allee)];
                                         const elems = node?.camera_elems || [];
+                                        // Compter occurrences pour détecter les doublons (caméras multiples / élément)
+                                        const counts = {};
+                                        elems.forEach((e) => { counts[String(e)] = (counts[String(e)] || 0) + 1; });
                                         const color = nightColor(r.nuit);
                                         return (
                                             <tr key={`detail-${r.id}`} className="border-t border-gray-100"
                                                 style={color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {}}
                                                 data-testid={`camdetail-${r.id}`}>
                                                 <td className="px-2 py-1 font-mono-data font-medium text-gray-900 text-center">{r.allee}</td>
-                                                <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px]">
-                                                    {elems.length ? elems.join(", ") : <span className="text-gray-400 italic">aucun</span>}
+                                                <td className="px-2 py-1 font-mono-data text-[11px]">
+                                                    {elems.length ? (
+                                                        <span>
+                                                            {elems.map((e, i) => {
+                                                                const isDup = counts[String(e)] > 1;
+                                                                return (
+                                                                    <span key={i} className={isDup ? "text-red-600 font-bold" : "text-gray-700"}>
+                                                                        {i > 0 && <span className="text-gray-400">, </span>}
+                                                                        {e}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </span>
+                                                    ) : <span className="text-gray-400 italic">aucun</span>}
                                                 </td>
                                             </tr>
                                         );

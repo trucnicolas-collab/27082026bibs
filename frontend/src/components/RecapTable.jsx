@@ -91,7 +91,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="recap-table">
-            <div className="h-9 border-b border-gray-200 px-3 flex items-center justify-between bg-gray-50 flex-shrink-0">
+            <div className="min-h-12 border-b border-gray-200 px-3 py-2 flex items-center justify-between bg-gray-50 flex-shrink-0 gap-3 flex-wrap">
                 <div className="text-xs text-gray-600">
                     <span className="font-medium text-gray-800">Récapitulatif Produits</span>
                     <span className="ml-2 text-gray-500">
@@ -100,34 +100,39 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                 </div>
                 {/* Toggle surface + bouton ajouter ligne */}
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2" data-testid="surface-toggle">
-                        <span className="text-[11px] text-gray-600 font-medium">Surface :</span>
-                        <div className="inline-flex rounded border border-gray-300 overflow-hidden">
+                    <div className="flex items-center gap-2 px-2 py-1 bg-amber-50 border-2 border-amber-300 rounded-md shadow-sm" data-testid="surface-toggle">
+                        <span className="text-xs font-bold text-amber-900 uppercase tracking-wide">Surface :</span>
+                        <div className="inline-flex rounded border border-amber-400 overflow-hidden">
                             <button
                                 type="button"
                                 data-testid="surface-moins"
                                 onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "moins_10000" ? null : "moins_10000")}
-                                className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                className={`px-3 py-1.5 text-xs font-bold transition-colors ${
                                     surfaceCategory === "moins_10000"
-                                        ? "bg-[#056839] text-white"
-                                        : "bg-white text-gray-700 hover:bg-gray-50"
+                                        ? "bg-[#056839] text-white shadow-inner"
+                                        : "bg-white text-amber-900 hover:bg-amber-100"
                                 }`}
                             >
-                                - 10000 m²
+                                − 10 000 m²
                             </button>
                             <button
                                 type="button"
                                 data-testid="surface-plus"
                                 onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "plus_10000" ? null : "plus_10000")}
-                                className={`px-2.5 py-1 text-[11px] font-medium border-l border-gray-300 transition-colors ${
+                                className={`px-3 py-1.5 text-xs font-bold border-l border-amber-400 transition-colors ${
                                     surfaceCategory === "plus_10000"
-                                        ? "bg-[#056839] text-white"
-                                        : "bg-white text-gray-700 hover:bg-gray-50"
+                                        ? "bg-[#056839] text-white shadow-inner"
+                                        : "bg-white text-amber-900 hover:bg-amber-100"
                                 }`}
                             >
-                                + 10000 m²
+                                + 10 000 m²
                             </button>
                         </div>
+                        {surfaceCategory && (
+                            <span className="text-[10px] text-amber-900 italic ml-1">
+                                (+ {surfaceCategory === "plus_10000" ? "6000" : "4000"} SA 2.1 noir)
+                            </span>
+                        )}
                     </div>
                     <button
                         onClick={onAddRow}
