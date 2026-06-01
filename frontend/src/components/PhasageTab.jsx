@@ -39,6 +39,7 @@ export default function PhasageTab({ uploadId }) {
     const [error, setError] = useState(null);
     const [nbNuits, setNbNuits] = useState(3);
     const [rows, setRows] = useState([]);
+    const [weeks, setWeeks] = useState([]); // ex: [5,3,6] ou [] (pas de découpage)
     const [saving, setSaving] = useState(false);
 
     // Charger summary
@@ -53,6 +54,7 @@ export default function PhasageTab({ uploadId }) {
                 const ph = res.data.phasage || {};
                 const p = ph.es || { nb_nuits: 3, rows: [] };
                 setNbNuits(p.nb_nuits || 3);
+                setWeeks(Array.isArray(p.weeks) ? p.weeks : []);
                 setRows((p.rows || []).map((r) => ({
                     id: r.id || newRowId(),
                     allee: r.allee || "",
@@ -74,6 +76,7 @@ export default function PhasageTab({ uploadId }) {
                 es: {
                     nb_nuits: nbNuits,
                     rows: rows.map((r) => ({ id: r.id, allee: r.allee, nuit: r.nuit })),
+                    weeks: weeks.length > 0 ? weeks : null,
                 },
                 cam: ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 },
                 suivi: ph.suivi || { rows: [] },
@@ -81,7 +84,7 @@ export default function PhasageTab({ uploadId }) {
               .finally(() => setSaving(false));
         }, 600);
         return () => clearTimeout(t);
-    }, [nbNuits, rows, uploadId, summary]);
+    }, [nbNuits, rows, weeks, uploadId, summary]);
 
     const alleeIndex = useMemo(() => {
         if (!summary) return {};
@@ -206,6 +209,59 @@ export default function PhasageTab({ uploadId }) {
                     Exporter cette vue
                 </button>
                 {saving && <span className="text-xs text-gray-500">Sauvegarde…</span>}
+            </div>
+
+            {/* Découpage par semaine (optionnel) */}
+            <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-2 bg-blue-50/40 flex-wrap flex-shrink-0" data-testid="phasage-weeks-bar">
+                <label className="text-xs font-medium text-gray-700 whitespace-nowrap">
+                    Découpage par semaine :
+                </label>
+                <label className="text-[11px] text-gray-600">Nb semaines :</label>
+                <input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={weeks.length}
+                    onChange={(e) => {
+                        const n = Math.max(0, Math.min(20, Number(e.target.value) || 0));
+                        if (n === 0) { setWeeks([]); return; }
+                        const next = [...weeks];
+                        while (next.length < n) next.push(Math.max(1, Math.round(nbNuits / n) || 1));
+                        if (next.length > n) next.length = n;
+                        setWeeks(next);
+                        setNbNuits(next.reduce((a, x) => a + (x || 0), 0));
+                    }}
+                    data-testid="phasage-nb-semaines"
+                    className="h-7 w-14 px-2 text-sm border border-gray-300 rounded text-right focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                />
+                {weeks.length === 0 && (
+                    <span className="text-[11px] text-gray-500 italic ml-2">Pas de découpage (le tableau Excel reste en un seul bloc)</span>
+                )}
+                {weeks.map((w, i) => (
+                    <div key={i} className="flex items-center gap-1" data-testid={`phasage-semaine-${i+1}`}>
+                        <span className="text-[11px] text-gray-700">S{i + 1} :</span>
+                        <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={w}
+                            onChange={(e) => {
+                                const v = Math.max(1, Math.min(30, Number(e.target.value) || 1));
+                                const next = [...weeks];
+                                next[i] = v;
+                                setWeeks(next);
+                                setNbNuits(next.reduce((a, x) => a + (x || 0), 0));
+                            }}
+                            className="h-7 w-14 px-2 text-sm border border-blue-300 bg-white rounded text-right focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                        <span className="text-[10px] text-gray-400">nuits</span>
+                    </div>
+                ))}
+                {weeks.length > 0 && (
+                    <span className="text-[11px] text-gray-600 ml-2">
+                        Total nuits : <b className="font-mono-data">{weeks.reduce((a, x) => a + (x || 0), 0)}</b>
+                    </span>
+                )}
             </div>
 
             {/* Totaux globaux */}

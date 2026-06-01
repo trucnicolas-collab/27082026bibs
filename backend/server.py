@@ -996,6 +996,7 @@ class PhasagePlanning(BaseModel):
     nb_nuits: int
     rows: list[PhasageRow]
     start_at_nuit: Optional[int] = None
+    weeks: Optional[list[int]] = None  # ex: [5, 3, 6] = 3 semaines avec 5/3/6 nuits
 
 
 class SuiviRow(BaseModel):
@@ -1014,13 +1015,17 @@ class PhasageFullUpdate(BaseModel):
 
 
 def _sanitize_planning(p: PhasagePlanning) -> dict:
-    nb = max(1, min(int(p.nb_nuits), 30))
+    nb = max(1, min(int(p.nb_nuits), 60))
     rows = [{"id": r.id, "allee": r.allee or "",
              "nuit": r.nuit if r.nuit and 1 <= r.nuit <= nb else None}
             for r in p.rows]
     out = {"nb_nuits": nb, "rows": rows}
     if p.start_at_nuit is not None:
         out["start_at_nuit"] = max(1, int(p.start_at_nuit))
+    if p.weeks is not None:
+        # Garde uniquement les valeurs positives, ajuste pour matcher nb_nuits si nécessaire
+        w = [max(1, int(v)) for v in p.weeks if v is not None]
+        out["weeks"] = w
     return out
 
 
@@ -1300,6 +1305,84 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                          f"=SUM(${col_letter}${excel_total_first}:${col_letter}${excel_total_last})",
                          fmt_total_row)
 
+    # ----- Découpage par semaine (optionnel, si phasage.es.weeks est défini) -----
+    phasage_es_local = _normalize_phasage(d.get("phasage"))["es"]
+    weeks = phasage_es_local.get("weeks") if isinstance(phasage_es_local, dict) else None
+    nuit_col_right_letter = chr(ord('A') + col_right)  # G — utilisé par CF semaines et plus bas
+    week_section_end = rrow_total  # sera mis à jour si weeks est défini
+    if weeks and len(weeks) >= 1 and sum(weeks) > 0:
+        nb_nuits_total = sum(weeks)
+        # Tableau "Découpage par semaine" sous le récap droit, col_right
+        ws_start = rrow_total + 3
+        ws.merge_range(ws_start, col_right, ws_start, col_right + 4,
+                       "Découpage par semaine", fmt_title)
+        cur_row = ws_start + 1
+        cumul = 0
+        fmt_week_hdr = workbook.add_format({"bold": True, "bg_color": "#1F2937",
+                                            "font_color": "white", "border": 1,
+                                            "align": "center", "font_size": 11})
+        fmt_subtotal = workbook.add_format({"bold": True, "bg_color": "#E5E7EB",
+                                            "border": 1, "align": "right"})
+        fmt_subtotal_lbl = workbook.add_format({"bold": True, "bg_color": "#E5E7EB",
+                                                "border": 1, "align": "center"})
+        for wi, nb in enumerate(weeks, start=1):
+            n_start = cumul + 1
+            n_end = cumul + nb
+            cumul += nb
+            # Header semaine
+            ws.merge_range(cur_row, col_right, cur_row, col_right + 4,
+                           f"Semaine {wi} (Nuits {n_start} → {n_end})", fmt_week_hdr)
+            cur_row += 1
+            # Headers colonnes
+            for ci, h in enumerate(headers_right):
+                ws.write(cur_row, col_right + ci, h, fmt_lbl)
+            cur_row += 1
+            # Lignes des nuits
+            sub_first = cur_row + 1
+            for n in range(n_start, n_end + 1):
+                if n > nb_nuits:
+                    # nuit au-delà du planificateur → ligne vide
+                    ws.write(cur_row, col_right + 0, f"Nuit {n}", fmt_cell_neutral)
+                    for k in range(1, 5):
+                        ws.write_blank(cur_row, col_right + k, None, fmt_num_neutral)
+                else:
+                    nuit_label = f"Nuit {n}"
+                    ws.write(cur_row, col_right + 0, nuit_label, fmt_cell_neutral)
+                    allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
+                    ws.write_string(cur_row, col_right + 1,
+                                    ", ".join(allees_sorted) if allees_sorted else "",
+                                    fmt_allees_neutral)
+                    ws.write_formula(cur_row, col_right + 2,
+                                     f'=SUMIFS({B_range},{E_range},"{nuit_label}")', fmt_num_neutral)
+                    ws.write_formula(cur_row, col_right + 3,
+                                     f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
+                    ws.write_formula(cur_row, col_right + 4,
+                                     f'=SUMIFS({D_range_sa},{E_range},"{nuit_label}")', fmt_sa_neutral)
+                cur_row += 1
+            sub_last = cur_row  # 1-indexed row of last data line
+            # Sous-total semaine
+            ws.write(cur_row, col_right + 0, f"Sous-total S{wi}", fmt_subtotal_lbl)
+            ws.write(cur_row, col_right + 1, "", fmt_subtotal_lbl)
+            for offset in range(2, 5):
+                col_letter = chr(ord('A') + col_right + offset)
+                ws.write_formula(cur_row, col_right + offset,
+                                 f"=SUM(${col_letter}${sub_first}:${col_letter}${sub_last})",
+                                 fmt_subtotal)
+            cur_row += 2  # une ligne d'espace entre les semaines
+            # CF couleur par nuit sur les lignes data de cette semaine
+            data_first_0 = sub_first - 1  # 0-indexed
+            data_last_0 = sub_last - 1
+            for n in range(n_start, n_end + 1):
+                if n > nb_nuits: continue
+                cf_fmt = cf_formats_right.get(n)
+                if cf_fmt:
+                    ws.conditional_format(
+                        data_first_0, col_right, data_last_0, col_right + 4,
+                        {"type": "formula",
+                         "criteria": f'=${nuit_col_right_letter}{sub_first}="Nuit {n}"',
+                         "format": cf_fmt})
+        week_section_end = cur_row
+
     # ----- Mise en forme conditionnelle : couleur de la nuit appliquée à toute la ligne -----
     # Tableau gauche : range A:E sur toutes les lignes data, formule basée sur la valeur en col E
     for n in range(1, nb_nuits + 1):
@@ -1313,7 +1396,6 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             }
         )
     # Tableau droit : range G:K sur les lignes data, formule basée sur valeur en col G (Nuit)
-    nuit_col_right_letter = chr(ord('A') + col_right)  # G
     for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_right[n]
         ws.conditional_format(
