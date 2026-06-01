@@ -639,12 +639,17 @@ class SurfaceUpdate(BaseModel):
 
 @api_router.patch("/dataset/{upload_id}/surface")
 async def update_surface(upload_id: str, payload: SurfaceUpdate):
-    """Définit la catégorie surface du magasin. Ajoute 6000 (+10000m²) ou 4000 (-10000m²)
-    à la ligne 'SA 2.1 (noir)' du recap, sans créer de ligne dédiée.
+    """Définit la catégorie surface du magasin et ajoute :
+      - +6000 si "plus_10000" (surface > 10 000 m²)
+      - +4000 si "moins_10000" (surface < 10 000 m²)
+    à la ligne 'SA 2.1 (noir)' existante du recap, **uniquement sur total_plus_spare**
+    (pas de spare additionnel). La désignation est suffixée de " — rajout de X SA sans spare".
 
-    Mécanisme : on stocke `_surface_base` (qté d'origine sans surface) dans la ligne.
-    À chaque changement de catégorie, on resette à _surface_base puis on ajoute le nouveau delta.
-    Si la ligne SA 2.1 (noir) n'existe pas dans le fichier, on en crée une (kind='surface_added')."""
+    Mécanisme : on stocke les valeurs d'origine (`_surface_base_quantite`, `_surface_base_spare`,
+    `_surface_base_total`, `_surface_base_designation`) la première fois pour pouvoir
+    revenir en arrière sans dérive cumulative.
+    Si la ligne SA 2.1 (noir) n'existe pas dans le fichier, on crée une ligne dédiée
+    (kind='surface_added') avec uniquement total_plus_spare = delta."""
     d = await load_dataset(upload_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
@@ -654,60 +659,89 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
     delta = 6000 if cat == "plus_10000" else (4000 if cat == "moins_10000" else 0)
     d["surface_category"] = cat
     rows = d["recap_rows"]
-    # Helper local: recalc spare + total selon les règles globales pour SA 2.1 (noir)
-    def _recalc(row):
-        try:
-            q = float(row.get("quantite") or 0)
-        except (ValueError, TypeError):
-            return
-        desig_norm = (row.get("designation") or "").strip().lower()
-        # SA 2.1 (noir) n'est pas dans la liste 2pct/sans-spare → 5%
-        spare = math.ceil(q * 0.05) if q > 0 else 0
-        row["spare"] = spare
-        row["total_plus_spare"] = q + spare
+
+    def _strip_surface_suffix(s: str) -> str:
+        """Retire un éventuel ' — rajout de X SA sans spare' à la fin de la désignation."""
+        if not s:
+            return s
+        # Marqueur unique pour faciliter le strip (en-dash + 'rajout de')
+        idx = s.find(" — rajout de ")
+        return s[:idx] if idx != -1 else s
 
     # 1) Cherche ligne existante SA 2.1 (noir)
     target = None
     for r in rows:
-        if (r.get("designation") or "").strip().lower() == "sa 2.1 (noir)":
+        base_desig = _strip_surface_suffix((r.get("designation") or "").strip())
+        if base_desig.lower() == "sa 2.1 (noir)":
             target = r
             break
+
     if target is not None:
-        # Mémorise la base (qté d'origine du fichier brut) la 1ère fois
-        if "_surface_base" not in target:
-            try:
-                target["_surface_base"] = float(target.get("quantite") or 0)
-            except (ValueError, TypeError):
-                target["_surface_base"] = 0
-        base = target["_surface_base"]
-        new_qty = base + delta
-        target["quantite"] = new_qty if new_qty > 0 else ""
-        _recalc(target)
+        # Mémorise les valeurs d'origine la 1ère fois (qty, spare, total, désignation)
+        if "_surface_base_quantite" not in target:
+            # Migration depuis l'ancien schéma (qte inflée + _surface_base) :
+            # si _surface_base existe, on l'utilise comme qté d'origine et on recalcule spare/total.
+            if "_surface_base" in target:
+                try:
+                    base_q = float(target.get("_surface_base") or 0)
+                except (ValueError, TypeError):
+                    base_q = 0
+                target["_surface_base_quantite"] = base_q
+                target["_surface_base_spare"] = math.ceil(base_q * 0.05) if base_q > 0 else 0
+                target["_surface_base_total"] = base_q + target["_surface_base_spare"]
+            else:
+                try:
+                    target["_surface_base_quantite"] = float(target.get("quantite") or 0)
+                except (ValueError, TypeError):
+                    target["_surface_base_quantite"] = 0
+                try:
+                    target["_surface_base_spare"] = float(target.get("spare") or 0)
+                except (ValueError, TypeError):
+                    target["_surface_base_spare"] = 0
+                try:
+                    target["_surface_base_total"] = float(target.get("total_plus_spare") or 0)
+                except (ValueError, TypeError):
+                    target["_surface_base_total"] = 0
+            target["_surface_base_designation"] = _strip_surface_suffix(target.get("designation") or "SA 2.1 (noir)")
+
+        base_q = target["_surface_base_quantite"]
+        base_s = target["_surface_base_spare"]
+        base_t = target["_surface_base_total"]
+        base_d = target["_surface_base_designation"]
+
+        # Quantite + spare INCHANGÉS (base). On ajoute delta uniquement sur total_plus_spare.
+        target["quantite"] = base_q if base_q > 0 else ""
+        target["spare"] = base_s if base_s > 0 else ""
+        if delta > 0:
+            target["total_plus_spare"] = base_t + delta
+            target["designation"] = f"{base_d} — rajout de {int(delta)} SA sans spare"
+        else:
+            target["total_plus_spare"] = base_t if base_t > 0 else ""
+            target["designation"] = base_d
     else:
-        # Pas trouvé : on ajoute/supprime une ligne dédiée (kind='surface_added') en fin
-        # (avant les 3 lignes empty si présentes)
-        # Cherche si ligne déjà créée par un précédent appel
+        # Pas trouvé dans le fichier : ligne dédiée (kind='surface_added')
         added = next((r for r in rows if r.get("kind") == "surface_added"), None)
         if delta == 0:
-            if added: rows.remove(added)
+            if added:
+                rows.remove(added)
         else:
             if added is None:
-                # Trouver insertion juste avant les empty
                 last_empty_idx = next((i for i, r in enumerate(rows) if r.get("kind") == "empty"), len(rows))
                 added = {
                     "kind": "surface_added",
                     "type": "SA",
                     "reference": "",
-                    "designation": "SA 2.1 (noir)",
-                    "quantite": delta,
-                    "spare": math.ceil(delta * 0.05),
-                    "total_plus_spare": delta + math.ceil(delta * 0.05),
-                    "_surface_base": 0,
+                    "designation": f"SA 2.1 (noir) — rajout de {int(delta)} SA sans spare",
+                    "quantite": "",
+                    "spare": "",
+                    "total_plus_spare": delta,
                 }
                 rows.insert(last_empty_idx, added)
             else:
-                added["quantite"] = delta
-                _recalc(added)
+                added["designation"] = f"SA 2.1 (noir) — rajout de {int(delta)} SA sans spare"
+                added["quantite"] = ""
+                added["spare"] = ""
+                added["total_plus_spare"] = delta
     # Persister recap + surface_category
     try:
         await persist_recap_rows(upload_id, rows)

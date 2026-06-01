@@ -397,9 +397,12 @@ export default function PhasageCamTab({ uploadId }) {
                     </div>
                 </div>
 
-                <div className="mt-6" data-testid="phasagecam-chart">
+                <div className="mt-8 pb-6" data-testid="phasagecam-chart">
                     <h3 className="text-sm font-semibold text-gray-800 mb-2">Répartition caméras par nuit</h3>
-                    <div className="border border-gray-200 rounded p-3 bg-gray-50/30" style={{ height: 280 }}>
+                    <div
+                        className="border border-gray-200 rounded p-3 bg-gray-50/30 relative overflow-hidden"
+                        style={{ width: "100%", height: 280, minHeight: 280, isolation: "isolate", zIndex: 0 }}
+                    >
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                                 data={Array.from({ length: nbNuits }, (_, i) => {

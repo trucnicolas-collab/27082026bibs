@@ -100,17 +100,17 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                 </div>
                 {/* Toggle surface + bouton ajouter ligne */}
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 px-2 py-1 bg-amber-50 border-2 border-amber-300 rounded-md shadow-sm" data-testid="surface-toggle">
-                        <span className="text-xs font-bold text-amber-900 uppercase tracking-wide">Surface :</span>
-                        <div className="inline-flex rounded border border-amber-400 overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-amber-100 border-2 border-amber-500 rounded-lg shadow-md" data-testid="surface-toggle">
+                        <span className="text-sm font-extrabold text-amber-900 uppercase tracking-wide">Surface magasin :</span>
+                        <div className="inline-flex rounded-md border-2 border-amber-500 overflow-hidden shadow-sm">
                             <button
                                 type="button"
                                 data-testid="surface-moins"
                                 onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "moins_10000" ? null : "moins_10000")}
-                                className={`px-3 py-1.5 text-xs font-bold transition-colors ${
+                                className={`px-5 py-2.5 text-base font-bold transition-colors ${
                                     surfaceCategory === "moins_10000"
                                         ? "bg-[#056839] text-white shadow-inner"
-                                        : "bg-white text-amber-900 hover:bg-amber-100"
+                                        : "bg-white text-amber-900 hover:bg-amber-50"
                                 }`}
                             >
                                 − 10 000 m²
@@ -119,18 +119,18 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                 type="button"
                                 data-testid="surface-plus"
                                 onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "plus_10000" ? null : "plus_10000")}
-                                className={`px-3 py-1.5 text-xs font-bold border-l border-amber-400 transition-colors ${
+                                className={`px-5 py-2.5 text-base font-bold border-l-2 border-amber-500 transition-colors ${
                                     surfaceCategory === "plus_10000"
                                         ? "bg-[#056839] text-white shadow-inner"
-                                        : "bg-white text-amber-900 hover:bg-amber-100"
+                                        : "bg-white text-amber-900 hover:bg-amber-50"
                                 }`}
                             >
                                 + 10 000 m²
                             </button>
                         </div>
                         {surfaceCategory && (
-                            <span className="text-[10px] text-amber-900 italic ml-1">
-                                (+ {surfaceCategory === "plus_10000" ? "6000" : "4000"} SA 2.1 noir)
+                            <span className="text-xs text-amber-900 font-semibold italic">
+                                → +{surfaceCategory === "plus_10000" ? "6 000" : "4 000"} SA 2.1 (noir) <span className="font-normal">sans spare</span>
                             </span>
                         )}
                     </div>

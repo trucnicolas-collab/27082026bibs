@@ -472,11 +472,14 @@ export default function PhasageTab({ uploadId }) {
                 </div>
 
                 {/* ----- Graphique répartition par nuit ----- */}
-                <div className="mt-6 pb-6" data-testid="phasage-chart">
+                <div className="mt-8 pb-6" data-testid="phasage-chart">
                     <h3 className="text-sm font-semibold text-gray-800 mb-2">
                         Répartition par nuit
                     </h3>
-                    <div className="border border-gray-200 rounded p-3 bg-gray-50/30 relative" style={{ height: 320, isolation: "isolate" }}>
+                    <div
+                        className="border border-gray-200 rounded p-3 bg-gray-50/30 relative overflow-hidden"
+                        style={{ width: "100%", height: 320, minHeight: 320, isolation: "isolate", zIndex: 0 }}
+                    >
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                                 data={Array.from({ length: nbNuits }, (_, i) => {
