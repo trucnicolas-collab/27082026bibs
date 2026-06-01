@@ -728,18 +728,15 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
         base_t = target["_surface_base_total"]
         base_d = target["_surface_base_designation"]
 
-        # Règle métier : on ajoute le delta à QUANTITÉ et à TOTAL+SPARE.
-        # Le SPARE reste INCHANGÉ (pas de spare supplémentaire sur les SA saisonniers).
-        # Ainsi visuellement Quantité + Spare = Total+Spare, et la mention
-        # "— rajout de X SA sans spare" justifie pourquoi le spare n'est pas 5% du nouveau total.
+        # Règle métier (utilisateur) : QUANTITÉ et SPARE restent INCHANGÉS.
+        # Seul TOTAL+SPARE reçoit le delta (+6000 ou +4000).
+        # La mention "— rajout de X SA sans spare" justifie l'écart visuel.
+        target["quantite"] = base_q if base_q > 0 else ""
+        target["spare"] = base_s if base_s > 0 else ""
         if delta > 0:
-            target["quantite"] = base_q + delta
-            target["spare"] = base_s if base_s > 0 else ""
             target["total_plus_spare"] = base_t + delta
             target["designation"] = f"{base_d} — rajout de {int(delta)} SA sans spare"
         else:
-            target["quantite"] = base_q if base_q > 0 else ""
-            target["spare"] = base_s if base_s > 0 else ""
             target["total_plus_spare"] = base_t if base_t > 0 else ""
             target["designation"] = base_d
     else:
