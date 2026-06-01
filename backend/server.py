@@ -312,22 +312,13 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
         "total_plus_spare": "",
     })
 
-    # Lignes Surface (SA 2.1 noir + Support individuel alu SA) — quantités selon surface choisie
+    # Ligne Surface (SA 2.1 noir uniquement) — quantité selon surface choisie
     # Les valeurs sont remplies par l'endpoint /surface ; init à vide (catégorie non choisie).
     rows.append({
         "kind": "surface",
         "type": "SA",
         "reference": "",
         "designation": "SA 2.1 (noir)",
-        "quantite": "",
-        "spare": "",
-        "total_plus_spare": "",
-    })
-    rows.append({
-        "kind": "surface",
-        "type": "SA",
-        "reference": "",
-        "designation": "Support individuel alu SA",
         "quantite": "",
         "spare": "",
         "total_plus_spare": "",
@@ -944,10 +935,15 @@ def compute_phasage_summary(d: dict) -> dict:
         "rails_es_by_desig": {k: _r(v) for k, v in totals["rails_es_by_desig"].items()},
     }
 
+    # Total SA 2.1 (noir) saisonnier issu de la catégorie surface du magasin
+    surface_cat = d.get("surface_category") if isinstance(d, dict) else None
+    sa_21_saisonnier = 6000 if surface_cat == "plus_10000" else (4000 if surface_cat == "moins_10000" else 0)
     return {
         "allees": allees,
         "totals": totals,
         "rails_es_patterns": RAILS_ES_PATTERNS,
+        "sa_21_saisonnier": sa_21_saisonnier,
+        "surface_category": surface_cat,
     }
 
 
@@ -1154,17 +1150,21 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         cf_formats_right[n] = workbook.add_format({"bg_color": color, "border": 1})
 
     # ----- En-tête supérieur -----
-    ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (ES)", fmt_title)
+    ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (EEG)", fmt_title)
     ws.write(1, 0, "Nb nuits :", fmt_lbl)
     ws.write_number(1, 1, nb_nuits, fmt_input)
     ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
-    # Moyenne = Total ES (B4) / Nb nuits (B2)
+    # Moyenne = Total EEG (B4) / Nb nuits (B2). EEG = Total ES + SA 2.1 saisonnier
     ws.write_formula(1, 3, "=IFERROR(ROUND(B4/B2,0),0)", fmt_num_calc)
-    ws.write(1, 4, "Total ES / Nb nuits", fmt_italic)
+    ws.write(1, 4, "Total EEG / Nb nuits", fmt_italic)
 
     # ----- Totaux globaux du fichier (statiques) -----
-    ws.write(3, 0, "Total ES", fmt_lbl)
-    ws.write_number(3, 1, (totals["es_15"] or 0) + (totals["es_21"] or 0), fmt_num)
+    # Total EEG = Total ES (du fichier) + SA 2.1 saisonnier
+    total_es_brut = (totals["es_15"] or 0) + (totals["es_21"] or 0)
+    sa_21_saisonnier = int(summary.get("sa_21_saisonnier") or 0)
+    total_eeg = total_es_brut + sa_21_saisonnier
+    ws.write(3, 0, "Total EEG", fmt_lbl)
+    ws.write_number(3, 1, total_eeg, fmt_num)
     ws.write(3, 2, "Total Rails ES", fmt_lbl)
     ws.write_number(3, 3, totals["rails_es"], fmt_num)
     fmt_sa_total = workbook.add_format({"bold": True, "bg_color": "#F9FAFB", "border": 1,
@@ -1173,6 +1173,16 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                              "italic": True, "font_color": "#6B7280"})
     ws.write(3, 4, "Total SA (info)", fmt_sa_total)
     ws.write_number(3, 5, totals.get("sa", 0), fmt_sa_total_num)
+    # SA 2.1 saisonnier sur ligne 5 (cellule F5 = G5? — col 5 = F)
+    fmt_sa21_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1,
+                                         "align": "left", "font_color": "#92400E"})
+    fmt_sa21_num = workbook.add_format({"bold": True, "border": 1, "align": "right",
+                                         "bg_color": "#FEF3C7", "font_color": "#92400E"})
+    ws.write(4, 0, "SA 2.1 saisonnier", fmt_sa21_lbl)
+    ws.write_number(4, 1, sa_21_saisonnier, fmt_sa21_num)
+    ws.write(4, 2, "(réparti au prorata des ES par nuit)", fmt_italic)
+    # Référence Excel B5 (1-based) qui contient le SA 2.1 saisonnier — utilisée par les formules EEG
+    SA21_REF = "$B$5"
 
     ws.write(5, 0, "Rails ES par désignation :", fmt_lbl)
     r = 6
@@ -1184,7 +1194,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Tableau gauche (interactif) -----
     start_left = r + 2
     ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
-    headers_left = ["N° Allée", "ES", "Rails ES", "SA", "Nuit"]
+    headers_left = ["N° Allée", "EEG", "Rails ES", "SA", "Nuit"]
     for ci, h in enumerate(headers_left):
         ws.write(start_left + 1, ci, h, fmt_lbl)
 
@@ -1251,7 +1261,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Tableau droite (formules SUMIFS, mise en forme conditionnelle pour les couleurs) -----
     col_right = 6
     ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
-    headers_right = ["Nuit", "Allées", "ES", "Rails ES", "SA"]
+    headers_right = ["Nuit", "Allées", "EEG", "Rails ES", "SA"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
@@ -1284,8 +1294,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
         allees_text = ", ".join(allees_sorted) if allees_sorted else ""
         ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
+        # EEG = ES brut de la nuit + prorata SA 2.1 saisonnier (au prorata des ES par nuit)
         ws.write_formula(rrow, col_right + 2,
-                         f'=SUMIFS({B_range},{E_range},"{nuit_label}")', fmt_num_neutral)
+                         f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
+                         f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)',
+                         fmt_num_neutral)
         ws.write_formula(rrow, col_right + 3,
                          f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 4,
@@ -1353,7 +1366,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                     ", ".join(allees_sorted) if allees_sorted else "",
                                     fmt_allees_neutral)
                     ws.write_formula(cur_row, col_right + 2,
-                                     f'=SUMIFS({B_range},{E_range},"{nuit_label}")', fmt_num_neutral)
+                                     f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
+                                     f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)',
+                                     fmt_num_neutral)
                     ws.write_formula(cur_row, col_right + 3,
                                      f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
                     ws.write_formula(cur_row, col_right + 4,

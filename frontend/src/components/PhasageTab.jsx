@@ -177,7 +177,15 @@ export default function PhasageTab({ uploadId }) {
     if (!summary) return null;
 
     const { totals, rails_es_patterns } = summary;
-    const avg = nbNuits > 0 ? (totals.es_15 + totals.es_21) / nbNuits : 0;
+    // SA 2.1 saisonnier (vient de la catégorie surface du magasin) à répartir au prorata des ES
+    const sa21Saisonnier = summary?.sa_21_saisonnier || 0;
+    const totalESBrut = (totals.es_15 || 0) + (totals.es_21 || 0);
+    const eegPerNight = (esBrutNuit) => {
+        if (!totalESBrut || !sa21Saisonnier) return Math.round(esBrutNuit);
+        return Math.round(esBrutNuit + (esBrutNuit / totalESBrut) * sa21Saisonnier);
+    };
+    const totalEEG = totalESBrut + sa21Saisonnier;
+    const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="phasage-tab">
@@ -198,7 +206,7 @@ export default function PhasageTab({ uploadId }) {
                 <div className="flex items-center gap-2 ml-2 px-3 py-1 bg-[#056839] text-white rounded text-xs font-medium" data-testid="phasage-moyenne">
                     Moyenne / nuit :
                     <span className="font-mono-data font-bold">{fmt(Math.round(avg))}</span>
-                    <span className="opacity-80">ES</span>
+                    <span className="opacity-80">EEG</span>
                 </div>
                 <button
                     onClick={handleExport}
@@ -223,13 +231,21 @@ export default function PhasageTab({ uploadId }) {
                     max={20}
                     value={weeks.length}
                     onChange={(e) => {
-                        const n = Math.max(0, Math.min(20, Number(e.target.value) || 0));
-                        if (n === 0) { setWeeks([]); return; }
+                        const raw = e.target.value;
+                        if (raw === "") return; // ne pas réinitialiser pendant la saisie
+                        const n = Math.max(0, Math.min(20, parseInt(raw, 10) || 0));
+                        if (n === 0) {
+                            setWeeks([]);
+                            return;
+                        }
                         const next = [...weeks];
-                        while (next.length < n) next.push(Math.max(1, Math.round(nbNuits / n) || 1));
+                        while (next.length < n) next.push(Math.max(1, Math.round((nbNuits || 1) / n) || 1));
                         if (next.length > n) next.length = n;
                         setWeeks(next);
-                        setNbNuits(next.reduce((a, x) => a + (x || 0), 0));
+                        const newTotal = next.reduce((a, x) => a + (Number(x) || 0), 0);
+                        setNbNuits(newTotal);
+                        // Désaffecte les rows pointant au-delà du nouveau total
+                        setRows((prev) => prev.map((rr) => (rr.nuit && rr.nuit > newTotal ? { ...rr, nuit: null } : rr)));
                     }}
                     data-testid="phasage-nb-semaines"
                     className="h-7 w-14 px-2 text-sm border border-gray-300 rounded text-right focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
@@ -246,11 +262,15 @@ export default function PhasageTab({ uploadId }) {
                             max={30}
                             value={w}
                             onChange={(e) => {
-                                const v = Math.max(1, Math.min(30, Number(e.target.value) || 1));
+                                const raw = e.target.value;
+                                if (raw === "") return;
+                                const v = Math.max(1, Math.min(30, parseInt(raw, 10) || 1));
                                 const next = [...weeks];
                                 next[i] = v;
                                 setWeeks(next);
-                                setNbNuits(next.reduce((a, x) => a + (x || 0), 0));
+                                const newTotal = next.reduce((a, x) => a + (Number(x) || 0), 0);
+                                setNbNuits(newTotal);
+                                setRows((prev) => prev.map((rr) => (rr.nuit && rr.nuit > newTotal ? { ...rr, nuit: null } : rr)));
                             }}
                             className="h-7 w-14 px-2 text-sm border border-blue-300 bg-white rounded text-right focus:ring-1 focus:ring-blue-500 outline-none"
                         />
@@ -267,8 +287,8 @@ export default function PhasageTab({ uploadId }) {
             {/* Totaux globaux */}
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap items-start gap-2 text-xs flex-shrink-0">
                 <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded">
-                    <span className="text-gray-600">Total ES :</span>{" "}
-                    <span className="font-mono-data font-bold text-emerald-900" data-testid="total-es">{fmt((totals.es_15 || 0) + (totals.es_21 || 0))}</span>
+                    <span className="text-gray-600">Total EEG :</span>{" "}
+                    <span className="font-mono-data font-bold text-emerald-900" data-testid="total-es" title={sa21Saisonnier > 0 ? `ES (${fmt(totalESBrut)}) + SA 2.1 saisonnier (${fmt(sa21Saisonnier)})` : ""}>{fmt(totalEEG)}</span>
                     <span className="text-gray-400 text-[10px] ml-1">(1.5 + 2.1)</span>
                 </div>
                 <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded">
@@ -308,7 +328,7 @@ export default function PhasageTab({ uploadId }) {
                                 <thead className="bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-2 py-1.5 text-left font-semibold">N° Allée</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold" title="Total ES 1.5 + ES 2.1">ES</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold" title="EEG = ES 1.5 + ES 2.1 (la part SA 2.1 saisonnier est ajoutée dans le récap par nuit)">EEG</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
                                         <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info : toutes étiquettes SA (SA 1.5, SA 2.1, SA 4.2, etc.) — non incluse dans les calculs">SA</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
@@ -400,9 +420,9 @@ export default function PhasageTab({ uploadId }) {
                                     <tr>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Allées</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold" title="Total ES 1.5 + ES 2.1">ES</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold" title="EEG = ES (1.5+2.1) + part SA 2.1 saisonnier au prorata">EEG</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info (non inclus dans Total ES)">SA</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info (non inclus dans EEG)">SA</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -421,8 +441,9 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate" title={t.allees.join(", ")}>
                                                     {t.allees.length ? t.allees.join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" title="Total ES 1.5 + ES 2.1">
-                                                    {fmt(Math.round(totalES))}
+                                                <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900"
+                                                    title={sa21Saisonnier > 0 ? `ES brut (${fmt(Math.round(totalES))}) + part SA 2.1 saisonnier` : "EEG = ES 1.5 + ES 2.1"}>
+                                                    {fmt(eegPerNight(totalES))}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">{fmt(t.sa || 0)}</td>
@@ -435,7 +456,7 @@ export default function PhasageTab({ uploadId }) {
                                             {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(grandTotals.es))}
+                                            {fmt(Math.round(grandTotals.es + sa21Saisonnier))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}
@@ -463,7 +484,7 @@ export default function PhasageTab({ uploadId }) {
                                     const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0 };
                                     return {
                                         name: `Nuit ${n}`,
-                                        "ES": Math.round((t.es_15 || 0) + (t.es_21 || 0)),
+                                        "EEG": eegPerNight((t.es_15 || 0) + (t.es_21 || 0)),
                                         "Rails ES": Math.round(t.rails_es || 0),
                                     };
                                 })}
@@ -477,7 +498,7 @@ export default function PhasageTab({ uploadId }) {
                                     formatter={(v) => new Intl.NumberFormat("fr-FR").format(v)}
                                 />
                                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                                <Bar dataKey="ES" fill="#10B981" />
+                                <Bar dataKey="EEG" fill="#10B981" />
                                 <Bar dataKey="Rails ES" fill="#F59E0B" />
                             </BarChart>
                         </ResponsiveContainer>
