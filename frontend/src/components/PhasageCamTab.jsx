@@ -337,6 +337,51 @@ export default function PhasageCamTab({ uploadId }) {
                     </div>
                 </div>
 
+                {/* Détail par allée : Allée | N° Elements (caméras), couleur par nuit */}
+                <div className="mt-6" data-testid="phasagecam-detail-allee">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-2">Détail caméras par allée</h3>
+                    <div className="border border-gray-200 rounded overflow-hidden max-w-[640px]">
+                        <table className="w-full text-xs">
+                            <thead className="bg-gray-50 text-gray-700">
+                                <tr>
+                                    <th className="px-2 py-1.5 text-left font-semibold w-20">Allées</th>
+                                    <th className="px-2 py-1.5 text-left font-semibold">N° Elements</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.filter(r => r.allee && r.nuit).length === 0 && (
+                                    <tr><td colSpan={2} className="px-3 py-4 text-center text-gray-400 italic">
+                                        Renseigne d'abord le plan ci-dessus.
+                                    </td></tr>
+                                )}
+                                {rows
+                                    .filter(r => r.allee && r.nuit)
+                                    .sort((a, b) => {
+                                        if (a.nuit !== b.nuit) return a.nuit - b.nuit;
+                                        const ia = summary.allees.findIndex(x => String(x.allee) === String(a.allee));
+                                        const ib = summary.allees.findIndex(x => String(x.allee) === String(b.allee));
+                                        return ia - ib;
+                                    })
+                                    .map((r) => {
+                                        const node = alleeIndex[String(r.allee)];
+                                        const elems = node?.camera_elems || [];
+                                        const color = nightColor(r.nuit);
+                                        return (
+                                            <tr key={`detail-${r.id}`} className="border-t border-gray-100"
+                                                style={color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {}}
+                                                data-testid={`camdetail-${r.id}`}>
+                                                <td className="px-2 py-1 font-mono-data font-medium text-gray-900 text-center">{r.allee}</td>
+                                                <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px]">
+                                                    {elems.length ? elems.join(", ") : <span className="text-gray-400 italic">aucun</span>}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div className="mt-6" data-testid="phasagecam-chart">
                     <h3 className="text-sm font-semibold text-gray-800 mb-2">Répartition caméras par nuit</h3>
                     <div className="border border-gray-200 rounded p-3 bg-gray-50/30" style={{ height: 280 }}>

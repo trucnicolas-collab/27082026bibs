@@ -89,6 +89,7 @@ async def persist_dataset(upload_id: str, data: dict):
                 "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
                 "suivi": {"rows": []},
             },
+            "surface_category": data.get("surface_category"),
         },
         upsert=True,
     )
@@ -136,6 +137,8 @@ async def load_dataset(upload_id: str) -> Optional[dict]:
         payload["comment_table"] = doc["comment_table"]
     if "phasage" in doc:
         payload["phasage"] = doc["phasage"]
+    if "surface_category" in doc:
+        payload["surface_category"] = doc["surface_category"]
     DATASTORE[upload_id] = payload
     return payload
 
@@ -254,25 +257,34 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
             "batterie caméra",
             "caméra (blanche)",
             "caméra (noire)",
-            "software caméra",
             "support mobilier captana (blanc)",
             "support mobilier captana (noir)",
             "support ajustable adhésif captana",
+        }
+        # Produits sans spare (case vide, total = quantité)
+        PRODUITS_SANS_SPARE = {
+            "software caméra",
         }
         for _, r in grouped.iterrows():
             ref = "" if pd.isna(r[ref_col]) else str(r[ref_col])
             desig = "" if pd.isna(r[desig_col]) else str(r[desig_col])
             qty = float(r[qty_col])
-            spare_rate = 0.02 if desig.strip().lower() in PRODUITS_SPARE_2PCT else 0.05
-            spare = math.ceil(qty * spare_rate)
+            desig_norm = desig.strip().lower()
+            if desig_norm in PRODUITS_SANS_SPARE:
+                spare_val = ""
+                total_plus_spare = qty
+            else:
+                spare_rate = 0.02 if desig_norm in PRODUITS_SPARE_2PCT else 0.05
+                spare_val = math.ceil(qty * spare_rate)
+                total_plus_spare = qty + spare_val
             rows.append({
                 "kind": "product",
                 "type": tp,
                 "reference": ref,
                 "designation": desig,
                 "quantite": qty,
-                "spare": spare,
-                "total_plus_spare": qty + spare,
+                "spare": spare_val,
+                "total_plus_spare": total_plus_spare,
             })
         # Inclineur (uniquement pour Rail) — comptable comme produit à commander
         if tp.lower() == "rail":
@@ -295,6 +307,27 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
         "type": "Accessoire",
         "reference": "",
         "designation": "Dongle",
+        "quantite": "",
+        "spare": "",
+        "total_plus_spare": "",
+    })
+
+    # Lignes Surface (SA 2.1 noir + Support individuel alu SA) — quantités selon surface choisie
+    # Les valeurs sont remplies par l'endpoint /surface ; init à vide (catégorie non choisie).
+    rows.append({
+        "kind": "surface",
+        "type": "SA",
+        "reference": "",
+        "designation": "SA 2.1 (noir)",
+        "quantite": "",
+        "spare": "",
+        "total_plus_spare": "",
+    })
+    rows.append({
+        "kind": "surface",
+        "type": "SA",
+        "reference": "",
+        "designation": "Support individuel alu SA",
         "quantite": "",
         "spare": "",
         "total_plus_spare": "",
@@ -450,6 +483,7 @@ async def upload_excel(file: UploadFile = File(...)):
         "recap_rows": recap_rows,
         "secteur_rows": secteur_rows,
         "comment": "",
+        "surface_category": None,  # "plus_10000" | "moins_10000" | None
     }
 
     # Persister le dataset complet en MongoDB (gzippé) pour multi-replica
@@ -463,6 +497,7 @@ async def upload_excel(file: UploadFile = File(...)):
         "filename": file.filename,
         "row_count": len(raw_records),
         "columns": list(df.columns),
+        "surface_category": None,
         "data": {
             "recap": recap_rows,
             "secteur": secteur_rows,
@@ -619,6 +654,38 @@ async def add_recap_row(upload_id: str):
     return {"row": new_row, "index": len(rows) - 1}
 
 
+class SurfaceUpdate(BaseModel):
+    category: Optional[str] = None  # "plus_10000" | "moins_10000" | None
+
+
+@api_router.patch("/dataset/{upload_id}/surface")
+async def update_surface(upload_id: str, payload: SurfaceUpdate):
+    """Définit la catégorie surface du magasin et met à jour les 2 lignes 'surface'
+    du recap (SA 2.1 noir + Support individuel alu SA) avec 6000 (+10000m²) ou
+    4000 (-10000m²) ou vide (catégorie effacée)."""
+    d = await load_dataset(upload_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    cat = payload.category
+    if cat not in (None, "plus_10000", "moins_10000"):
+        raise HTTPException(status_code=400, detail="Catégorie surface invalide")
+    qty = 6000 if cat == "plus_10000" else (4000 if cat == "moins_10000" else "")
+    d["surface_category"] = cat
+    rows = d["recap_rows"]
+    for r in rows:
+        if r.get("kind") == "surface":
+            r["quantite"] = qty
+            r["spare"] = ""
+            r["total_plus_spare"] = qty if qty != "" else ""
+    # Persister recap + surface_category séparément
+    try:
+        await persist_recap_rows(upload_id, rows)
+        await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"surface_category": cat}})
+    except Exception as e:
+        logger.warning(f"Mongo persist surface failed: {e}")
+    return {"category": cat, "rows": rows}
+
+
 @api_router.delete("/dataset/{upload_id}/recap-row/{index}")
 async def delete_recap_row(upload_id: str, index: int):
     """Supprime une ligne du récapitulatif (sauf en-têtes de section)."""
@@ -735,6 +802,7 @@ def compute_phasage_summary(d: dict) -> dict:
     secteur_col = next((c for c in ["Secteur"] if c in columns), None)
     rayon_col = next((c for c in ["Rayon"] if c in columns), None)
     allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in columns), None)
+    elem_col = next((c for c in ["N° élément", "N° element", "N° Element", "Element"] if c in columns), None)
     type_col = next((c for c in ["Type"] if c in columns), None)
     desig_col = next((c for c in ["Désignation", "Designation"] if c in columns), None)
     qty_col = next((c for c in ["Quantité", "Quantite"] if c in columns), None)
@@ -774,6 +842,7 @@ def compute_phasage_summary(d: dict) -> dict:
             "sa": 0.0,
             "rails_es": 0.0,
             "cameras": 0.0,
+            "camera_elems": [],
             "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS},
         })
 
@@ -792,6 +861,16 @@ def compute_phasage_summary(d: dict) -> dict:
         elif is_camera and _is_valid_camera_desig(desig):
             node["cameras"] += qty
             totals["cameras"] += qty
+            # Capture le N° élément pour le détail par allée
+            elem_v = r.get(elem_col) if elem_col else None
+            if elem_v is not None and not (isinstance(elem_v, float) and math.isnan(elem_v)):
+                try:
+                    fe = float(elem_v)
+                    elem_key = int(fe) if fe.is_integer() else fe
+                except (ValueError, TypeError):
+                    elem_key = str(elem_v).strip()
+                if elem_key not in (None, ""):
+                    node["camera_elems"].append(elem_key)
         elif is_rail and _is_rail_es(desig):
             node["rails_es"] += qty
             totals["rails_es"] += qty
@@ -844,6 +923,17 @@ def compute_phasage_summary(d: dict) -> dict:
         a["sa"] = _r(a["sa"])
         a["rails_es"] = _r(a["rails_es"])
         a["cameras"] = _r(a.get("cameras", 0))
+        # Tri smart numérique des n° éléments-caméras (ordre croissant), dédup
+        elems = a.get("camera_elems") or []
+        seen = set(); uniq = []
+        for e in elems:
+            ek = str(e)
+            if ek not in seen:
+                seen.add(ek); uniq.append(e)
+        def _elem_sort_key(v):
+            try: return (0, float(str(v).replace(",", ".")))
+            except (ValueError, TypeError): return (1, str(v))
+        a["camera_elems"] = sorted(uniq, key=_elem_sort_key)
         a["rails_es_by_desig"] = {k: _r(v) for k, v in a["rails_es_by_desig"].items()}
     totals = {
         "es_15": _r(totals["es_15"]),
@@ -1443,6 +1533,34 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     fmt_dup = workbook.add_format({"bg_color": "#FEE2E2", "font_color": "#991B1B", "border": 1, "bold": True})
     ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 0,
         {"type": "duplicate", "format": fmt_dup})
+
+    # --- Bloc détail par allée : Allée | N° Elements (couleur par nuit identique au récap) ---
+    detail_idx = {str(a["allee"]): a for a in all_allees}
+    detail_rows = []  # list of (nuit, allee, [elems])
+    for row in rows_assign:
+        a = str(row.get("allee") or "").strip()
+        n = row.get("nuit")
+        if not a or not n: continue
+        node = detail_idx.get(a)
+        if not node: continue
+        detail_rows.append((int(n), a, node.get("camera_elems") or []))
+    # Tri (nuit, ordre allée)
+    detail_rows.sort(key=lambda x: (x[0], smart_order.get(x[1], 99999)))
+
+    if detail_rows:
+        detail_start = first_data_row + nb_nuits + 3  # 2 lignes de blank après TOTAL récap
+        ws.merge_range(detail_start, 0, detail_start, 2, "Détail caméras par allée", fmt_title)
+        ws.write(detail_start + 1, 0, "Allées", fmt_lbl)
+        ws.merge_range(detail_start + 1, 1, detail_start + 1, 2, "N° Elements", fmt_lbl)
+        # Cellules colorées par nuit (couleur identique au récap par nuit)
+        for i, (n, a, elems) in enumerate(detail_rows):
+            rr = detail_start + 2 + i
+            color = night_palette[(n - 1) % len(night_palette)]
+            fmt_night_left = workbook.add_format({"bg_color": color, "border": 1, "align": "center"})
+            fmt_night_right = workbook.add_format({"bg_color": color, "border": 1, "align": "left"})
+            ws.write_string(rr, 0, a, fmt_night_left)
+            elems_str = ", ".join(str(e) for e in elems) if elems else ""
+            ws.merge_range(rr, 1, rr, 2, elems_str, fmt_night_right)
 
 
 def _build_consolidated_nuit_data(d, summary):

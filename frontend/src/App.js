@@ -187,6 +187,20 @@ export default function App() {
         }
     }, [dataset]);
 
+    const updateSurfaceCategory = useCallback(async (cat) => {
+        if (!dataset?.upload_id) return;
+        try {
+            const res = await axios.patch(`${API}/dataset/${dataset.upload_id}/surface`, { category: cat });
+            setDataset((d) => ({
+                ...d,
+                surface_category: res.data.category,
+                data: { ...d.data, recap: res.data.rows },
+            }));
+        } catch (err) {
+            toast.error(`Surface : ${err.response?.data?.detail || err.message}`);
+        }
+    }, [dataset]);
+
     const tabs = useMemo(() => {
         if (!dataset) return [];
         return [
@@ -239,6 +253,8 @@ export default function App() {
                                     onUpdateRow={updateRecapRow}
                                     onAddRow={addRecapRow}
                                     onDeleteRow={deleteRecapRow}
+                                    surfaceCategory={dataset.surface_category || null}
+                                    onSurfaceChange={updateSurfaceCategory}
                                 />
                             )}
                             {activeTab === "phasage" && (

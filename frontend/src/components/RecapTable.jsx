@@ -74,7 +74,7 @@ function EditableCell({ value, onCommit, type = "text", align = "left", placehol
     );
 }
 
-export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDeleteRow }) {
+export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDeleteRow, surfaceCategory, onSurfaceChange }) {
     const filtered = useMemo(() => {
         if (!search) return rows.map((r, i) => ({ ...r, _origIndex: i }));
         const q = search.toLowerCase();
@@ -98,14 +98,46 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         Cliquez sur une ligne vide pour saisir vos propres données
                     </span>
                 </div>
-                <button
-                    onClick={onAddRow}
-                    data-testid="add-row-button"
-                    className="h-7 px-2.5 text-xs font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 flex items-center gap-1.5 text-gray-700"
-                >
-                    <Plus className="w-3.5 h-3.5" />
-                    Ajouter une ligne
-                </button>
+                {/* Toggle surface + bouton ajouter ligne */}
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2" data-testid="surface-toggle">
+                        <span className="text-[11px] text-gray-600 font-medium">Surface :</span>
+                        <div className="inline-flex rounded border border-gray-300 overflow-hidden">
+                            <button
+                                type="button"
+                                data-testid="surface-moins"
+                                onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "moins_10000" ? null : "moins_10000")}
+                                className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                    surfaceCategory === "moins_10000"
+                                        ? "bg-[#056839] text-white"
+                                        : "bg-white text-gray-700 hover:bg-gray-50"
+                                }`}
+                            >
+                                - 10000 m²
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="surface-plus"
+                                onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "plus_10000" ? null : "plus_10000")}
+                                className={`px-2.5 py-1 text-[11px] font-medium border-l border-gray-300 transition-colors ${
+                                    surfaceCategory === "plus_10000"
+                                        ? "bg-[#056839] text-white"
+                                        : "bg-white text-gray-700 hover:bg-gray-50"
+                                }`}
+                            >
+                                + 10000 m²
+                            </button>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onAddRow}
+                        data-testid="add-row-button"
+                        className="h-7 px-2.5 text-xs font-medium bg-white border border-gray-300 rounded hover:bg-gray-100 flex items-center gap-1.5 text-gray-700"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Ajouter une ligne
+                    </button>
+                </div>
             </div>
             <div className="flex-1 overflow-auto custom-scroll">
                 <table className="border-collapse text-left">
