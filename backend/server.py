@@ -685,7 +685,13 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
 
     if target is not None:
         # Mémorise les valeurs d'origine la 1ère fois (qty, spare, total, désignation)
-        if "_surface_base_quantite" not in target:
+        # Re-init si _surface_base_total == 0 alors que _surface_base_quantite > 0
+        # (correction héritage des datasets où l'ancienne logique stockait base_t=0).
+        needs_init = "_surface_base_quantite" not in target or (
+            float(target.get("_surface_base_total") or 0) == 0
+            and float(target.get("_surface_base_quantite") or 0) > 0
+        )
+        if needs_init:
             # Migration depuis l'ancien schéma (qte inflée + _surface_base) :
             # si _surface_base existe, on l'utilise comme qté d'origine et on recalcule spare/total.
             if "_surface_base" in target:
@@ -705,10 +711,16 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
                     target["_surface_base_spare"] = float(target.get("spare") or 0)
                 except (ValueError, TypeError):
                     target["_surface_base_spare"] = 0
+                # Si total_plus_spare est vide/manquant, on le RECALCULE depuis qté + spare
+                # pour éviter de partir de 0 et afficher un total incohérent après l'ajout.
                 try:
-                    target["_surface_base_total"] = float(target.get("total_plus_spare") or 0)
+                    raw_t = target.get("total_plus_spare")
+                    if raw_t in ("", None):
+                        target["_surface_base_total"] = target["_surface_base_quantite"] + target["_surface_base_spare"]
+                    else:
+                        target["_surface_base_total"] = float(raw_t)
                 except (ValueError, TypeError):
-                    target["_surface_base_total"] = 0
+                    target["_surface_base_total"] = target["_surface_base_quantite"] + target["_surface_base_spare"]
             target["_surface_base_designation"] = _strip_surface_suffix(target.get("designation") or "SA 2.1 (noir)")
 
         base_q = target["_surface_base_quantite"]
@@ -716,13 +728,18 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
         base_t = target["_surface_base_total"]
         base_d = target["_surface_base_designation"]
 
-        # Quantite + spare INCHANGÉS (base). On ajoute delta uniquement sur total_plus_spare.
-        target["quantite"] = base_q if base_q > 0 else ""
-        target["spare"] = base_s if base_s > 0 else ""
+        # Règle métier : on ajoute le delta à QUANTITÉ et à TOTAL+SPARE.
+        # Le SPARE reste INCHANGÉ (pas de spare supplémentaire sur les SA saisonniers).
+        # Ainsi visuellement Quantité + Spare = Total+Spare, et la mention
+        # "— rajout de X SA sans spare" justifie pourquoi le spare n'est pas 5% du nouveau total.
         if delta > 0:
+            target["quantite"] = base_q + delta
+            target["spare"] = base_s if base_s > 0 else ""
             target["total_plus_spare"] = base_t + delta
             target["designation"] = f"{base_d} — rajout de {int(delta)} SA sans spare"
         else:
+            target["quantite"] = base_q if base_q > 0 else ""
+            target["spare"] = base_s if base_s > 0 else ""
             target["total_plus_spare"] = base_t if base_t > 0 else ""
             target["designation"] = base_d
     else:
@@ -739,14 +756,14 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
                     "type": "SA",
                     "reference": "",
                     "designation": f"SA 2.1 (noir) — rajout de {int(delta)} SA sans spare",
-                    "quantite": "",
+                    "quantite": delta,
                     "spare": "",
                     "total_plus_spare": delta,
                 }
                 rows.insert(last_empty_idx, added)
             else:
                 added["designation"] = f"SA 2.1 (noir) — rajout de {int(delta)} SA sans spare"
-                added["quantite"] = ""
+                added["quantite"] = delta
                 added["spare"] = ""
                 added["total_plus_spare"] = delta
     # Persister recap + surface_category

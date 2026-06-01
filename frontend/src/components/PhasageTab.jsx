@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -468,43 +467,6 @@ export default function PhasageTab({ uploadId }) {
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-
-                {/* ----- Graphique répartition par nuit ----- */}
-                <div className="mt-8 pb-6" data-testid="phasage-chart">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-2">
-                        Répartition par nuit
-                    </h3>
-                    <div
-                        className="border border-gray-200 rounded p-3 bg-gray-50/30 relative overflow-hidden"
-                        style={{ width: "100%", height: 320, minHeight: 320, isolation: "isolate", zIndex: 0 }}
-                    >
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={Array.from({ length: nbNuits }, (_, i) => {
-                                    const n = i + 1;
-                                    const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0 };
-                                    return {
-                                        name: `Nuit ${n}`,
-                                        "EEG": eegPerNight((t.es_15 || 0) + (t.es_21 || 0)),
-                                        "Rails ES": Math.round(t.rails_es || 0),
-                                    };
-                                })}
-                                margin={{ top: 12, right: 16, left: 0, bottom: 4 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                                <YAxis tick={{ fontSize: 11 }} />
-                                <Tooltip
-                                    contentStyle={{ fontSize: 12, borderRadius: 4 }}
-                                    formatter={(v) => new Intl.NumberFormat("fr-FR").format(v)}
-                                />
-                                <Legend wrapperStyle={{ fontSize: 12 }} />
-                                <Bar dataKey="EEG" fill="#10B981" />
-                                <Bar dataKey="Rails ES" fill="#F59E0B" />
-                            </BarChart>
-                        </ResponsiveContainer>
                     </div>
                 </div>
             </div>
