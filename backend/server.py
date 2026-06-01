@@ -668,9 +668,16 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
         idx = s.find(" — rajout de ")
         return s[:idx] if idx != -1 else s
 
-    # 1) Cherche ligne existante SA 2.1 (noir)
+    # 0) Nettoyage : on supprime systématiquement TOUTES les anciennes lignes
+    #    `surface_added` orphelines (créées par les versions buggées précédentes).
+    rows[:] = [r for r in rows if r.get("kind") != "surface_added"]
+
+    # 1) Cherche la VRAIE ligne SA 2.1 (noir) — uniquement les lignes kind=product
+    #    (on ignore les éventuelles lignes 'spare' ou orphelines).
     target = None
     for r in rows:
+        if r.get("kind") != "product":
+            continue
         base_desig = _strip_surface_suffix((r.get("designation") or "").strip())
         if base_desig.lower() == "sa 2.1 (noir)":
             target = r
@@ -867,7 +874,10 @@ def compute_phasage_summary(d: dict) -> dict:
     secteur_col = next((c for c in ["Secteur"] if c in columns), None)
     rayon_col = next((c for c in ["Rayon"] if c in columns), None)
     allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in columns), None)
-    elem_col = next((c for c in ["N° élément", "N° element", "N° Element", "Element"] if c in columns), None)
+    # Détection robuste (insensible casse + variantes Élément/Gondole + fallback positionnel colonne G)
+    elem_col = _detect_element_col(columns)
+    if elem_col is None and len(columns) >= 7:
+        elem_col = columns[6]
     type_col = next((c for c in ["Type"] if c in columns), None)
     desig_col = next((c for c in ["Désignation", "Designation"] if c in columns), None)
     qty_col = next((c for c in ["Quantité", "Quantite"] if c in columns), None)
