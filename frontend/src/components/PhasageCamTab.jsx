@@ -79,16 +79,16 @@ export default function PhasageCamTab({ uploadId }) {
         return () => clearTimeout(t);
     }, [nbNuits, startAt, rows, uploadId, summary]);
 
-    // Allées avec caméras > 0 uniquement
+    // Allées avec caméras > 0 uniquement — clé = uid composite pour conserver les doublons
     const alleeOptions = useMemo(() => {
         if (!summary) return [];
-        return summary.allees.filter((a) => (a.cameras || 0) > 0).map((a) => String(a.allee));
+        return summary.allees.filter((a) => (a.cameras || 0) > 0).map((a) => String(a.uid || a.allee));
     }, [summary]);
 
     const alleeIndex = useMemo(() => {
         if (!summary) return {};
         const map = {};
-        summary.allees.forEach((a) => { map[String(a.allee)] = a; });
+        summary.allees.forEach((a) => { map[String(a.uid || a.allee)] = a; });
         return map;
     }, [summary]);
 
@@ -125,7 +125,7 @@ export default function PhasageCamTab({ uploadId }) {
             tot[r.nuit].allees.push(String(r.allee));
         });
         const orderIndex = new Map();
-        (summary?.allees || []).forEach((a, i) => { orderIndex.set(String(a.allee), i); });
+        (summary?.allees || []).forEach((a, i) => { orderIndex.set(String(a.uid || a.allee), i); });
         Object.values(tot).forEach((t) => {
             t.allees.sort((a, b) => {
                 const ia = orderIndex.has(a) ? orderIndex.get(a) : 9999;
@@ -253,12 +253,16 @@ export default function PhasageCamTab({ uploadId }) {
                                                         className="w-full h-6 px-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-purple-600 outline-none font-mono-data bg-white"
                                                     >
                                                         <option value="">Sélectionner…</option>
-                                                        {availableAllees.map((a) => (
-                                                            <option key={a} value={a}>
-                                                                {a}
-                                                                {alleeIndex[a]?.secteur ? ` (${alleeIndex[a].secteur}${alleeIndex[a].rayon ? " · " + alleeIndex[a].rayon : ""})` : ""}
-                                                            </option>
-                                                        ))}
+                                                        {availableAllees.map((a) => {
+                                                            const node = alleeIndex[a];
+                                                            const isDup = node?.is_dup;
+                                                            const dupTag = isDup ? `🟠 [DOUBLON ${node.dup_index}/${node.dup_total}] ` : "";
+                                                            return (
+                                                                <option key={a} value={a} style={isDup ? { color: "#C2410C", backgroundColor: "#FFF7ED", fontWeight: 600 } : {}}>
+                                                                    {`${dupTag}${node?.allee || a}${node?.secteur ? ` (${node.secteur}${node.rayon ? " · " + node.rayon : ""})` : ""}`}
+                                                                </option>
+                                                            );
+                                                        })}
                                                     </select>
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.cameras) : ""}</td>
@@ -358,8 +362,8 @@ export default function PhasageCamTab({ uploadId }) {
                                     .filter(r => r.allee && r.nuit)
                                     .sort((a, b) => {
                                         if (a.nuit !== b.nuit) return a.nuit - b.nuit;
-                                        const ia = summary.allees.findIndex(x => String(x.allee) === String(a.allee));
-                                        const ib = summary.allees.findIndex(x => String(x.allee) === String(b.allee));
+                                        const ia = summary.allees.findIndex(x => String(x.uid || x.allee) === String(a.allee));
+                                        const ib = summary.allees.findIndex(x => String(x.uid || x.allee) === String(b.allee));
                                         return ia - ib;
                                     })
                                     .map((r) => {
@@ -373,7 +377,10 @@ export default function PhasageCamTab({ uploadId }) {
                                             <tr key={`detail-${r.id}`} className="border-t border-gray-100"
                                                 style={color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {}}
                                                 data-testid={`camdetail-${r.id}`}>
-                                                <td className="px-2 py-1 font-mono-data font-medium text-gray-900 text-center">{r.allee}</td>
+                                                <td className="px-2 py-1 font-mono-data font-medium text-gray-900 text-center">
+                                                    {node?.allee || r.allee}
+                                                    {node?.is_dup && <span className="ml-1 text-orange-700 text-[10px] font-bold" title={`Doublon ${node.dup_index}/${node.dup_total}`}>🟠{node.dup_index}</span>}
+                                                </td>
                                                 <td className="px-2 py-1 font-mono-data text-[11px]">
                                                     {elems.length ? (
                                                         <span>

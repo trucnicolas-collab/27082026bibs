@@ -88,10 +88,13 @@ export default function PhasageTab({ uploadId }) {
     const alleeIndex = useMemo(() => {
         if (!summary) return {};
         const map = {};
-        summary.allees.forEach((a) => { map[String(a.allee)] = a; });
+        // Clé = uid composite (allée + secteur + rayon) pour conserver les doublons.
+        // Fallback sur String(allee) si uid absent (ancien backend).
+        summary.allees.forEach((a) => { map[String(a.uid || a.allee)] = a; });
         // Ajoute les zones saisonnières (clé = ID, ex: "ZS1")
         (summary.seasonal_zones || []).forEach((z) => {
             map[z.id] = {
+                uid: z.id,
                 allee: z.id,
                 label: z.label,
                 es_15: 0,
@@ -109,7 +112,7 @@ export default function PhasageTab({ uploadId }) {
     // Liste triée des allées dispo + zones saisonnières en fin de liste
     const alleeOptions = useMemo(() => {
         if (!summary) return [];
-        const list = summary.allees.map((a) => String(a.allee));
+        const list = summary.allees.map((a) => String(a.uid || a.allee));
         (summary.seasonal_zones || []).forEach((z) => list.push(z.id));
         return list;
     }, [summary]);
@@ -393,11 +396,15 @@ export default function PhasageTab({ uploadId }) {
                                                         {availableAllees.map((a) => {
                                                             const node = alleeIndex[a];
                                                             const isSeasonal = node?.is_seasonal;
+                                                            const isDup = node?.is_dup;
+                                                            // Préfixe visuel pour distinguer les doublons (même n° d'allée
+                                                            // dans des secteurs/rayons différents).
+                                                            const dupTag = isDup ? `🟠 [DOUBLON ${node.dup_index}/${node.dup_total}] ` : "";
                                                             return (
-                                                                <option key={a} value={a}>
+                                                                <option key={a} value={a} style={isDup ? { color: "#C2410C", backgroundColor: "#FFF7ED", fontWeight: 600 } : {}}>
                                                                     {isSeasonal
                                                                         ? `🌶 ${node.label} (+${node.seasonal_eeg} EEG)`
-                                                                        : `${a}${node?.secteur ? ` (${node.secteur}${node.rayon ? " · " + node.rayon : ""})` : ""}`
+                                                                        : `${dupTag}${node?.allee}${node?.secteur ? ` (${node.secteur}${node.rayon ? " · " + node.rayon : ""})` : ""}`
                                                                     }
                                                                 </option>
                                                             );
@@ -467,8 +474,9 @@ export default function PhasageTab({ uploadId }) {
                                                 data-testid={`recap-nuit-${n}`}
                                             >
                                                 <td className="px-2 py-1 font-medium text-gray-900">Nuit {n}</td>
-                                                <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate" title={t.allees.join(", ")}>
-                                                    {t.allees.length ? t.allees.join(", ") : <span className="text-gray-400">—</span>}
+                                                <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate"
+                                                    title={t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ")}>
+                                                    {t.allees.length ? t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900"
                                                     title={t.seasonal > 0 ? `ES brut (${fmt(Math.round(totalES))}) + Zone saisonnier (${fmt(t.seasonal)})` : "EEG = ES 1.5 + ES 2.1"}>

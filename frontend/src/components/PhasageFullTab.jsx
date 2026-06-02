@@ -54,7 +54,7 @@ export default function PhasageFullTab({ uploadId }) {
         const cam = ph.cam || { rows: [], start_at_nuit: 5 };
         const startAt = cam.start_at_nuit || 5;
         const idx = {};
-        (summary.allees || []).forEach((a) => { idx[String(a.allee)] = a; });
+        (summary.allees || []).forEach((a) => { idx[String(a.uid || a.allee)] = a; });
         const nuits = {}; // globalNuit -> {type, allees:Set, es, cam}
 
         (es.rows || []).forEach((r) => {
@@ -82,7 +82,7 @@ export default function PhasageFullTab({ uploadId }) {
 
         // Tri smart des allées
         const orderIndex = new Map();
-        (summary.allees || []).forEach((a, i) => orderIndex.set(String(a.allee), i));
+        (summary.allees || []).forEach((a, i) => orderIndex.set(String(a.uid || a.allee), i));
         const sortedKeys = Object.keys(nuits).map(Number).sort((a, b) => a - b);
         return sortedKeys.map((gn) => {
             const allees = Array.from(nuits[gn].allees).sort((a, b) => {

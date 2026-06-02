@@ -19,6 +19,7 @@ import math
 import logging
 import uuid
 import re
+from collections import Counter
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Union, Any
@@ -982,6 +983,12 @@ def compute_phasage_summary(d: dict) -> dict:
         except (ValueError, TypeError):
             allee_key = str(allee_raw).strip()
 
+        secteur_v = str(r.get(secteur_col) or "") if secteur_col else ""
+        rayon_v = str(r.get(rayon_col) or "") if rayon_col else ""
+        # Clé composite : allée + secteur + rayon, pour conserver les doublons
+        # d'allée appartenant à des secteurs/rayons différents.
+        composite_key = f"{allee_key}__{secteur_v}__{rayon_v}"
+
         typ = str(r.get(type_col) or "").strip() if type_col else ""
         desig = str(r.get(desig_col) or "") if desig_col else ""
         try:
@@ -989,10 +996,11 @@ def compute_phasage_summary(d: dict) -> dict:
         except (ValueError, TypeError):
             qty = 0
 
-        node = by_allee.setdefault(allee_key, {
+        node = by_allee.setdefault(composite_key, {
+            "uid": composite_key,
             "allee": allee_key,
-            "secteur": str(r.get(secteur_col) or "") if secteur_col else "",
-            "rayon": str(r.get(rayon_col) or "") if rayon_col else "",
+            "secteur": secteur_v,
+            "rayon": rayon_v,
             "es_15": 0.0,
             "es_21": 0.0,
             "sa": 0.0,
@@ -1042,34 +1050,35 @@ def compute_phasage_summary(d: dict) -> dict:
                     totals["rails_es_by_desig"][pat] += qty
                     break
 
-    # Tri "intelligent" des allées par N° d'allée croissant :
-    # - Tri numérique standard pour les nombres
-    # - Si l'allée X est un préfixe d'une autre allée Y (ex: "45" et "451"),
-    #   alors "451" est interprétée comme sous-allée "45/1" et placée juste après "45"
-    # Exemple : [1, 2, 5, 45, 451, 452, 46, 7] → [1, 2, 5, 7, 45, 451, 452, 46]
-    all_allee_keys = set(by_allee.keys())
-
+    # Tri strictement ascendant numérique des allées (demande utilisateur).
+    # Tie-breakers : secteur puis rayon (pour ordonner les doublons).
     def _smart_sort_key(v):
         a_str = str(v["allee"]).strip()
-        # Cherche le plus long préfixe (au moins 1 char) qui correspond à une autre allée
-        prefix_match = None
-        for L in range(len(a_str) - 1, 0, -1):
-            candidate = a_str[:L]
-            if candidate in all_allee_keys and candidate != a_str:
-                prefix_match = candidate
-                break
-        if prefix_match:
-            suffix = a_str[len(prefix_match):]
-            try:
-                return (0, float(prefix_match), 0, float(suffix))
-            except (ValueError, TypeError):
-                return (0, float(prefix_match), 1, suffix)
+        secteur_s = str(v.get("secteur") or "")
+        rayon_s = str(v.get("rayon") or "")
         try:
-            return (0, float(a_str.replace(",", ".")), 0, 0)
+            return (0, float(a_str.replace(",", ".")), secteur_s, rayon_s)
         except (ValueError, TypeError):
-            return (1, 0, 1, a_str)
+            return (1, 0.0, a_str, secteur_s + "|" + rayon_s)
 
     allees = sorted(by_allee.values(), key=_smart_sort_key)
+
+    # Détection des doublons d'allée (même n° dans des secteurs/rayons différents)
+    # → on note dup_index (1, 2, 3...) sur les entrées dupliquées pour les distinguer
+    #   visuellement côté frontend.
+    allee_counts = Counter(v["allee"] for v in allees)
+    dup_seen: dict[str, int] = {}
+    for a in allees:
+        n = a["allee"]
+        if allee_counts[n] > 1:
+            dup_seen[n] = dup_seen.get(n, 0) + 1
+            a["is_dup"] = True
+            a["dup_index"] = dup_seen[n]
+            a["dup_total"] = allee_counts[n]
+        else:
+            a["is_dup"] = False
+            a["dup_index"] = 1
+            a["dup_total"] = 1
     # Round pour transit JSON propre
     def _r(x):
         try:
