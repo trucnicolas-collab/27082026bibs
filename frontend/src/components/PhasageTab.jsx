@@ -141,7 +141,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, rails_es: 0, seasonal: 0, allees: [] };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, rails_es: 0, seasonal: 0, bonus: 0, allees: [] };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -150,6 +150,7 @@ export default function PhasageTab({ uploadId }) {
             tot[r.nuit].es_21 += node.es_21 || 0;
             tot[r.nuit].sa += node.sa || 0;
             tot[r.nuit].rails_es += node.rails_es || 0;
+            tot[r.nuit].bonus += (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0);
             if (node.is_seasonal) {
                 tot[r.nuit].seasonal += node.seasonal_eeg || 0;
             }
@@ -185,6 +186,7 @@ export default function PhasageTab({ uploadId }) {
             rails: values.reduce((a, x) => a + (x.rails_es || 0), 0),
             sa: values.reduce((a, x) => a + (x.sa || 0), 0),
             seasonal: values.reduce((a, x) => a + (x.seasonal || 0), 0),
+            bonus: values.reduce((a, x) => a + (x.bonus || 0), 0),
         };
     }, [nightTotals]);
 
@@ -206,9 +208,12 @@ export default function PhasageTab({ uploadId }) {
     //   dans le dropdown des allées (pas de répartition prorata automatique).
     const sa21Saisonnier = summary?.sa_21_saisonnier || 0;
     const totalESBrut = (totals.es_15 || 0) + (totals.es_21 || 0);
-    // EEG par nuit = ES brut affectés + EEG des zones saisonnières affectées
-    const eegPerNight = (esBrutNuit, seasonalNuit) => Math.round((esBrutNuit || 0) + (seasonalNuit || 0));
-    const totalEEG = totalESBrut + sa21Saisonnier;
+    // Bonus rails → ES 1.5 (RAILS_BONUS_ES15) ajouté automatiquement par allée
+    const totalES15Bonus = (totals.es_15_bonus_noir || 0) + (totals.es_15_bonus_blanc || 0);
+    // EEG par nuit = ES brut affectés + bonus rails affectés + EEG des zones saisonnières affectées
+    const eegPerNight = (esBrutNuit, seasonalNuit, bonusNuit) =>
+        Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (seasonalNuit || 0));
+    const totalEEG = totalESBrut + totalES15Bonus + sa21Saisonnier;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
     return (
@@ -312,9 +317,24 @@ export default function PhasageTab({ uploadId }) {
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap items-start gap-2 text-xs flex-shrink-0">
                 <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded">
                     <span className="text-gray-600">Total EEG :</span>{" "}
-                    <span className="font-mono-data font-bold text-emerald-900" data-testid="total-es" title={sa21Saisonnier > 0 ? `ES (${fmt(totalESBrut)}) + SA 2.1 saisonnier (${fmt(sa21Saisonnier)})` : ""}>{fmt(totalEEG)}</span>
-                    <span className="text-gray-400 text-[10px] ml-1">(1.5 + 2.1)</span>
+                    <span
+                        className="font-mono-data font-bold text-emerald-900"
+                        data-testid="total-es"
+                        title={`ES (${fmt(totalESBrut)})${totalES15Bonus > 0 ? ` + Bonus rails→ES 1.5 (${fmt(totalES15Bonus)})` : ""}${sa21Saisonnier > 0 ? ` + SA 2.1 saisonnier (${fmt(sa21Saisonnier)})` : ""}`}
+                    >
+                        {fmt(totalEEG)}
+                    </span>
+                    <span className="text-gray-400 text-[10px] ml-1">(ES + bonus rails + saison.)</span>
                 </div>
+                {totalES15Bonus > 0 && (
+                    <div className="px-3 py-1.5 bg-sky-50 border border-sky-200 rounded" title="ES 1.5 ajoutés automatiquement à partir des rails">
+                        <span className="text-gray-600">Bonus rails → ES 1.5 :</span>{" "}
+                        <span className="font-mono-data font-bold text-sky-900">+{fmt(totalES15Bonus)}</span>
+                        <span className="text-gray-400 text-[10px] ml-1">
+                            (noir {fmt(totals.es_15_bonus_noir || 0)} / blanc {fmt(totals.es_15_bonus_blanc || 0)})
+                        </span>
+                    </div>
+                )}
                 <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded">
                     <span className="text-gray-600">Total Rails ES :</span>{" "}
                     <span className="font-mono-data font-bold text-amber-900" data-testid="total-railses">{fmt(totals.rails_es)}</span>
@@ -352,7 +372,7 @@ export default function PhasageTab({ uploadId }) {
                                 <thead className="bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-2 py-1.5 text-left font-semibold">N° Allée</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold" title="EEG = ES 1.5 + ES 2.1 (la part SA 2.1 saisonnier est ajoutée dans le récap par nuit)">EEG</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold" title="EEG = ES 1.5 + ES 2.1 + bonus rails→ES 1.5 (1 rail = 1 ES 1.5 additionnelle)">EEG</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
                                         <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info : toutes étiquettes SA (SA 1.5, SA 2.1, SA 4.2, etc.) — non incluse dans les calculs">SA</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
@@ -411,8 +431,12 @@ export default function PhasageTab({ uploadId }) {
                                                         })}
                                                     </select>
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-gray-800">
-                                                    {node ? fmt(node.is_seasonal ? (node.seasonal_eeg || 0) : ((node.es_15 || 0) + (node.es_21 || 0))) : ""}
+                                                <td className="px-2 py-1 text-right font-mono-data text-gray-800"
+                                                    title={node && !node.is_seasonal ? `ES ${fmt((node.es_15 || 0) + (node.es_21 || 0))}${((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0)) > 0 ? ` + bonus rails ${fmt((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0))}` : ""}` : undefined}>
+                                                    {node ? fmt(node.is_seasonal
+                                                        ? (node.seasonal_eeg || 0)
+                                                        : ((node.es_15 || 0) + (node.es_21 || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0))
+                                                    ) : ""}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500" title="Toutes étiquettes SA (info)">{node ? fmt(node.sa || 0) : ""}</td>
@@ -456,7 +480,7 @@ export default function PhasageTab({ uploadId }) {
                                     <tr>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Allées</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold" title="EEG = ES (1.5+2.1) + part SA 2.1 saisonnier au prorata">EEG</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold" title="EEG = ES (1.5+2.1) affectés + bonus rails→ES 1.5 + zones saisonnières affectées">EEG</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
                                         <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info (non inclus dans EEG)">SA</th>
                                     </tr>
@@ -479,8 +503,8 @@ export default function PhasageTab({ uploadId }) {
                                                     {t.allees.length ? t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900"
-                                                    title={t.seasonal > 0 ? `ES brut (${fmt(Math.round(totalES))}) + Zone saisonnier (${fmt(t.seasonal)})` : "EEG = ES 1.5 + ES 2.1"}>
-                                                    {fmt(eegPerNight(totalES, t.seasonal))}
+                                                    title={`ES brut (${fmt(Math.round(totalES))})${t.bonus > 0 ? ` + Bonus rails (${fmt(t.bonus)})` : ""}${t.seasonal > 0 ? ` + Zone saisonnier (${fmt(t.seasonal)})` : ""}`}>
+                                                    {fmt(eegPerNight(totalES, t.seasonal, t.bonus))}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">{fmt(t.sa || 0)}</td>
@@ -493,7 +517,7 @@ export default function PhasageTab({ uploadId }) {
                                             {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(grandTotals.es + grandTotals.seasonal))}
+                                            {fmt(Math.round(grandTotals.es + grandTotals.bonus + grandTotals.seasonal))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}

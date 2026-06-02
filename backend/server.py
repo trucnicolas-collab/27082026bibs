@@ -967,6 +967,7 @@ def compute_phasage_summary(d: dict) -> dict:
     # Agrégation par allée (clé = str de l'allée)
     by_allee: dict[str, dict] = {}
     totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "rails_es": 0.0, "cameras": 0.0,
+              "es_15_bonus_noir": 0.0, "es_15_bonus_blanc": 0.0,
               "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS}}
 
     for r in raw_records:
@@ -1007,6 +1008,8 @@ def compute_phasage_summary(d: dict) -> dict:
             "rails_es": 0.0,
             "cameras": 0.0,
             "camera_elems": [],
+            "es_15_bonus_noir": 0.0,
+            "es_15_bonus_blanc": 0.0,
             "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS},
         })
 
@@ -1039,15 +1042,24 @@ def compute_phasage_summary(d: dict) -> dict:
                     except (ValueError, TypeError):
                         cnt = 1
                     node["camera_elems"].extend([elem_key] * cnt)
-        elif is_rail and _is_rail_es(desig):
-            node["rails_es"] += qty
-            totals["rails_es"] += qty
-            # détection précise du pattern pour le breakdown
+        elif typ.lower() == "rail":
             d_low = _norm_desig(desig)
-            for pat in RAILS_ES_PATTERNS:
+            # Comptage rails ES (RAILS_ES_PATTERNS) — utilisé pour la planification rails
+            if _is_rail_es(desig):
+                node["rails_es"] += qty
+                totals["rails_es"] += qty
+                for pat in RAILS_ES_PATTERNS:
+                    if pat.lower() in d_low:
+                        node["rails_es_by_desig"][pat] += qty
+                        totals["rails_es_by_desig"][pat] += qty
+                        break
+            # Bonus rails → ES 1.5 (RAILS_BONUS_ES15) — utilisé pour ajouter des EEG
+            # ES 1.5 supplémentaires dans le Phasage de pose, par couleur.
+            for pat, color in RAILS_BONUS_ES15:
                 if pat.lower() in d_low:
-                    node["rails_es_by_desig"][pat] += qty
-                    totals["rails_es_by_desig"][pat] += qty
+                    key = "es_15_bonus_noir" if color == "noir" else "es_15_bonus_blanc"
+                    node[key] += qty
+                    totals[key] += qty
                     break
 
     # Tri strictement ascendant numérique des allées (demande utilisateur).
@@ -1092,6 +1104,8 @@ def compute_phasage_summary(d: dict) -> dict:
         a["sa"] = _r(a["sa"])
         a["rails_es"] = _r(a["rails_es"])
         a["cameras"] = _r(a.get("cameras", 0))
+        a["es_15_bonus_noir"] = _r(a.get("es_15_bonus_noir", 0))
+        a["es_15_bonus_blanc"] = _r(a.get("es_15_bonus_blanc", 0))
         # Tri smart numérique des n° éléments-caméras (ordre croissant) — on garde les doublons
         # car cela indique plusieurs caméras sur le même élément (à afficher en rouge)
         elems = a.get("camera_elems") or []
@@ -1106,6 +1120,8 @@ def compute_phasage_summary(d: dict) -> dict:
         "sa": _r(totals["sa"]),
         "rails_es": _r(totals["rails_es"]),
         "cameras": _r(totals.get("cameras", 0)),
+        "es_15_bonus_noir": _r(totals.get("es_15_bonus_noir", 0)),
+        "es_15_bonus_blanc": _r(totals.get("es_15_bonus_blanc", 0)),
         "rails_es_by_desig": {k: _r(v) for k, v in totals["rails_es_by_desig"].items()},
     }
 
