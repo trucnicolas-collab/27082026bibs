@@ -1306,13 +1306,17 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Feuille cachée _Phasage_data : table de référence pour VLOOKUP -----
     ws_data = workbook.add_worksheet("_Phasage_data")
     writer.sheets["_Phasage_data"] = ws_data
-    # Col B = ES (1.5 + 2.1 fusionnés), Col C = Rails ES, Col D = SA
-    ws_data.write_row(0, 0, ["Allée", "ES", "Rails ES", "SA"])
+    # Col B = EEG (ES 1.5 + ES 2.1 + bonus rails→ES 1.5 noir + blanc)
+    # Col C = Rails ES, Col D = SA, Col E = Bonus rails (info)
+    ws_data.write_row(0, 0, ["Allée", "EEG", "Rails ES", "SA", "Bonus rails"])
     for i, a in enumerate(all_allees, start=1):
+        es_brut = (a["es_15"] or 0) + (a["es_21"] or 0)
+        bonus = (a.get("es_15_bonus_noir") or 0) + (a.get("es_15_bonus_blanc") or 0)
         ws_data.write_string(i, 0, str(a["allee"]))
-        ws_data.write_number(i, 1, (a["es_15"] or 0) + (a["es_21"] or 0))
+        ws_data.write_number(i, 1, es_brut + bonus)  # EEG = ES + bonus rails
         ws_data.write_number(i, 2, a["rails_es"] or 0)
         ws_data.write_number(i, 3, a.get("sa") or 0)
+        ws_data.write_number(i, 4, bonus)
     ws_data.hide()
 
     # ----- Configuration de la feuille principale -----
@@ -1367,10 +1371,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write(1, 4, "Total EEG / Nb nuits", fmt_italic)
 
     # ----- Totaux globaux du fichier (statiques) -----
-    # Total EEG = Total ES (du fichier) + SA 2.1 saisonnier
+    # Total EEG = Total ES (du fichier) + bonus rails→ES 1.5 + SA 2.1 saisonnier
     total_es_brut = (totals["es_15"] or 0) + (totals["es_21"] or 0)
+    total_bonus = (totals.get("es_15_bonus_noir") or 0) + (totals.get("es_15_bonus_blanc") or 0)
     sa_21_saisonnier = int(summary.get("sa_21_saisonnier") or 0)
-    total_eeg = total_es_brut + sa_21_saisonnier
+    total_eeg = total_es_brut + total_bonus + sa_21_saisonnier
     ws.write(3, 0, "Total EEG", fmt_lbl)
     ws.write_number(3, 1, total_eeg, fmt_num)
     ws.write(3, 2, "Total Rails ES", fmt_lbl)
@@ -1381,6 +1386,15 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                              "italic": True, "font_color": "#6B7280"})
     ws.write(3, 4, "Total SA (info)", fmt_sa_total)
     ws.write_number(3, 5, totals.get("sa", 0), fmt_sa_total_num)
+
+    # Bonus rails → ES 1.5 (info, déjà inclus dans Total EEG)
+    fmt_bonus_lbl = workbook.add_format({"bold": True, "bg_color": "#DBEAFE", "border": 1,
+                                          "align": "left", "font_color": "#1E40AF"})
+    fmt_bonus_num = workbook.add_format({"bold": True, "border": 1, "align": "right",
+                                          "bg_color": "#DBEAFE", "font_color": "#1E40AF"})
+    ws.write(3, 6, "Bonus rails → ES 1.5", fmt_bonus_lbl)
+    ws.write_number(3, 7, total_bonus, fmt_bonus_num)
+    ws.write_string(3, 8, f"(noir {int(totals.get('es_15_bonus_noir') or 0)} / blanc {int(totals.get('es_15_bonus_blanc') or 0)})", fmt_italic)
     # SA 2.1 saisonnier sur ligne 5 (cellule F5 = G5? — col 5 = F)
     fmt_sa21_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1,
                                          "align": "left", "font_color": "#92400E"})
