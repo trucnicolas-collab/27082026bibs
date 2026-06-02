@@ -301,6 +301,61 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "total_plus_spare": inclineur_total + inclineur_spare,
             })
 
+    # ===== Bonus rails → ES 1.5 (sans spare) =====
+    # Règle : 1 rail (parmi RAILS_BONUS_ES15) = +1 EEG ES 1.5 de même couleur,
+    #         ajouté UNIQUEMENT à total_plus_spare (sans spare additionnel).
+    rail_bonus_by_color = {"noir": 0, "blanc": 0}
+    rails_df = df[df[type_col].astype(str).str.lower() == "rail"].copy()
+    if not rails_df.empty:
+        rails_df[qty_col] = pd.to_numeric(rails_df[qty_col], errors="coerce").fillna(0)
+        for _, rr in rails_df.iterrows():
+            d_low = _norm_desig(rr[desig_col])
+            if not d_low:
+                continue
+            q = float(rr[qty_col]) if rr[qty_col] else 0
+            if q <= 0:
+                continue
+            for pat, color in RAILS_BONUS_ES15:
+                if pat.lower() in d_low:
+                    rail_bonus_by_color[color] += int(q)
+                    break
+
+    # Applique le bonus aux lignes ES 1.5 (noir) et ES 1.5 (blanc) du recap
+    for color, bonus in rail_bonus_by_color.items():
+        if bonus <= 0:
+            continue
+        target_label = f"es 1.5 ({color})"
+        for r in rows:
+            if r.get("kind") != "product":
+                continue
+            desig_norm = _norm_desig(r.get("designation"))
+            # On strip un éventuel suffixe " — rajout de … rails" déjà présent
+            base_desig = desig_norm.split(" — rajout de")[0]
+            if base_desig == target_label:
+                try:
+                    cur_total = float(r.get("total_plus_spare") or 0)
+                except (ValueError, TypeError):
+                    cur_total = 0
+                try:
+                    cur_q = float(r.get("quantite") or 0)
+                except (ValueError, TypeError):
+                    cur_q = 0
+                try:
+                    cur_s = float(r.get("spare") or 0)
+                except (ValueError, TypeError):
+                    cur_s = 0
+                # Si total était 0/vide, on recalcule depuis qté + spare
+                if cur_total == 0 and (cur_q + cur_s) > 0:
+                    cur_total = cur_q + cur_s
+                r["total_plus_spare"] = cur_total + bonus
+                # Met à jour la désignation pour signaler le bonus
+                base_label = (r.get("designation") or "").split(" — rajout de")[0].strip()
+                r["designation"] = f"{base_label} — rajout de {bonus} rails"
+                # Mémorise pour rollback futur éventuel
+                r["_rail_bonus"] = bonus
+                r["_rail_bonus_color"] = color
+                break
+
     # Ligne Dongle — éditable, pas de Spare ni Total+Spare
     rows.append({
         "kind": "dongle",
@@ -823,6 +878,18 @@ RAILS_ES_PATTERNS = [
     "990 mm (noir)",
 ]
 
+# Patterns de rails qui DÉCLENCHENT le bonus "+1 EEG ES 1.5 par rail"
+# (selon liste utilisateur — 1187 EXCLU, 535 INCLUS)
+RAILS_BONUS_ES15 = [
+    ("1240 mm (noir)", "noir"),
+    ("1320 mm (blanc)", "blanc"),
+    ("1320 mm (noir)", "noir"),
+    ("535 mm (noir)", "noir"),
+    ("650 mm (noir)", "noir"),
+    ("990 mm (blanc)", "blanc"),
+    ("990 mm (noir)", "noir"),
+]
+
 
 def _norm_desig(s: Any) -> str:
     if s is None:
@@ -1036,12 +1103,30 @@ def compute_phasage_summary(d: dict) -> dict:
     # Total SA 2.1 (noir) saisonnier issu de la catégorie surface du magasin
     surface_cat = d.get("surface_category") if isinstance(d, dict) else None
     sa_21_saisonnier = 6000 if surface_cat == "plus_10000" else (4000 if surface_cat == "moins_10000" else 0)
+
+    # Zones saisonnières sélectionnables dans le phasage de pose
+    # +10 000 m² → 3 zones de 2000 EEG (= 6000 SA 2.1 noir)
+    # −10 000 m² → 2 zones de 2000 EEG (= 4000 SA 2.1 noir)
+    seasonal_zones = []
+    if surface_cat == "plus_10000":
+        seasonal_zones = [
+            {"id": "ZS1", "label": "Zone saisonnier 1", "eeg": 2000, "is_seasonal": True},
+            {"id": "ZS2", "label": "Zone saisonnier 2", "eeg": 2000, "is_seasonal": True},
+            {"id": "ZS3", "label": "Zone saisonnier 3", "eeg": 2000, "is_seasonal": True},
+        ]
+    elif surface_cat == "moins_10000":
+        seasonal_zones = [
+            {"id": "ZS1", "label": "Zone saisonnier 1", "eeg": 2000, "is_seasonal": True},
+            {"id": "ZS2", "label": "Zone saisonnier 2", "eeg": 2000, "is_seasonal": True},
+        ]
+
     return {
         "allees": allees,
         "totals": totals,
         "rails_es_patterns": RAILS_ES_PATTERNS,
         "sa_21_saisonnier": sa_21_saisonnier,
         "surface_category": surface_cat,
+        "seasonal_zones": seasonal_zones,
     }
 
 

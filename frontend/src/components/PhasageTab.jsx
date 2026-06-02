@@ -89,14 +89,32 @@ export default function PhasageTab({ uploadId }) {
         if (!summary) return {};
         const map = {};
         summary.allees.forEach((a) => { map[String(a.allee)] = a; });
+        // Ajoute les zones saisonnières (clé = ID, ex: "ZS1")
+        (summary.seasonal_zones || []).forEach((z) => {
+            map[z.id] = {
+                allee: z.id,
+                label: z.label,
+                es_15: 0,
+                es_21: 0,
+                sa: z.eeg || 0,
+                rails_es: 0,
+                cameras: 0,
+                is_seasonal: true,
+                seasonal_eeg: z.eeg || 0,
+            };
+        });
         return map;
     }, [summary]);
 
-    // Liste triée des allées dispo
+    // Liste triée des allées dispo + zones saisonnières en fin de liste
     const alleeOptions = useMemo(() => {
         if (!summary) return [];
-        return summary.allees.map((a) => String(a.allee));
+        const list = summary.allees.map((a) => String(a.allee));
+        (summary.seasonal_zones || []).forEach((z) => list.push(z.id));
+        return list;
     }, [summary]);
+
+    const seasonalZones = summary?.seasonal_zones || [];
 
     const updateRow = useCallback((id, patch) => {
         setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
@@ -120,7 +138,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, rails_es: 0, allees: [] };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, rails_es: 0, seasonal: 0, allees: [] };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -129,6 +147,9 @@ export default function PhasageTab({ uploadId }) {
             tot[r.nuit].es_21 += node.es_21 || 0;
             tot[r.nuit].sa += node.sa || 0;
             tot[r.nuit].rails_es += node.rails_es || 0;
+            if (node.is_seasonal) {
+                tot[r.nuit].seasonal += node.seasonal_eeg || 0;
+            }
             tot[r.nuit].allees.push(String(r.allee));
         });
         // Tri "intelligent" via l'ordre déjà calculé côté serveur (summary.allees est trié smart).
@@ -160,6 +181,7 @@ export default function PhasageTab({ uploadId }) {
             es: values.reduce((a, x) => a + (x.es_15 || 0) + (x.es_21 || 0), 0),
             rails: values.reduce((a, x) => a + (x.rails_es || 0), 0),
             sa: values.reduce((a, x) => a + (x.sa || 0), 0),
+            seasonal: values.reduce((a, x) => a + (x.seasonal || 0), 0),
         };
     }, [nightTotals]);
 
@@ -176,13 +198,13 @@ export default function PhasageTab({ uploadId }) {
     if (!summary) return null;
 
     const { totals, rails_es_patterns } = summary;
-    // SA 2.1 saisonnier (vient de la catégorie surface du magasin) à répartir au prorata des ES
+    // SA 2.1 saisonnier (vient de la catégorie surface du magasin)
+    // → désormais sélectionnable explicitement via les "Zones saisonnières"
+    //   dans le dropdown des allées (pas de répartition prorata automatique).
     const sa21Saisonnier = summary?.sa_21_saisonnier || 0;
     const totalESBrut = (totals.es_15 || 0) + (totals.es_21 || 0);
-    const eegPerNight = (esBrutNuit) => {
-        if (!totalESBrut || !sa21Saisonnier) return Math.round(esBrutNuit);
-        return Math.round(esBrutNuit + (esBrutNuit / totalESBrut) * sa21Saisonnier);
-    };
+    // EEG par nuit = ES brut affectés + EEG des zones saisonnières affectées
+    const eegPerNight = (esBrutNuit, seasonalNuit) => Math.round((esBrutNuit || 0) + (seasonalNuit || 0));
     const totalEEG = totalESBrut + sa21Saisonnier;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
@@ -368,15 +390,23 @@ export default function PhasageTab({ uploadId }) {
                                                         className="w-full h-6 px-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none font-mono-data bg-white"
                                                     >
                                                         <option value="">Sélectionner…</option>
-                                                        {availableAllees.map((a) => (
-                                                            <option key={a} value={a}>
-                                                                {a}
-                                                                {alleeIndex[a]?.secteur ? ` (${alleeIndex[a].secteur}${alleeIndex[a].rayon ? " · " + alleeIndex[a].rayon : ""})` : ""}
-                                                            </option>
-                                                        ))}
+                                                        {availableAllees.map((a) => {
+                                                            const node = alleeIndex[a];
+                                                            const isSeasonal = node?.is_seasonal;
+                                                            return (
+                                                                <option key={a} value={a}>
+                                                                    {isSeasonal
+                                                                        ? `🌶 ${node.label} (+${node.seasonal_eeg} EEG)`
+                                                                        : `${a}${node?.secteur ? ` (${node.secteur}${node.rayon ? " · " + node.rayon : ""})` : ""}`
+                                                                    }
+                                                                </option>
+                                                            );
+                                                        })}
                                                     </select>
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt((node.es_15 || 0) + (node.es_21 || 0)) : ""}</td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-gray-800">
+                                                    {node ? fmt(node.is_seasonal ? (node.seasonal_eeg || 0) : ((node.es_15 || 0) + (node.es_21 || 0))) : ""}
+                                                </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500" title="Toutes étiquettes SA (info)">{node ? fmt(node.sa || 0) : ""}</td>
                                                 <td className="px-1 py-1">
@@ -426,7 +456,7 @@ export default function PhasageTab({ uploadId }) {
                                 </thead>
                                 <tbody>
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0, allees: [] };
+                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, rails_es: 0, seasonal: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
                                         const color = nightColor(n);
                                         return (
@@ -441,8 +471,8 @@ export default function PhasageTab({ uploadId }) {
                                                     {t.allees.length ? t.allees.join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900"
-                                                    title={sa21Saisonnier > 0 ? `ES brut (${fmt(Math.round(totalES))}) + part SA 2.1 saisonnier` : "EEG = ES 1.5 + ES 2.1"}>
-                                                    {fmt(eegPerNight(totalES))}
+                                                    title={t.seasonal > 0 ? `ES brut (${fmt(Math.round(totalES))}) + Zone saisonnier (${fmt(t.seasonal)})` : "EEG = ES 1.5 + ES 2.1"}>
+                                                    {fmt(eegPerNight(totalES, t.seasonal))}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">{fmt(t.sa || 0)}</td>
@@ -455,7 +485,7 @@ export default function PhasageTab({ uploadId }) {
                                             {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(grandTotals.es + sa21Saisonnier))}
+                                            {fmt(Math.round(grandTotals.es + grandTotals.seasonal))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}
