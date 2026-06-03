@@ -79,6 +79,18 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
+## Couleurs nuit fixes par position dans la semaine (03/06/2026)
+- [x] Nouvelles **4 couleurs muted** récurrentes selon la position dans la semaine :
+   - Position 1 → **bleu** `#DBEAFE`
+   - Position 2 → **jaune** `#FEF3C7`
+   - Position 3 → **rouge** `#FEE2E2`
+   - Position 4 → **vert** `#DCFCE7`
+- [x] Si découpage par semaine actif (ex: `weeks = [4, 2]`) : sem1 nuits 1-4 = bleu/jaune/rouge/vert, sem2 nuits 5-6 = bleu/jaune (récurrence).
+- [x] Si pas de découpage : cycle modulo 4 sur le n° de nuit absolu.
+- [x] Helpers module-level `night_position_in_week` + `night_color_hex` (backend) + `nightPositionInWeek` + `nightColor(n, weeks)` (frontend) centralisent la logique.
+- [x] Appliqué partout : `PhasageTab.jsx`, `PhasageCamTab.jsx`, `SuiviPhasageTab.jsx`, `PhasageFullTab.jsx`, et toutes les feuilles Excel (`_write_phasage_sheet`, `_write_phasage_cam_sheet`, `_write_phasage_full_sheet`).
+- [x] Validé Excel : règles conditional formatting pointent bien sur les bonnes couleurs (bleu Nuit 1, jaune Nuit 2, rouge Nuit 3, vert Nuit 4, bleu Nuit 5, jaune Nuit 6).
+
 ## Magasin 2 (03/06/2026) — Branche `magasin-2`
 Cette branche applique des règles métier différentes du magasin 1 (branche `main`). Un constant module-level `STORE_MODE = "magasin_2"` dans `backend/server.py` active automatiquement ces règles.
 

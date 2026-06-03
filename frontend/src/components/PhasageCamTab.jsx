@@ -13,19 +13,18 @@ function fmt(n) {
 function newRowId() {
     return `cam_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
-const NIGHT_COLORS = [
-    { bg: "#FEF3C7", border: "#FCD34D" },
-    { bg: "#DBEAFE", border: "#93C5FD" },
-    { bg: "#D1FAE5", border: "#6EE7B7" },
-    { bg: "#FCE7F3", border: "#F9A8D4" },
-    { bg: "#E0E7FF", border: "#A5B4FC" },
-    { bg: "#FED7AA", border: "#FDBA74" },
-    { bg: "#CCFBF1", border: "#5EEAD4" },
-    { bg: "#FAE8FF", border: "#E9D5FF" },
-    { bg: "#FFE4E6", border: "#FDA4AF" },
-    { bg: "#ECFCCB", border: "#BEF264" },
+// Palette FIXE : 1 couleur par "position dans la semaine" (1..4), récurrente.
+// Identique à PhasageTab.jsx pour cohérence visuelle.
+const WEEK_COLORS = [
+    { bg: "#DBEAFE", border: "#60A5FA" }, // 1 bleu doux
+    { bg: "#FEF3C7", border: "#F59E0B" }, // 2 jaune doux
+    { bg: "#FEE2E2", border: "#EF4444" }, // 3 rouge doux
+    { bg: "#DCFCE7", border: "#22C55E" }, // 4 vert doux
 ];
-const nightColor = (n) => (!n ? null : NIGHT_COLORS[(n - 1) % NIGHT_COLORS.length]);
+// Le Phasage caméras n'a pas de découpage par semaine.
+// On considère donc l'ensemble des nuits comme une seule "semaine" :
+// position = n° de nuit directement, cyclique modulo 4.
+const nightColor = (n) => (!n ? null : WEEK_COLORS[(n - 1) % WEEK_COLORS.length]);
 
 export default function PhasageCamTab({ uploadId }) {
     const [summary, setSummary] = useState(null);

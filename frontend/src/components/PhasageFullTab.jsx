@@ -10,19 +10,29 @@ function fmt(n) {
     return n;
 }
 
-const NIGHT_COLORS = [
-    { bg: "#FEF3C7", border: "#FCD34D" },
-    { bg: "#DBEAFE", border: "#93C5FD" },
-    { bg: "#D1FAE5", border: "#6EE7B7" },
-    { bg: "#FCE7F3", border: "#F9A8D4" },
-    { bg: "#E0E7FF", border: "#A5B4FC" },
-    { bg: "#FED7AA", border: "#FDBA74" },
-    { bg: "#CCFBF1", border: "#5EEAD4" },
-    { bg: "#FAE8FF", border: "#E9D5FF" },
-    { bg: "#FFE4E6", border: "#FDA4AF" },
-    { bg: "#ECFCCB", border: "#BEF264" },
+// Palette FIXE par position dans la semaine (1..4) — identique aux autres onglets
+const WEEK_COLORS = [
+    { bg: "#DBEAFE", border: "#60A5FA" }, // 1 bleu doux
+    { bg: "#FEF3C7", border: "#F59E0B" }, // 2 jaune doux
+    { bg: "#FEE2E2", border: "#EF4444" }, // 3 rouge doux
+    { bg: "#DCFCE7", border: "#22C55E" }, // 4 vert doux
 ];
-const nightColor = (n) => (!n ? null : NIGHT_COLORS[(n - 1) % NIGHT_COLORS.length]);
+function nightPositionInWeek(nuit, weeks) {
+    if (!nuit) return 0;
+    if (!weeks || weeks.length === 0) return nuit;
+    let remaining = nuit;
+    for (const w of weeks) {
+        const ww = w || 0;
+        if (remaining <= ww) return remaining;
+        remaining -= ww;
+    }
+    return remaining;
+}
+function nightColor(n, weeks) {
+    if (!n) return null;
+    const pos = nightPositionInWeek(n, weeks);
+    return pos ? WEEK_COLORS[(pos - 1) % WEEK_COLORS.length] : null;
+}
 
 const TYPE_BADGE = {
     "ES": { bg: "#D1FAE5", text: "#065F46" },
@@ -154,7 +164,7 @@ export default function PhasageFullTab({ uploadId }) {
                                 </td></tr>
                             )}
                             {consolidated.map((r) => {
-                                const color = nightColor(r.nuit);
+                                const color = nightColor(r.nuit, (summary?.phasage?.es?.weeks) || []);
                                 const tb = TYPE_BADGE[r.type] || TYPE_BADGE["ES"];
                                 return (
                                     <tr key={r.nuit} className="border-t border-gray-100"

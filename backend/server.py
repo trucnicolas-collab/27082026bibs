@@ -879,6 +879,40 @@ RAILS_ES_PATTERNS = [
     "990 mm (noir)",
 ]
 
+# Couleurs FIXES par position dans la semaine (1..4) — identiques sur web + Excel.
+# Couleurs muted/professionnelles, repérables sur Excel.
+WEEK_NIGHT_PALETTE = [
+    "#DBEAFE",  # 1 bleu doux
+    "#FEF3C7",  # 2 jaune doux
+    "#FEE2E2",  # 3 rouge doux
+    "#DCFCE7",  # 4 vert doux
+]
+
+
+def night_position_in_week(nuit: int, weeks: list | None) -> int:
+    """Convertit un n° de nuit absolu (1..N) en position dans sa semaine (1..nb_nuits_semaine).
+    Si pas de découpage par semaine, on considère toutes les nuits comme une seule semaine
+    (le n° de nuit absolu est utilisé directement, modulo 4 pour les couleurs)."""
+    if not nuit:
+        return 0
+    if not weeks:
+        return int(nuit)
+    remaining = int(nuit)
+    for w in weeks:
+        ww = int(w or 0)
+        if remaining <= ww:
+            return remaining
+        remaining -= ww
+    return remaining
+
+
+def night_color_hex(nuit: int, weeks: list | None) -> str:
+    """Couleur de fond Excel pour une nuit, selon sa position dans la semaine."""
+    pos = night_position_in_week(nuit, weeks)
+    if not pos:
+        return "#FFFFFF"
+    return WEEK_NIGHT_PALETTE[(pos - 1) % len(WEEK_NIGHT_PALETTE)]
+
 # ===================================================================
 # MODE MAGASIN (configuration métier de la branche)
 # ===================================================================
@@ -1451,16 +1485,14 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # Format neutre pour les cellules Nuit (la couleur sera appliquée via mise en forme conditionnelle)
     fmt_nuit_cell = workbook.add_format({"border": 1, "align": "center"})
 
-    # Couleurs douces par nuit (10 couleurs en rotation, identiques au frontend) — utilisées
-    # uniquement pour générer les RÈGLES de mise en forme conditionnelle.
-    night_palette = [
-        "#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
-        "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB",
-    ]
-    cf_formats_left = {}  # par nuit → format pour ligne du tableau gauche
-    cf_formats_right = {}  # par nuit → format pour ligne du tableau droit
-    for n in range(1, 31):
-        color = night_palette[(n - 1) % len(night_palette)]
+    # Couleurs FIXES par position dans la semaine — identiques au frontend.
+    # On précalcule, pour chaque n° de nuit absolu (1..nb_nuits), la couleur
+    # correspondant à sa position dans la semaine (4 couleurs récurrentes).
+    weeks_list = phasage.get("weeks") or []
+    cf_formats_left = {}
+    cf_formats_right = {}
+    for n in range(1, max(nb_nuits, 30) + 1):
+        color = night_color_hex(n, weeks_list)
         cf_formats_left[n] = workbook.add_format({"bg_color": color, "border": 1})
         cf_formats_right[n] = workbook.add_format({"bg_color": color, "border": 1})
 
@@ -1897,11 +1929,11 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     fmt_num_neutral = workbook.add_format({"border": 1, "align": "right"})
     fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
 
-    night_palette = ["#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
-                     "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB"]
+    # Couleurs FIXES par position dans la semaine — identiques au frontend.
+    # Phasage caméras n'a pas de découpage par semaine → on cycle modulo 4 sur l'absolu.
     cf_left, cf_right = {}, {}
     for n in range(1, nb_nuits + 1):
-        color = night_palette[(n - 1) % len(night_palette)]
+        color = night_color_hex(n, None)
         cf_left[n] = workbook.add_format({"bg_color": color, "border": 1})
         cf_right[n] = workbook.add_format({"bg_color": color, "border": 1})
 
@@ -2021,7 +2053,7 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         # Cellules colorées par nuit (couleur identique au récap par nuit)
         for i, (n, a, elems) in enumerate(detail_rows):
             rr = detail_start + 2 + i
-            color = night_palette[(n - 1) % len(night_palette)]
+            color = night_color_hex(n, None)
             fmt_night_left = workbook.add_format({"bg_color": color, "border": 1, "align": "center"})
             fmt_night_right = workbook.add_format({"bg_color": color, "border": 1, "align": "left"})
             ws.write_string(rr, 0, a, fmt_night_left)
@@ -2170,10 +2202,9 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         ws.write(2, ci, h, fmt_lbl)
 
     # Couleurs douces par nuit (10 couleurs en rotation) — appliquées via CF
-    night_palette = [
-        "#FEF3C7", "#DBEAFE", "#D1FAE5", "#FCE7F3", "#E0E7FF",
-        "#FED7AA", "#CCFBF1", "#FAE8FF", "#FFE4E6", "#ECFCCB",
-    ]
+    # Couleurs FIXES par position dans la semaine (récupérées du Phasage ES)
+    phasage_full_obj = _normalize_phasage(d.get("phasage"))
+    weeks_full = phasage_full_obj["es"].get("weeks") or []
 
     r = 3
     first_excel = r + 1
@@ -2213,7 +2244,9 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         # Mise en forme conditionnelle par nuit : colore TOUTE la ligne (A-G) selon le numéro de nuit
         # Utilisation de la formule =$E4=N (référence absolue colonne E)
         for night_num in range(1, max(sorted_nuits) + 1):
-            color = night_palette[(night_num - 1) % len(night_palette)]
+            # Couleur = position dans la semaine pour la phase ES (les nuits caméras
+            # commencent à start_at_nuit, on les considère hors-semaine → cycle modulo 4)
+            color = night_color_hex(night_num, weeks_full)
             fmt_night = workbook.add_format({"bg_color": color, "border": 1})
             ws.conditional_format(3, 0, last_excel - 1, 6,
                 {"type": "formula",

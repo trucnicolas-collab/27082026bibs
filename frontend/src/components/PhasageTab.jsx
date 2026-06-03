@@ -14,7 +14,35 @@ function newRowId() {
     return `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Palette de couleurs douces (1 par nuit, repeat après 10)
+// Palette FIXE : 1 couleur par "position dans la semaine" (1..4), récurrente d'une
+// semaine à l'autre. Couleurs muted/professionnelles, lisibles sur Excel.
+// Position 1 = bleu, 2 = jaune, 3 = rouge, 4 = vert.
+const WEEK_COLORS = [
+    { bg: "#DBEAFE", border: "#60A5FA" }, // 1 bleu doux
+    { bg: "#FEF3C7", border: "#F59E0B" }, // 2 jaune doux
+    { bg: "#FEE2E2", border: "#EF4444" }, // 3 rouge doux
+    { bg: "#DCFCE7", border: "#22C55E" }, // 4 vert doux
+];
+
+/**
+ * Pour un n° de nuit absolu (1..N) et un découpage par semaine `weeks` (ex: [5,3,6]),
+ * retourne sa position dans la semaine courante (1..nb_nuits_semaine).
+ * Si pas de découpage (weeks vide), toutes les nuits sont dans une seule "semaine".
+ */
+function nightPositionInWeek(nuit, weeks) {
+    if (!nuit) return 0;
+    if (!weeks || weeks.length === 0) return nuit;
+    let remaining = nuit;
+    for (const w of weeks) {
+        const ww = w || 0;
+        if (remaining <= ww) return remaining;
+        remaining -= ww;
+    }
+    // Si la nuit dépasse les semaines déclarées, on cycle modulo 4 sur le reste
+    return remaining;
+}
+
+// Palette legacy (compat caméras) — cyclique par nuit absolue
 const NIGHT_COLORS = [
     { bg: "#FEF3C7", border: "#FCD34D" }, // 1 jaune
     { bg: "#DBEAFE", border: "#93C5FD" }, // 2 bleu
@@ -27,9 +55,11 @@ const NIGHT_COLORS = [
     { bg: "#FFE4E6", border: "#FDA4AF" }, // 9 rouge clair
     { bg: "#ECFCCB", border: "#BEF264" }, // 10 lime
 ];
-function nightColor(n) {
+function nightColor(n, weeks) {
     if (!n) return null;
-    return NIGHT_COLORS[(n - 1) % NIGHT_COLORS.length];
+    const pos = nightPositionInWeek(n, weeks);
+    if (!pos) return null;
+    return WEEK_COLORS[(pos - 1) % WEEK_COLORS.length];
 }
 
 export default function PhasageTab({ uploadId }) {
@@ -425,7 +455,7 @@ export default function PhasageTab({ uploadId }) {
                                     )}
                                     {rows.map((r) => {
                                         const node = alleeIndex[String(r.allee)];
-                                        const color = nightColor(r.nuit);
+                                        const color = nightColor(r.nuit, weeks);
                                         const rowStyle = color ? {
                                             backgroundColor: color.bg,
                                             borderLeft: `4px solid ${color.border}`,
@@ -549,7 +579,7 @@ export default function PhasageTab({ uploadId }) {
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
                                         const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
-                                        const color = nightColor(n);
+                                        const color = nightColor(n, weeks);
                                         // En magasin 2 : bonus rails NON inclus dans EEG nuit
                                         const bonusForNight = isMagasin2 ? 0 : (t.bonus || 0);
                                         const sa15ForNight = isMagasin2 ? (t.sa_15 || 0) : 0;
