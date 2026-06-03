@@ -879,6 +879,21 @@ RAILS_ES_PATTERNS = [
     "990 mm (noir)",
 ]
 
+# ===================================================================
+# MODE MAGASIN (configuration métier de la branche)
+# ===================================================================
+# "magasin_1" (défaut, branche main) :
+#   - Phasage de pose : EEG = ES 1.5 + ES 2.1 + bonus rails→ES 1.5 + saisonnier SA 2.1
+#   - Col SA = toutes SA cumulées (info)
+#   - Bonus rails→ES 1.5 appliqué dans Commandes ET dans Phasage
+#
+# "magasin_2" (cette branche) :
+#   - Phasage de pose : EEG = ES 1.5 + ES 2.1 + SA 1.5 (noir+blanc) + saisonnier SA 2.1
+#                       (PAS de bonus rails→ES 1.5 dans le Phasage)
+#   - 2 colonnes SA séparées : "SA 1.5" (à installer, hors EEG) + "SA 2.1 (info)" (hors EEG)
+#   - Bonus rails→ES 1.5 reste appliqué dans Commandes (recap inchangé)
+STORE_MODE = os.environ.get("STORE_MODE", "magasin_2")
+
 # Patterns de rails qui DÉCLENCHENT le bonus "+1 EEG ES 1.5 par rail"
 # (selon liste utilisateur — 1187 EXCLU, 535 INCLUS)
 RAILS_BONUS_ES15 = [
@@ -924,6 +939,18 @@ def _is_sa(desig: str) -> bool:
     return d.startswith("sa ") or " sa " in d
 
 
+def _is_sa_15(desig: str) -> bool:
+    """Détecte les étiquettes SA 1.5 (noir, blanc, …)."""
+    d = _norm_desig(desig)
+    return "sa 1.5" in d or "sa 1,5" in d
+
+
+def _is_sa_21(desig: str) -> bool:
+    """Détecte les étiquettes SA 2.1 (noir, blanc, freezer, …)."""
+    d = _norm_desig(desig)
+    return "sa 2.1" in d or "sa 2,1" in d
+
+
 def _is_rail_es(desig: str) -> bool:
     """Vérifie si la désignation contient une des longueurs de rail ES."""
     d = _norm_desig(desig)
@@ -966,7 +993,8 @@ def compute_phasage_summary(d: dict) -> dict:
 
     # Agrégation par allée (clé = str de l'allée)
     by_allee: dict[str, dict] = {}
-    totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "rails_es": 0.0, "cameras": 0.0,
+    totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "sa_15": 0.0, "sa_21": 0.0,
+              "rails_es": 0.0, "cameras": 0.0,
               "es_15_bonus_noir": 0.0, "es_15_bonus_blanc": 0.0,
               "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS}}
 
@@ -1004,7 +1032,9 @@ def compute_phasage_summary(d: dict) -> dict:
             "rayon": rayon_v,
             "es_15": 0.0,
             "es_21": 0.0,
-            "sa": 0.0,
+            "sa": 0.0,         # Toutes SA confondues (legacy)
+            "sa_15": 0.0,      # SA 1.5 (noir + blanc)
+            "sa_21": 0.0,      # SA 2.1 (toutes variantes)
             "rails_es": 0.0,
             "cameras": 0.0,
             "camera_elems": [],
@@ -1025,6 +1055,13 @@ def compute_phasage_summary(d: dict) -> dict:
         elif is_eeg and _is_sa(desig):
             node["sa"] += qty
             totals["sa"] += qty
+            # Split SA 1.5 vs SA 2.1 (utilisé par le Phasage de pose du magasin 2)
+            if _is_sa_15(desig):
+                node["sa_15"] += qty
+                totals["sa_15"] += qty
+            elif _is_sa_21(desig):
+                node["sa_21"] += qty
+                totals["sa_21"] += qty
         elif is_camera and _is_valid_camera_desig(desig):
             node["cameras"] += qty
             totals["cameras"] += qty
@@ -1102,6 +1139,8 @@ def compute_phasage_summary(d: dict) -> dict:
         a["es_15"] = _r(a["es_15"])
         a["es_21"] = _r(a["es_21"])
         a["sa"] = _r(a["sa"])
+        a["sa_15"] = _r(a.get("sa_15", 0))
+        a["sa_21"] = _r(a.get("sa_21", 0))
         a["rails_es"] = _r(a["rails_es"])
         a["cameras"] = _r(a.get("cameras", 0))
         a["es_15_bonus_noir"] = _r(a.get("es_15_bonus_noir", 0))
@@ -1118,6 +1157,8 @@ def compute_phasage_summary(d: dict) -> dict:
         "es_15": _r(totals["es_15"]),
         "es_21": _r(totals["es_21"]),
         "sa": _r(totals["sa"]),
+        "sa_15": _r(totals.get("sa_15", 0)),
+        "sa_21": _r(totals.get("sa_21", 0)),
         "rails_es": _r(totals["rails_es"]),
         "cameras": _r(totals.get("cameras", 0)),
         "es_15_bonus_noir": _r(totals.get("es_15_bonus_noir", 0)),
@@ -1152,6 +1193,7 @@ def compute_phasage_summary(d: dict) -> dict:
         "sa_21_saisonnier": sa_21_saisonnier,
         "surface_category": surface_cat,
         "seasonal_zones": seasonal_zones,
+        "store_mode": STORE_MODE,
     }
 
 
@@ -1339,26 +1381,44 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Feuille cachée _Phasage_data : table de référence pour VLOOKUP -----
     ws_data = workbook.add_worksheet("_Phasage_data")
     writer.sheets["_Phasage_data"] = ws_data
+    store_mode = summary.get("store_mode") or "magasin_1"
+    is_m2 = store_mode == "magasin_2"
+
     # Col A = Label court (display, ex: "8", "112-1", "ZS1")
-    # Col B = EEG (ES 1.5 + ES 2.1 + bonus rails→ES 1.5 noir + blanc)
-    # Col C = Rails ES, Col D = SA, Col E = Bonus rails (info)
-    ws_data.write_row(0, 0, ["Allée", "EEG", "Rails ES", "SA", "Bonus rails"])
+    # Col B = EEG :
+    #   - Magasin 1 : ES 1.5 + ES 2.1 + bonus rails→ES 1.5
+    #   - Magasin 2 : ES 1.5 + ES 2.1 + SA 1.5 (noir+blanc)
+    # Col C = Rails ES
+    # Col D = SA (info, mag1=toutes / mag2=SA 2.1 uniquement)
+    # Col E = SA 1.5 (mag2 uniquement, info — déjà inclus dans EEG)
+    headers = ["Allée", "EEG", "Rails ES", "SA 2.1 (info)" if is_m2 else "SA", "SA 1.5"] \
+              if is_m2 else ["Allée", "EEG", "Rails ES", "SA", "Bonus rails"]
+    ws_data.write_row(0, 0, headers)
     n_data_rows = n_allees + n_zs
     for i, a in enumerate(all_allees, start=1):
         es_brut = (a["es_15"] or 0) + (a["es_21"] or 0)
         bonus = (a.get("es_15_bonus_noir") or 0) + (a.get("es_15_bonus_blanc") or 0)
+        sa_15_val = a.get("sa_15") or 0
+        sa_21_val = a.get("sa_21") or 0
         ws_data.write_string(i, 0, _allee_display_label(a))
-        ws_data.write_number(i, 1, es_brut + bonus)
-        ws_data.write_number(i, 2, a["rails_es"] or 0)
-        ws_data.write_number(i, 3, a.get("sa") or 0)
-        ws_data.write_number(i, 4, bonus)
+        if is_m2:
+            ws_data.write_number(i, 1, es_brut + sa_15_val)
+            ws_data.write_number(i, 2, a["rails_es"] or 0)
+            ws_data.write_number(i, 3, sa_21_val)
+            ws_data.write_number(i, 4, sa_15_val)
+        else:
+            ws_data.write_number(i, 1, es_brut + bonus)
+            ws_data.write_number(i, 2, a["rails_es"] or 0)
+            ws_data.write_number(i, 3, a.get("sa") or 0)
+            ws_data.write_number(i, 4, bonus)
     # Ajoute les zones saisonnières comme allées sélectionnables (avec leur EEG)
     for j, z in enumerate(seasonal_zones, start=1):
         rr = n_allees + j
         ws_data.write_string(rr, 0, str(z["id"]))
         ws_data.write_number(rr, 1, int(z.get("eeg") or 0))
         ws_data.write_number(rr, 2, 0)
-        ws_data.write_number(rr, 3, int(z.get("eeg") or 0))  # comptabilisé en SA
+        # SA 2.1 (info) : 0 pour les zones (le saisonnier est déjà dans EEG, pas en double)
+        ws_data.write_number(rr, 3, 0)
         ws_data.write_number(rr, 4, 0)
     ws_data.hide()
 
@@ -1414,11 +1474,18 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write(1, 4, "Total EEG / Nb nuits", fmt_italic)
 
     # ----- Totaux globaux du fichier (statiques) -----
-    # Total EEG = Total ES (du fichier) + bonus rails→ES 1.5 + SA 2.1 saisonnier
+    # Total EEG selon le mode magasin :
+    #   - mag 1 : ES + bonus rails + SA 2.1 saisonnier
+    #   - mag 2 : ES + SA 1.5 + SA 2.1 saisonnier (bonus rails NON inclus)
     total_es_brut = (totals["es_15"] or 0) + (totals["es_21"] or 0)
     total_bonus = (totals.get("es_15_bonus_noir") or 0) + (totals.get("es_15_bonus_blanc") or 0)
+    total_sa_15 = totals.get("sa_15") or 0
+    total_sa_21 = totals.get("sa_21") or 0
     sa_21_saisonnier = int(summary.get("sa_21_saisonnier") or 0)
-    total_eeg = total_es_brut + total_bonus + sa_21_saisonnier
+    if is_m2:
+        total_eeg = total_es_brut + total_sa_15 + sa_21_saisonnier
+    else:
+        total_eeg = total_es_brut + total_bonus + sa_21_saisonnier
     ws.write(3, 0, "Total EEG", fmt_lbl)
     ws.write_number(3, 1, total_eeg, fmt_num)
     ws.write(3, 2, "Total Rails ES", fmt_lbl)
@@ -1427,17 +1494,29 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                          "align": "left", "italic": True, "font_color": "#6B7280"})
     fmt_sa_total_num = workbook.add_format({"border": 1, "align": "right", "bg_color": "#F9FAFB",
                                              "italic": True, "font_color": "#6B7280"})
-    ws.write(3, 4, "Total SA (info)", fmt_sa_total)
-    ws.write_number(3, 5, totals.get("sa", 0), fmt_sa_total_num)
+    if is_m2:
+        ws.write(3, 4, "Total SA 2.1 (info)", fmt_sa_total)
+        ws.write_number(3, 5, total_sa_21, fmt_sa_total_num)
+        # SA 1.5 (à poser, inclus dans EEG)
+        fmt_sa15_lbl = workbook.add_format({"bold": True, "bg_color": "#F3E8FF", "border": 1,
+                                             "align": "left", "font_color": "#6B21A8"})
+        fmt_sa15_num = workbook.add_format({"bold": True, "border": 1, "align": "right",
+                                             "bg_color": "#F3E8FF", "font_color": "#6B21A8"})
+        ws.write(3, 6, "SA 1.5 (à poser)", fmt_sa15_lbl)
+        ws.write_number(3, 7, total_sa_15, fmt_sa15_num)
+        ws.write_string(3, 8, "(inclus dans Total EEG)", fmt_italic)
+    else:
+        ws.write(3, 4, "Total SA (info)", fmt_sa_total)
+        ws.write_number(3, 5, totals.get("sa", 0), fmt_sa_total_num)
 
-    # Bonus rails → ES 1.5 (info, déjà inclus dans Total EEG)
-    fmt_bonus_lbl = workbook.add_format({"bold": True, "bg_color": "#DBEAFE", "border": 1,
-                                          "align": "left", "font_color": "#1E40AF"})
-    fmt_bonus_num = workbook.add_format({"bold": True, "border": 1, "align": "right",
-                                          "bg_color": "#DBEAFE", "font_color": "#1E40AF"})
-    ws.write(3, 6, "Bonus rails → ES 1.5", fmt_bonus_lbl)
-    ws.write_number(3, 7, total_bonus, fmt_bonus_num)
-    ws.write_string(3, 8, f"(noir {int(totals.get('es_15_bonus_noir') or 0)} / blanc {int(totals.get('es_15_bonus_blanc') or 0)})", fmt_italic)
+        # Bonus rails → ES 1.5 (info, déjà inclus dans Total EEG)
+        fmt_bonus_lbl = workbook.add_format({"bold": True, "bg_color": "#DBEAFE", "border": 1,
+                                              "align": "left", "font_color": "#1E40AF"})
+        fmt_bonus_num = workbook.add_format({"bold": True, "border": 1, "align": "right",
+                                              "bg_color": "#DBEAFE", "font_color": "#1E40AF"})
+        ws.write(3, 6, "Bonus rails → ES 1.5", fmt_bonus_lbl)
+        ws.write_number(3, 7, total_bonus, fmt_bonus_num)
+        ws.write_string(3, 8, f"(noir {int(totals.get('es_15_bonus_noir') or 0)} / blanc {int(totals.get('es_15_bonus_blanc') or 0)})", fmt_italic)
     # SA 2.1 saisonnier sur ligne 5 (cellule F5 = G5? — col 5 = F)
     fmt_sa21_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1,
                                          "align": "left", "font_color": "#92400E"})
@@ -1459,7 +1538,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Tableau gauche (interactif) -----
     start_left = r + 2
     ws.merge_range(start_left, 0, start_left, 4, "Plan d'attribution par allée", fmt_title)
-    headers_left = ["N° Allée", "EEG", "Rails ES", "SA", "Nuit"]
+    # En magasin 2, SA = SA 2.1 (info uniquement). EEG inclut déjà SA 1.5.
+    sa_col_label = "SA 2.1" if is_m2 else "SA"
+    headers_left = ["N° Allée", "EEG", "Rails ES", sa_col_label, "Nuit"]
     for ci, h in enumerate(headers_left):
         ws.write(start_left + 1, ci, h, fmt_lbl)
 
@@ -1528,7 +1609,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Tableau droite (formules SUMIFS, mise en forme conditionnelle pour les couleurs) -----
     col_right = 6
     ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
-    headers_right = ["Nuit", "Allées", "EEG", "Rails ES", "SA"]
+    headers_right = ["Nuit", "Allées", "EEG", "Rails ES", "SA 2.1" if is_m2 else "SA"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
@@ -1567,11 +1648,15 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
         allees_text = ", ".join(allees_sorted) if allees_sorted else ""
         ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
-        # EEG = ES brut de la nuit + prorata SA 2.1 saisonnier (au prorata des ES par nuit)
-        ws.write_formula(rrow, col_right + 2,
-                         f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
-                         f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)',
-                         fmt_num_neutral)
+        # EEG par nuit :
+        #   - Magasin 2 : simple SUMIFS sur col B (qui contient déjà ES+SA1.5+saisonnier des zones affectées)
+        #   - Magasin 1 : SUMIFS + prorata SA 2.1 saisonnier sur les nuits ES
+        if is_m2:
+            eeg_formula = f'=SUMIFS({B_range},{E_range},"{nuit_label}")'
+        else:
+            eeg_formula = (f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
+                           f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)')
+        ws.write_formula(rrow, col_right + 2, eeg_formula, fmt_num_neutral)
         ws.write_formula(rrow, col_right + 3,
                          f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 4,
