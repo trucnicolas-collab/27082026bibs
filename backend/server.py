@@ -1267,6 +1267,34 @@ async def update_phasage(upload_id: str, payload: PhasageFullUpdate):
     return {"ok": True, "phasage": d["phasage"]}
 
 
+def _allee_display_label(a: dict) -> str:
+    """Label court pour l'affichage Excel (data validation + récap par nuit).
+    - Non-dup : "8"
+    - Doublon  : "112-1" / "112-2"
+    - Zone saisonnier : "ZS1" (le label est déjà court)
+    """
+    num = str(a.get("allee") or "").strip()
+    if a.get("is_seasonal"):
+        return num
+    if a.get("is_dup"):
+        return f"{num}-{a.get('dup_index', 1)}"
+    return num
+
+
+def _build_uid_to_label(allees: list, seasonal_zones=None) -> dict:
+    """Construit le mapping uid -> display_label utilisé pour convertir les
+    assignations stockées en DB (uid) vers les labels courts affichés dans Excel."""
+    mapping = {}
+    for a in allees:
+        uid = str(a.get("uid") or a.get("allee"))
+        mapping[uid] = _allee_display_label(a)
+    for z in (seasonal_zones or []):
+        # uid = id ("ZS1"), label = id
+        mapping[str(z.get("id"))] = str(z.get("id"))
+    return mapping
+
+
+
 
 def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     """Génère la feuille "Phasage de pose" INTERACTIVE (formules + listes déroulantes).
@@ -1288,8 +1316,13 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     nb_nuits = max(1, int(phasage.get("nb_nuits") or 3))
     rows_assign = phasage.get("rows") or []
     all_allees = summary["allees"]
+    seasonal_zones = summary.get("seasonal_zones") or []
     totals = summary["totals"]
     n_allees = len(all_allees)
+    n_zs = len(seasonal_zones)
+
+    # Mapping uid -> label court pour la conversion des assignations stockées
+    uid_to_label = _build_uid_to_label(all_allees, seasonal_zones)
 
     if n_allees == 0:
         # Pas de données -> feuille minimaliste
@@ -1306,17 +1339,27 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # ----- Feuille cachée _Phasage_data : table de référence pour VLOOKUP -----
     ws_data = workbook.add_worksheet("_Phasage_data")
     writer.sheets["_Phasage_data"] = ws_data
+    # Col A = Label court (display, ex: "8", "112-1", "ZS1")
     # Col B = EEG (ES 1.5 + ES 2.1 + bonus rails→ES 1.5 noir + blanc)
     # Col C = Rails ES, Col D = SA, Col E = Bonus rails (info)
     ws_data.write_row(0, 0, ["Allée", "EEG", "Rails ES", "SA", "Bonus rails"])
+    n_data_rows = n_allees + n_zs
     for i, a in enumerate(all_allees, start=1):
         es_brut = (a["es_15"] or 0) + (a["es_21"] or 0)
         bonus = (a.get("es_15_bonus_noir") or 0) + (a.get("es_15_bonus_blanc") or 0)
-        ws_data.write_string(i, 0, str(a["allee"]))
-        ws_data.write_number(i, 1, es_brut + bonus)  # EEG = ES + bonus rails
+        ws_data.write_string(i, 0, _allee_display_label(a))
+        ws_data.write_number(i, 1, es_brut + bonus)
         ws_data.write_number(i, 2, a["rails_es"] or 0)
         ws_data.write_number(i, 3, a.get("sa") or 0)
         ws_data.write_number(i, 4, bonus)
+    # Ajoute les zones saisonnières comme allées sélectionnables (avec leur EEG)
+    for j, z in enumerate(seasonal_zones, start=1):
+        rr = n_allees + j
+        ws_data.write_string(rr, 0, str(z["id"]))
+        ws_data.write_number(rr, 1, int(z.get("eeg") or 0))
+        ws_data.write_number(rr, 2, 0)
+        ws_data.write_number(rr, 3, int(z.get("eeg") or 0))  # comptabilisé en SA
+        ws_data.write_number(rr, 4, 0)
     ws_data.hide()
 
     # ----- Configuration de la feuille principale -----
@@ -1424,18 +1467,20 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     nb_rows_left = max(n_allees, len(rows_assign), 30)
 
     # Sources pour les data validations
-    # _Phasage_data!$A$2:$A${n_allees+1}
-    allee_source = f"=_Phasage_data!$A$2:$A${n_allees + 1}"
+    # _Phasage_data!$A$2:$A${n_data_rows+1} — inclut les zones saisonnières
+    allee_source = f"=_Phasage_data!$A$2:$A${n_data_rows + 1}"
     # Constante : la dropdown de nuit propose exactement nb_nuits entrées.
     # Le tableau droit fait également nb_nuits lignes.
     nuit_labels = [f"Nuit {n}" for n in range(1, nb_nuits + 1)]
 
     # Pré-remplissage des assignations existantes (ordre = ordre du phasage utilisateur)
+    # Conversion uid (DB) -> display_label (Excel)
     existing = []
     for row in rows_assign:
-        a = str(row.get("allee") or "").strip()
+        a_uid = str(row.get("allee") or "").strip()
+        a_label = uid_to_label.get(a_uid, a_uid)
         n = row.get("nuit")
-        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
+        existing.append({"allee": a_label, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
 
     # Plages pour les formules (Excel 1-based)
     excel_first = first_data_row + 1
@@ -1445,7 +1490,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     C_range = f"$C${excel_first}:$C${excel_last}"  # Rails ES
     D_range_sa = f"$D${excel_first}:$D${excel_last}"  # SA (info)
     E_range = f"$E${excel_first}:$E${excel_last}"  # Nuit
-    vlookup_range = f"_Phasage_data!$A$2:$D${n_allees + 1}"  # 4 colonnes: Allée, ES, Rails, SA
+    vlookup_range = f"_Phasage_data!$A$2:$D${n_data_rows + 1}"  # 4 colonnes: Allée, EEG, Rails, SA
 
     # Format italique pour la colonne SA (info, plus discret)
     fmt_sa_info = workbook.add_format({"border": 1, "align": "right", "bg_color": "#F9FAFB",
@@ -1488,16 +1533,22 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
     # Pré-calcul des allées par nuit pour la colonne "Allées" (texte statique)
+    # Conversion uid -> label court (8, 112-1, ZS1)
     night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
     for row in rows_assign:
-        a = str(row.get("allee") or "").strip()
+        a_uid = str(row.get("allee") or "").strip()
+        a_label = uid_to_label.get(a_uid, a_uid)
         n = row.get("nuit")
-        if a and n and 1 <= int(n) <= nb_nuits:
-            night_allees_static[int(n)].append(a)
+        if a_label and n and 1 <= int(n) <= nb_nuits:
+            night_allees_static[int(n)].append(a_label)
 
-    # Tri intelligent (smart sort) des allées : utilise l'ordre déjà calculé
-    # dans summary["allees"] (qui gère les sous-allées comme 45/451)
-    smart_order = {str(a["allee"]): i for i, a in enumerate(all_allees)}
+    # Tri ordonné des labels : utilise l'ordre déjà calculé dans summary["allees"]
+    # (zones saisonnières en fin)
+    smart_order = {}
+    for i, a in enumerate(all_allees):
+        smart_order[_allee_display_label(a)] = i
+    for j, z in enumerate(seasonal_zones):
+        smart_order[str(z["id"])] = n_allees + j
 
     def _sort_allee_key(a):
         return smart_order.get(str(a), 99999)
@@ -1723,6 +1774,11 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     totals = summary["totals"]
     n_allees = len(all_allees)
 
+    # Mapping uid -> label court — basé sur TOUTES les allées du summary
+    # (pour pouvoir convertir même les uids d'allées sans caméras qui auraient
+    # été assignés par erreur).
+    uid_to_label = _build_uid_to_label(summary["allees"], summary.get("seasonal_zones"))
+
     if n_allees == 0:
         ws = workbook.add_worksheet("Phasage caméras")
         writer.sheets["Phasage caméras"] = ws
@@ -1736,7 +1792,7 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     writer.sheets["_Phasage_cam_data"] = ws_data
     ws_data.write_row(0, 0, ["Allée", "Caméras"])
     for i, a in enumerate(all_allees, start=1):
-        ws_data.write_string(i, 0, str(a["allee"]))
+        ws_data.write_string(i, 0, _allee_display_label(a))
         ws_data.write_number(i, 1, a.get("cameras") or 0)
     ws_data.hide()
 
@@ -1779,9 +1835,10 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
 
     existing = []
     for row in rows_assign:
-        a = str(row.get("allee") or "").strip()
+        a_uid = str(row.get("allee") or "").strip()
+        a_label = uid_to_label.get(a_uid, a_uid)
         n = row.get("nuit")
-        existing.append({"allee": a, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
+        existing.append({"allee": a_label, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
 
     start_left = 6
     ws.merge_range(start_left, 0, start_left, 2, "Plan d'attribution par allée", fmt_title)
@@ -1821,11 +1878,12 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
 
     night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
     for row in rows_assign:
-        a = str(row.get("allee") or "").strip()
+        a_uid = str(row.get("allee") or "").strip()
+        a_label = uid_to_label.get(a_uid, a_uid)
         n = row.get("nuit")
-        if a and n and 1 <= int(n) <= nb_nuits:
-            night_allees_static[int(n)].append(a)
-    smart_order = {str(a["allee"]): i for i, a in enumerate(all_allees)}
+        if a_label and n and 1 <= int(n) <= nb_nuits:
+            night_allees_static[int(n)].append(a_label)
+    smart_order = {_allee_display_label(a): i for i, a in enumerate(all_allees)}
     def _sak(a): return smart_order.get(str(a), 99999)
 
     for i, n in enumerate(range(1, nb_nuits + 1)):
@@ -1854,15 +1912,16 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         {"type": "duplicate", "format": fmt_dup})
 
     # --- Bloc détail par allée : Allée | N° Elements (couleur par nuit identique au récap) ---
-    detail_idx = {str(a["allee"]): a for a in all_allees}
-    detail_rows = []  # list of (nuit, allee, [elems])
+    detail_idx = {_allee_display_label(a): a for a in all_allees}
+    detail_rows = []  # list of (nuit, allee_label, [elems])
     for row in rows_assign:
-        a = str(row.get("allee") or "").strip()
+        a_uid = str(row.get("allee") or "").strip()
+        a_label = uid_to_label.get(a_uid, a_uid)
         n = row.get("nuit")
-        if not a or not n: continue
-        node = detail_idx.get(a)
+        if not a_label or not n: continue
+        node = detail_idx.get(a_label)
         if not node: continue
-        detail_rows.append((int(n), a, node.get("camera_elems") or []))
+        detail_rows.append((int(n), a_label, node.get("camera_elems") or []))
     # Tri (nuit, ordre allée)
     detail_rows.sort(key=lambda x: (x[0], smart_order.get(x[1], 99999)))
 
@@ -1905,30 +1964,34 @@ def _build_consolidated_nuit_data(d, summary):
     es_plan = phasage_full["es"]
     cam_plan = phasage_full["cam"]
     start_at = int(cam_plan.get("start_at_nuit") or 5)
-    idx = {str(a["allee"]): a for a in summary["allees"]}
+    # idx clé = uid (= ce qui est stocké en DB dans rows[].allee)
+    idx = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
+    uid_to_label = _build_uid_to_label(summary["allees"], summary.get("seasonal_zones"))
     nuit_data: dict[int, dict] = {}
     for r in es_plan.get("rows") or []:
-        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
-        if not n or not a: continue
-        node = idx.get(a)
+        n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a_uid: continue
+        node = idx.get(a_uid)
         if not node: continue
+        a_label = uid_to_label.get(a_uid, a_uid)
         gn = int(n)
         dn = nuit_data.setdefault(gn, {"type": "ES", "allees": [], "es": 0, "cam": 0, "rails_es": 0})
-        dn["allees"].append(a)
+        dn["allees"].append(a_label)
         dn["es"] += (node.get("es_15") or 0) + (node.get("es_21") or 0)
         dn["rails_es"] += node.get("rails_es") or 0
     for r in cam_plan.get("rows") or []:
-        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
-        if not n or not a: continue
-        node = idx.get(a)
+        n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a_uid: continue
+        node = idx.get(a_uid)
         if not node: continue
+        a_label = uid_to_label.get(a_uid, a_uid)
         gn = start_at + int(n) - 1
         dn = nuit_data.setdefault(gn, {"type": "Caméras", "allees": [], "es": 0, "cam": 0, "rails_es": 0})
         if dn["es"] > 0:
             dn["type"] = "Mixte"
         elif dn["type"] != "Mixte":
             dn["type"] = "Caméras"
-        dn["allees"].append(a)
+        dn["allees"].append(a_label)
         dn["cam"] += node.get("cameras") or 0
     return nuit_data
 
@@ -1941,39 +2004,43 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     es_plan = phasage_full["es"]
     cam_plan = phasage_full["cam"]
     start_at = int(cam_plan.get("start_at_nuit") or 5)
-    idx = {str(a["allee"]): a for a in summary["allees"]}
+    # idx clé = uid (ce qui est stocké en DB dans rows[].allee)
+    idx = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
+    uid_to_label = _build_uid_to_label(summary["allees"], summary.get("seasonal_zones"))
 
     # Construit pour chaque nuit globale les agrégats ES et Cam séparés
     per_nuit: dict[int, dict] = {}
     for r in es_plan.get("rows") or []:
-        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
-        if not n or not a: continue
-        node = idx.get(a)
+        n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a_uid: continue
+        node = idx.get(a_uid)
         if not node: continue
+        a_label = uid_to_label.get(a_uid, a_uid)
         gn = int(n)
         dn = per_nuit.setdefault(gn, {
             "es_allees": [], "es": 0, "rails_es": 0, "sa": 0,
             "cam_allees": [], "cam": 0,
         })
-        dn["es_allees"].append(a)
+        dn["es_allees"].append(a_label)
         dn["es"] += (node.get("es_15") or 0) + (node.get("es_21") or 0)
         dn["rails_es"] += node.get("rails_es") or 0
         dn["sa"] += node.get("sa") or 0
     for r in cam_plan.get("rows") or []:
-        n, a = r.get("nuit"), str(r.get("allee") or "").strip()
-        if not n or not a: continue
-        node = idx.get(a)
+        n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
+        if not n or not a_uid: continue
+        node = idx.get(a_uid)
         if not node: continue
+        a_label = uid_to_label.get(a_uid, a_uid)
         gn = start_at + int(n) - 1
         dn = per_nuit.setdefault(gn, {
             "es_allees": [], "es": 0, "rails_es": 0, "sa": 0,
             "cam_allees": [], "cam": 0,
         })
-        dn["cam_allees"].append(a)
+        dn["cam_allees"].append(a_label)
         dn["cam"] += node.get("cameras") or 0
 
-    # Tri smart des allées dans chaque liste
-    order_idx = {str(a["allee"]): i for i, a in enumerate(summary["allees"])}
+    # Tri smart des allées dans chaque liste (par label court)
+    order_idx = {_allee_display_label(a): i for i, a in enumerate(summary["allees"])}
     for dn in per_nuit.values():
         dn["es_allees"].sort(key=lambda x: order_idx.get(x, 9999))
         dn["cam_allees"].sort(key=lambda x: order_idx.get(x, 9999))
