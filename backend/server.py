@@ -2127,33 +2127,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         {"type": "duplicate", "format": fmt_duplicate}
     )
 
-    # ----- Graphique : répartition par nuit (barres ES + Rails ES) -----
-    chart = workbook.add_chart({"type": "column"})
-    cat_ref = f"='Phasage de pose'!${chr(ord('A')+col_right)}${excel_total_first}:${chr(ord('A')+col_right)}${excel_total_last}"
-    es_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+2)}${excel_total_first}:${chr(ord('A')+col_right+2)}${excel_total_last}"
-    rails_ref = f"='Phasage de pose'!${chr(ord('A')+col_right+3)}${excel_total_first}:${chr(ord('A')+col_right+3)}${excel_total_last}"
-    chart.add_series({
-        "name": "ES",
-        "categories": cat_ref,
-        "values": es_ref,
-        "fill": {"color": "#10B981"},
-    })
-    chart.add_series({
-        "name": "Rails ES",
-        "categories": cat_ref,
-        "values": rails_ref,
-        "fill": {"color": "#F59E0B"},
-    })
-    chart.set_title({"name": "Répartition ES par nuit"})
-    chart.set_x_axis({"name": "Nuit"})
-    chart.set_y_axis({"name": "Quantité"})
-    chart.set_size({"width": 720, "height": 360})
-    chart.set_style(11)
-    chart_row = rrow_total + 3
-    ws.insert_chart(chart_row, col_right, chart, {"x_offset": 0, "y_offset": 0})
+    # ----- Graphique supprimé (demande utilisateur 04/06/2026) -----
+    chart_row = rrow_total + 3  # conservé pour le calcul de la note d'aide ci-dessous
 
     # Petite note d'aide en bas
-    note_row = max(first_data_row + nb_rows_left, chart_row + 20) + 1
+    note_row = max(first_data_row + nb_rows_left, chart_row + 2) + 1
     ws.merge_range(note_row, 0, note_row, 10,
                    "Astuce : sélectionne une allée et une nuit dans les colonnes déroulantes — "
                    "les comptes (ES = somme ES 1.5 + ES 2.1, Rails ES, SA) et le récap par nuit se mettent à jour automatiquement. "

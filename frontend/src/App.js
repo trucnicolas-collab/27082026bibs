@@ -6,7 +6,6 @@ import Header from "./components/Header";
 import BottomTabs from "./components/BottomTabs";
 import RawTable from "./components/RawTable";
 import RecapTable from "./components/RecapTable";
-import SecteurTable from "./components/SecteurTable";
 import ParSecteurTable from "./components/ParSecteurTable";
 import CommentTab from "./components/CommentTab";
 import PhasageTab from "./components/PhasageTab";
@@ -341,7 +340,6 @@ function MainApp() {
             { id: "raw", label: "Données Brutes", count: dataset.row_count || 0 },
             { id: "recap", label: "Commandes", count: dataset.data.recap.length },
             { id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 },
-            { id: "phasage", label: "Tableau phasage", count: dataset.data.secteur.length },
             { id: "pose", label: "Phasage de pose", count: 0 },
             { id: "pose_cam", label: "Phasage caméras", count: 0 },
             { id: "pose_full", label: "Phasage full", count: 0 },
@@ -412,9 +410,6 @@ function MainApp() {
                                     donglesQuantity={dataset.dongles_quantity || 0}
                                     onDonglesChange={updateDonglesQuantity}
                                 />
-                            )}
-                            {activeTab === "phasage" && (
-                                <SecteurTable rows={dataset.data.secteur} search={search} />
                             )}
                             {activeTab === "parsecteur" && (
                                 dataset.data.raw === null || rawLoading ? (
