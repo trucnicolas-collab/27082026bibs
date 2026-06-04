@@ -1,8 +1,8 @@
 import React from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet } from "lucide-react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 
-export default function Header({ dataset, search, onSearchChange, onExport, onReset, onOpenSession, onDeletedSession }) {
+export default function Header({ dataset, search, onSearchChange, onExport, onReset, onOpenSession, onDeletedSession, user, onLogout }) {
     return (
         <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -60,6 +60,24 @@ export default function Header({ dataset, search, onSearchChange, onExport, onRe
                             <span className="hidden sm:inline">Nouveau</span>
                         </button>
                     </>
+                )}
+                {user && (
+                    <div className="flex items-center gap-2 pl-2 ml-1 border-l border-gray-200" data-testid="user-area">
+                        <div className="hidden md:flex flex-col items-end leading-tight">
+                            <span className="text-xs font-semibold text-gray-700 truncate max-w-[160px]" title={user.email}>
+                                {user.name || user.email}
+                            </span>
+                            <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{user.email}</span>
+                        </div>
+                        <button
+                            onClick={onLogout}
+                            data-testid="logout-button"
+                            title="Se déconnecter"
+                            className="h-8 px-2.5 bg-white border border-gray-300 text-gray-600 text-sm rounded hover:bg-red-50 hover:text-red-600 hover:border-red-200 flex items-center gap-1.5 transition-colors"
+                        >
+                            <LogOut className="w-4 h-4" />
+                        </button>
+                    </div>
                 )}
             </div>
         </header>

@@ -5,7 +5,7 @@ Reçoit un fichier Excel, le traite et génère :
 - Onglet "Récapitulatif produits" : totaux par Type+Référence, Spare (+5%), Inclineur, 3 lignes vides
 - Onglet "Par Secteur/Allée" : comptage EEG (ES/SA), Rails, Caméras
 """
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from starlette.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
@@ -40,6 +40,10 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Auth
+from auth import build_auth_router, make_get_current_user, setup_auth
+get_current_user = make_get_current_user(db)
+
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
@@ -50,7 +54,15 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 DATASTORE: dict[str, dict] = {}
 
 
-async def persist_dataset(upload_id: str, data: dict):
+@app.on_event("startup")
+async def _on_startup():
+    try:
+        await setup_auth(db)
+    except Exception as e:
+        logger.warning(f"setup_auth failed: {e}")
+
+
+async def persist_dataset(upload_id: str, data: dict, user_id: Optional[str] = None):
     """Stocke le dataset complet en MongoDB (gzippé) pour qu'il soit accessible
     depuis n'importe quel replica K8s.
 
@@ -72,27 +84,30 @@ async def persist_dataset(upload_id: str, data: dict):
     }
     raw_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     compressed = gzip.compress(raw_bytes, compresslevel=6)
+    update_doc = {
+        "upload_id": upload_id,
+        "filename": data["filename"],
+        "uploaded_at": data["uploaded_at"],
+        "row_count": len(data["raw_records"]),
+        "size_bytes": len(raw_bytes),
+        "compressed_bytes": len(compressed),
+        "payload": Binary(compressed),
+        # Champs éditables stockés EN CLAIR (petits) — update O(1)
+        "recap_rows": data["recap_rows"],
+        "comment_table": data.get("comment_table") or default_comment,
+        "phasage": data.get("phasage") or {
+            "es": {"nb_nuits": 3, "rows": []},
+            "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
+            "suivi": {"rows": []},
+        },
+        "surface_category": data.get("surface_category"),
+        "dongles_quantity": data.get("dongles_quantity") or 0,
+    }
+    if user_id is not None:
+        update_doc["user_id"] = user_id
     await db.datasets.replace_one(
         {"upload_id": upload_id},
-        {
-            "upload_id": upload_id,
-            "filename": data["filename"],
-            "uploaded_at": data["uploaded_at"],
-            "row_count": len(data["raw_records"]),
-            "size_bytes": len(raw_bytes),
-            "compressed_bytes": len(compressed),
-            "payload": Binary(compressed),
-            # Champs éditables stockés EN CLAIR (petits) — update O(1)
-            "recap_rows": data["recap_rows"],
-            "comment_table": data.get("comment_table") or default_comment,
-            "phasage": data.get("phasage") or {
-                "es": {"nb_nuits": 3, "rows": []},
-                "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
-                "suivi": {"rows": []},
-            },
-            "surface_category": data.get("surface_category"),
-            "dongles_quantity": data.get("dongles_quantity") or 0,
-        },
+        update_doc,
         upsert=True,
     )
 
@@ -121,14 +136,26 @@ async def persist_phasage(upload_id: str, phasage: dict):
     )
 
 
-async def load_dataset(upload_id: str) -> Optional[dict]:
+async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optional[dict]:
     """Récupère un dataset : d'abord en cache mémoire, sinon depuis MongoDB.
     Lit le payload gzippé + merge les champs éditables stockés à plat.
     Rétro-compatible avec les anciens datasets où ces champs étaient dans le payload.
+
+    Si user_id est fourni, vérifie que le dataset appartient à cet utilisateur
+    (ou est un dataset legacy sans owner — accessible par l'admin uniquement via filtre amont).
     """
     if upload_id in DATASTORE:
-        return DATASTORE[upload_id]
-    doc = await db.datasets.find_one({"upload_id": upload_id}, {"_id": 0})
+        cached = DATASTORE[upload_id]
+        if user_id is not None:
+            owner = cached.get("user_id")
+            if owner is not None and owner != user_id:
+                return None
+        return cached
+    query: dict = {"upload_id": upload_id}
+    if user_id is not None:
+        # On accepte aussi les datasets legacy sans user_id (rétro-compatibilité)
+        query = {"upload_id": upload_id, "$or": [{"user_id": user_id}, {"user_id": {"$exists": False}}]}
+    doc = await db.datasets.find_one(query, {"_id": 0})
     if not doc:
         return None
     payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
@@ -143,6 +170,8 @@ async def load_dataset(upload_id: str) -> Optional[dict]:
         payload["surface_category"] = doc["surface_category"]
     if "dongles_quantity" in doc:
         payload["dongles_quantity"] = doc["dongles_quantity"]
+    if "user_id" in doc:
+        payload["user_id"] = doc["user_id"]
     DATASTORE[upload_id] = payload
     return payload
 
@@ -485,7 +514,7 @@ async def root():
 
 
 @api_router.post("/upload-excel")
-async def upload_excel(file: UploadFile = File(...)):
+async def upload_excel(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """Reçoit un fichier Excel, le traite, et renvoie les 3 onglets générés."""
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Le fichier doit être au format Excel (.xlsx ou .xls)")
@@ -512,6 +541,7 @@ async def upload_excel(file: UploadFile = File(...)):
     raw_records = df_to_records(df)
     logger.info(f"Raw records: {len(raw_records)} rows")
 
+    user_id = str(current_user["_id"])
     upload_id = str(uuid.uuid4())
     DATASTORE[upload_id] = {
         "filename": file.filename,
@@ -523,11 +553,12 @@ async def upload_excel(file: UploadFile = File(...)):
         "secteur_rows": secteur_rows,
         "comment": "",
         "surface_category": None,  # "plus_10000" | "moins_10000" | None
+        "user_id": user_id,
     }
 
     # Persister le dataset complet en MongoDB (gzippé) pour multi-replica
     try:
-        await persist_dataset(upload_id, DATASTORE[upload_id])
+        await persist_dataset(upload_id, DATASTORE[upload_id], user_id=user_id)
     except Exception as e:
         logger.warning(f"Mongo persist failed: {e}")
 
@@ -556,11 +587,12 @@ async def upload_excel(file: UploadFile = File(...)):
 
 
 @api_router.get("/datasets")
-async def list_datasets():
-    """Liste les sessions sauvegardées (métadonnées légères, sans payload).
+async def list_datasets(current_user: dict = Depends(get_current_user)):
+    """Liste les sessions de l'utilisateur connecté (métadonnées légères).
     Triées de la plus récente à la plus ancienne."""
+    user_id = str(current_user["_id"])
     cursor = db.datasets.find(
-        {},
+        {"user_id": user_id},
         {"_id": 0, "upload_id": 1, "filename": 1, "uploaded_at": 1,
          "row_count": 1, "size_bytes": 1, "compressed_bytes": 1},
     ).sort("uploaded_at", -1)
@@ -569,9 +601,10 @@ async def list_datasets():
 
 
 @api_router.get("/dataset/{upload_id}")
-async def get_dataset(upload_id: str):
+async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Récupère métadonnées + recap + secteur (PAS les raw records, voir /raw)."""
-    d = await load_dataset(upload_id)
+    user_id = str(current_user["_id"])
+    d = await load_dataset(upload_id, user_id=user_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     return {
@@ -593,9 +626,13 @@ async def get_dataset(upload_id: str):
 
 
 @api_router.delete("/dataset/{upload_id}")
-async def delete_dataset(upload_id: str):
+async def delete_dataset(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Supprime un dataset (libère l'espace serveur + cache mémoire)."""
-    res = await db.datasets.delete_one({"upload_id": upload_id})
+    user_id = str(current_user["_id"])
+    res = await db.datasets.delete_one({
+        "upload_id": upload_id,
+        "$or": [{"user_id": user_id}, {"user_id": {"$exists": False}}],
+    })
     DATASTORE.pop(upload_id, None)
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
@@ -603,9 +640,9 @@ async def delete_dataset(upload_id: str):
 
 
 @api_router.get("/dataset/{upload_id}/raw")
-async def get_dataset_raw(upload_id: str):
+async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Récupère les données brutes (~9 MB pour 19780 lignes, mais gzippé HTTP ~600 KB)."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     return {
@@ -640,10 +677,10 @@ def _parse_quantite(v):
 
 
 @api_router.patch("/dataset/{upload_id}/recap-row/{index}")
-async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
+async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, current_user: dict = Depends(get_current_user)):
     """Met à jour une ligne du récapitulatif. Toutes les lignes sont éditables
     sauf les en-têtes de section (kind='header')."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
@@ -703,9 +740,9 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate):
 
 
 @api_router.post("/dataset/{upload_id}/recap-row")
-async def add_recap_row(upload_id: str):
+async def add_recap_row(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Ajoute une nouvelle ligne vide à la fin du récapitulatif."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
@@ -727,11 +764,11 @@ class DonglesUpdate(BaseModel):
 
 
 @api_router.patch("/dataset/{upload_id}/dongles")
-async def update_dongles(upload_id: str, payload: DonglesUpdate):
+async def update_dongles(upload_id: str, payload: DonglesUpdate, current_user: dict = Depends(get_current_user)):
     """Définit le nombre de dongles à inclure dans la commande.
     Le nombre est ajouté à `total_plus_spare` de la ligne Dongle (sans spare).
     La référence reste fixée à 16639. La quantité de base reste vide (info)."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if "recap_rows" not in d:
         raise HTTPException(status_code=404, detail="Recap rows not found")
     qty = int(payload.quantity or 0)
@@ -757,7 +794,7 @@ async def update_dongles(upload_id: str, payload: DonglesUpdate):
 
 
 @api_router.patch("/dataset/{upload_id}/surface")
-async def update_surface(upload_id: str, payload: SurfaceUpdate):
+async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: dict = Depends(get_current_user)):
     """Définit la catégorie surface du magasin et ajoute :
       - +6000 si "plus_10000" (surface > 10 000 m²)
       - +4000 si "moins_10000" (surface < 10 000 m²)
@@ -769,7 +806,7 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
     revenir en arrière sans dérive cumulative.
     Si la ligne SA 2.1 (noir) n'existe pas dans le fichier, on crée une ligne dédiée
     (kind='surface_added') avec uniquement total_plus_spare = delta."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cat = payload.category
@@ -942,9 +979,9 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
 
 
 @api_router.delete("/dataset/{upload_id}/recap-row/{index}")
-async def delete_recap_row(upload_id: str, index: int):
+async def delete_recap_row(upload_id: str, index: int, current_user: dict = Depends(get_current_user)):
     """Supprime une ligne du récapitulatif (sauf en-têtes de section)."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
@@ -966,9 +1003,9 @@ class CommentTableUpdate(BaseModel):
 
 
 @api_router.patch("/dataset/{upload_id}/comment-table")
-async def update_comment_table(upload_id: str, payload: CommentTableUpdate):
+async def update_comment_table(upload_id: str, payload: CommentTableUpdate, current_user: dict = Depends(get_current_user)):
     """Met à jour le tableau de commentaires (colonnes + lignes)."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     d["comment_table"] = {"columns": payload.columns, "rows": payload.rows}
@@ -1369,10 +1406,10 @@ def _normalize_phasage(stored: Any) -> dict:
 
 
 @api_router.get("/dataset/{upload_id}/phasage-summary")
-async def get_phasage_summary(upload_id: str):
+async def get_phasage_summary(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne la liste des allées avec leurs comptes ES / Rails ES / Caméras
     + les totaux globaux + l'état du phasage (ES, Cam, Suivi)."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     summary = compute_phasage_summary(d)
@@ -1424,9 +1461,9 @@ def _sanitize_planning(p: PhasagePlanning) -> dict:
 
 
 @api_router.patch("/dataset/{upload_id}/phasage")
-async def update_phasage(upload_id: str, payload: PhasageFullUpdate):
+async def update_phasage(upload_id: str, payload: PhasageFullUpdate, current_user: dict = Depends(get_current_user)):
     """Sauvegarde l'état complet : ES + Caméras + Suivi (réalité)."""
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     es = _sanitize_planning(payload.es)
@@ -2861,12 +2898,12 @@ def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
 
 
 @api_router.get("/export/{upload_id}")
-async def export_excel(upload_id: str, sheet: str = "all"):
+async def export_excel(upload_id: str, sheet: str = "all", current_user: dict = Depends(get_current_user)):
     """Exporte le fichier Excel généré.
 
     sheet : 'all' | 'raw' | 'recap' | 'secteur' | 'parsecteur' | 'comment'
     """
-    d = await load_dataset(upload_id)
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
 
@@ -2999,12 +3036,22 @@ async def export_excel(upload_id: str, sheet: str = "all"):
     )
 
 
+api_router.include_router(build_auth_router(db))
 app.include_router(api_router)
+
+# CORS : on doit autoriser explicitement l'origin frontend (FRONTEND_URL) car
+# allow_credentials=True est incompatible avec allow_origins=["*"]
+_frontend_url = os.environ.get('FRONTEND_URL', '').strip()
+_cors_origins = os.environ.get('CORS_ORIGINS', '*').split(',')
+if _frontend_url and _frontend_url not in _cors_origins:
+    _cors_origins = [_frontend_url] + [o for o in _cors_origins if o and o != '*']
+if not _cors_origins or _cors_origins == ['*']:
+    _cors_origins = [_frontend_url] if _frontend_url else ["http://localhost:3000"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

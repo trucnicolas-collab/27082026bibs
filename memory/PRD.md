@@ -79,7 +79,28 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
-## Feature additions (04/06/2026) — Persistance des sessions + menu multi-fichiers
+## Feature additions (04/06/2026, v2) — Authentification & isolation par utilisateur
+
+- [x] **Auth email + mot de passe JWT** (bcrypt + PyJWT, cookies httpOnly access 24h + refresh 7d, brute-force lockout 5×15min).
+- [x] **Routes `/api/auth/{register,login,logout,me,refresh}`** + module `backend/auth.py` (build_auth_router, setup_auth, get_current_user).
+- [x] **Seed admin idempotent au startup** : `admin@vusion.local` / `admin123` (via `.env`). Indexes Mongo : `users.email` unique, `datasets.user_id`, `login_attempts.identifier`.
+- [x] **Isolation par utilisateur** : toutes les routes datasets (`/api/upload-excel`, `/api/datasets`, `/api/dataset/{id}*`, `/api/export/{id}`) requièrent un cookie d'auth valide et filtrent par `user_id`. Tentative sans cookie → HTTP 401.
+- [x] **Migration des 109 sessions legacy** : script ponctuel a assigné tous les datasets sans `user_id` à l'admin (rétro-compatibilité préservée).
+- [x] **Frontend** :
+   - `contexts/AuthContext.jsx` (state global user, `withCredentials=true` global axios)
+   - `components/AuthScreen.jsx` (formulaire Connexion/Création de compte avec onglets)
+   - `Header` enrichi : affichage nom/email utilisateur + bouton **logout** rouge sur hover
+   - L'app entière est gatée derrière l'auth (écran de chargement → écran de login → app)
+   - Le logout vide aussi `eeg.lastUploadId` du localStorage pour ne pas leaker la session suivante.
+- [x] **CORS** : `allow_origins` explicite sur `FRONTEND_URL` (incompatible avec `*` quand credentials sont activés).
+- [x] **Cookies cross-origin** : `SameSite=None; Secure` quand `FRONTEND_URL` commence par `https://`, sinon `lax`.
+- [x] **Validé E2E** :
+   - Sans cookie → écran de login affiché ; `/api/datasets` retourne 401.
+   - Login admin → 109 sessions affichées (toutes les legacy).
+   - Création nouveau compte (Pierre) → 0 sessions ; logout fonctionne.
+   - test_credentials.md mis à jour avec admin + utilisateur de test.
+
+
 - [x] **Auto-restauration au refresh** : l'`upload_id` de la dernière session est stocké en `localStorage` (clé `eeg.lastUploadId`). Au reload de la page, l'app recharge automatiquement la session via `GET /api/dataset/{upload_id}` (incluant `surface_category` et `dongles_quantity`). Plus de perte de travail accidentelle.
 - [x] **Bandeau "Restauration de la session précédente…"** affiché brièvement pendant le chargement.
 - [x] **Menu "Sessions" dans le Header** (component `SessionsMenu.jsx`) : liste toutes les sessions sauvegardées sur le serveur (filename, date, nb lignes, taille gzippée) triées du plus récent au plus ancien. Permet de basculer entre fichiers à tout moment et de supprimer une session pour libérer l'espace serveur (confirmation native + cache mémoire vidé côté backend).

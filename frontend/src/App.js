@@ -13,6 +13,9 @@ import PhasageTab from "./components/PhasageTab";
 import PhasageCamTab from "./components/PhasageCamTab";
 import PhasageFullTab from "./components/PhasageFullTab";
 import SuiviPhasageTab from "./components/SuiviPhasageTab";
+import AuthScreen from "./components/AuthScreen";
+import { useAuth } from "./contexts/AuthContext";
+import { Loader2 } from "lucide-react";
 import "./App.css";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -20,6 +23,7 @@ const API = `${BACKEND_URL}/api`;
 const LS_KEY = "eeg.lastUploadId";
 
 export default function App() {
+    const { user, logout } = useAuth();
     const [dataset, setDataset] = useState(null);
     const [activeTab, setActiveTab] = useState("recap");
     const [search, setSearch] = useState("");
@@ -60,19 +64,28 @@ export default function App() {
         }
     }, []);
 
-    // Auto-restauration au montage de l'app
+    // Auto-restauration au montage de l'app (après login)
     useEffect(() => {
+        // Attend que l'auth soit résolue (user === null = checking)
+        if (user === null) return;
+        if (!user) {
+            // Pas connecté : on ne tente pas de restaurer
+            setRestoring(false);
+            setDataset(null);
+            return;
+        }
         const lastId = (() => { try { return localStorage.getItem(LS_KEY); } catch { return null; } })();
         if (!lastId) {
             setRestoring(false);
             return;
         }
         (async () => {
+            setRestoring(true);
             await loadDataset(lastId, { silent: false });
             setRestoring(false);
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [user]);
 
     const handleUpload = useCallback(async (file) => {
         setLoading(true);
@@ -297,24 +310,34 @@ export default function App() {
     return (
         <div className="app-root" data-testid="app-root">
             <Toaster position="top-right" richColors />
-            <Header
-                dataset={dataset}
-                search={search}
-                onSearchChange={setSearch}
-                onExport={handleExport}
-                onReset={handleReset}
-                onOpenSession={handleOpenSession}
-                onDeletedSession={handleDeletedSession}
-            />
+            {user === null ? (
+                <div className="min-h-screen flex items-center justify-center text-gray-500" data-testid="auth-loading">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" /> Chargement…
+                </div>
+            ) : !user ? (
+                <AuthScreen />
+            ) : (
+                <>
+                    <Header
+                        dataset={dataset}
+                        search={search}
+                        onSearchChange={setSearch}
+                        onExport={handleExport}
+                        onReset={handleReset}
+                        onOpenSession={handleOpenSession}
+                        onDeletedSession={handleDeletedSession}
+                        user={user}
+                        onLogout={logout}
+                    />
 
-            <main className="flex-1 overflow-hidden flex flex-col">
-                {restoring ? (
-                    <div className="flex-1 flex items-center justify-center text-sm text-gray-500" data-testid="session-restoring">
-                        Restauration de la session précédente…
-                    </div>
-                ) : !dataset ? (
-                    <UploadZone onUpload={handleUpload} loading={loading} />
-                ) : (
+                    <main className="flex-1 overflow-hidden flex flex-col">
+                        {restoring ? (
+                            <div className="flex-1 flex items-center justify-center text-sm text-gray-500" data-testid="session-restoring">
+                                Restauration de la session précédente…
+                            </div>
+                        ) : !dataset ? (
+                            <UploadZone onUpload={handleUpload} loading={loading} />
+                        ) : (
                     <>
                         <div className="flex-1 overflow-hidden">
                             {activeTab === "raw" && (
@@ -383,6 +406,8 @@ export default function App() {
                     </>
                 )}
             </main>
+                </>
+            )}
         </div>
     );
 }
