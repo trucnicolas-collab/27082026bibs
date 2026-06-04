@@ -91,6 +91,7 @@ async def persist_dataset(upload_id: str, data: dict):
                 "suivi": {"rows": []},
             },
             "surface_category": data.get("surface_category"),
+            "dongles_quantity": data.get("dongles_quantity") or 0,
         },
         upsert=True,
     )
@@ -140,6 +141,8 @@ async def load_dataset(upload_id: str) -> Optional[dict]:
         payload["phasage"] = doc["phasage"]
     if "surface_category" in doc:
         payload["surface_category"] = doc["surface_category"]
+    if "dongles_quantity" in doc:
+        payload["dongles_quantity"] = doc["dongles_quantity"]
     DATASTORE[upload_id] = payload
     return payload
 
@@ -358,10 +361,11 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 break
 
     # Ligne Dongle — éditable, pas de Spare ni Total+Spare
+    # Référence fixe = 16639 (rajoutée automatiquement)
     rows.append({
         "kind": "dongle",
         "type": "Accessoire",
-        "reference": "",
+        "reference": "16639",
         "designation": "Dongle",
         "quantite": "",
         "spare": "",
@@ -693,6 +697,40 @@ class SurfaceUpdate(BaseModel):
     category: Optional[str] = None  # "plus_10000" | "moins_10000" | None
 
 
+class DonglesUpdate(BaseModel):
+    quantity: Optional[int] = None  # nombre de dongles à ajouter (sans spare)
+
+
+@api_router.patch("/dataset/{upload_id}/dongles")
+async def update_dongles(upload_id: str, payload: DonglesUpdate):
+    """Définit le nombre de dongles à inclure dans la commande.
+    Le nombre est ajouté à `total_plus_spare` de la ligne Dongle (sans spare).
+    La référence reste fixée à 16639. La quantité de base reste vide (info)."""
+    d = await load_dataset(upload_id)
+    if "recap_rows" not in d:
+        raise HTTPException(status_code=404, detail="Recap rows not found")
+    qty = int(payload.quantity or 0)
+    rows = d["recap_rows"]
+    for r in rows:
+        if r.get("kind") == "dongle":
+            r["reference"] = "16639"
+            if qty > 0:
+                r["total_plus_spare"] = qty
+                r["quantite"] = qty
+                r["spare"] = ""
+            else:
+                r["quantite"] = ""
+                r["spare"] = ""
+                r["total_plus_spare"] = ""
+            break
+    try:
+        await persist_recap_rows(upload_id, rows)
+        await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"dongles_quantity": qty}})
+    except Exception as e:
+        logger.warning(f"Mongo persist dongles failed: {e}")
+    return {"quantity": qty, "rows": rows}
+
+
 @api_router.patch("/dataset/{upload_id}/surface")
 async def update_surface(upload_id: str, payload: SurfaceUpdate):
     """Définit la catégorie surface du magasin et ajoute :
@@ -819,6 +857,56 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate):
                 added["quantite"] = delta
                 added["spare"] = ""
                 added["total_plus_spare"] = delta
+    # ===== 2) Support individuel alu SA — même delta, sans spare =====
+    # Le même nombre que pour SA 2.1 est ajouté à la ligne "Support individuel alu SA"
+    # (uniquement sur total_plus_spare, mention "rajout de N supports sans spare").
+    support_target = None
+    for r in rows:
+        if r.get("kind") != "product":
+            continue
+        base_desig = _strip_surface_suffix((r.get("designation") or "").strip())
+        # Détection robuste : "Support individuel alu SA" insensible casse
+        if "support individuel alu sa" in base_desig.lower():
+            support_target = r
+            break
+
+    if support_target is not None:
+        needs_init_s = "_surface_base_quantite" not in support_target or (
+            float(support_target.get("_surface_base_total") or 0) == 0
+            and float(support_target.get("_surface_base_quantite") or 0) > 0
+        )
+        if needs_init_s:
+            try:
+                support_target["_surface_base_quantite"] = float(support_target.get("quantite") or 0)
+            except (ValueError, TypeError):
+                support_target["_surface_base_quantite"] = 0
+            try:
+                support_target["_surface_base_spare"] = float(support_target.get("spare") or 0)
+            except (ValueError, TypeError):
+                support_target["_surface_base_spare"] = 0
+            try:
+                raw_t = support_target.get("total_plus_spare")
+                if raw_t in ("", None):
+                    support_target["_surface_base_total"] = support_target["_surface_base_quantite"] + support_target["_surface_base_spare"]
+                else:
+                    support_target["_surface_base_total"] = float(raw_t)
+            except (ValueError, TypeError):
+                support_target["_surface_base_total"] = support_target["_surface_base_quantite"] + support_target["_surface_base_spare"]
+            support_target["_surface_base_designation"] = _strip_surface_suffix(support_target.get("designation") or "Support individuel alu SA")
+
+        base_qs = support_target["_surface_base_quantite"]
+        base_ss = support_target["_surface_base_spare"]
+        base_ts = support_target["_surface_base_total"]
+        base_ds = support_target["_surface_base_designation"]
+        support_target["quantite"] = base_qs if base_qs > 0 else ""
+        support_target["spare"] = base_ss if base_ss > 0 else ""
+        if delta > 0:
+            support_target["total_plus_spare"] = base_ts + delta
+            support_target["designation"] = f"{base_ds} — rajout de {int(delta)} supports sans spare"
+        else:
+            support_target["total_plus_spare"] = base_ts if base_ts > 0 else ""
+            support_target["designation"] = base_ds
+
     # Persister recap + surface_category
     try:
         await persist_recap_rows(upload_id, rows)
@@ -1228,6 +1316,7 @@ def compute_phasage_summary(d: dict) -> dict:
         "surface_category": surface_cat,
         "seasonal_zones": seasonal_zones,
         "store_mode": STORE_MODE,
+        "dongles_quantity": int(d.get("dongles_quantity") or 0) if isinstance(d, dict) else 0,
     }
 
 
@@ -1640,8 +1729,8 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # ----- Tableau droite (formules SUMIFS, mise en forme conditionnelle pour les couleurs) -----
     col_right = 6
-    ws.merge_range(start_left, col_right, start_left, col_right + 4, "Récap par nuit", fmt_title)
-    headers_right = ["Nuit", "Allées", "EEG", "Rails ES", "SA 2.1" if is_m2 else "SA"]
+    ws.merge_range(start_left, col_right, start_left, col_right + 5, "Récap par nuit", fmt_title)
+    headers_right = ["Nuit", "Allées", "EEG", "Rails ES", "SA 2.1" if is_m2 else "SA", "Caméras"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
 
@@ -1654,6 +1743,22 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         n = row.get("nuit")
         if a_label and n and 1 <= int(n) <= nb_nuits:
             night_allees_static[int(n)].append(a_label)
+
+    # Caméras par nuit globale (depuis le Phasage caméras)
+    cam_plan = phasage_full.get("cam") or {}
+    cam_start_at = int(cam_plan.get("start_at_nuit") or 5)
+    allee_uid_to_cam = {str(a.get("uid") or a["allee"]): float(a.get("cameras") or 0) for a in summary["allees"]}
+    cam_per_night: dict[int, float] = {n: 0.0 for n in range(1, nb_nuits + 1)}
+    for cr in (cam_plan.get("rows") or []):
+        try:
+            cn = int(cr.get("nuit") or 0)
+        except (ValueError, TypeError):
+            cn = 0
+        if cn <= 0:
+            continue
+        global_n = cam_start_at + cn - 1
+        if 1 <= global_n <= nb_nuits:
+            cam_per_night[global_n] += allee_uid_to_cam.get(str(cr.get("allee") or ""), 0)
 
     # Tri ordonné des labels : utilise l'ordre déjà calculé dans summary["allees"]
     # (zones saisonnières en fin)
@@ -1693,6 +1798,14 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                          f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
         ws.write_formula(rrow, col_right + 4,
                          f'=SUMIFS({D_range_sa},{E_range},"{nuit_label}")', fmt_sa_neutral)
+        # Colonne Caméras (statique : valeur calculée à l'export depuis phasage cam)
+        fmt_cam_neutral = workbook.add_format({"border": 1, "align": "right",
+                                                "bold": True, "font_color": "#6B21A8"})
+        cam_val = int(round(cam_per_night.get(n, 0)))
+        if cam_val > 0:
+            ws.write_number(rrow, col_right + 5, cam_val, fmt_cam_neutral)
+        else:
+            ws.write_blank(rrow, col_right + 5, None, fmt_cam_neutral)
 
     # Ligne TOTAL (somme des nb_nuits lignes)
     rrow_total = first_data_row + nb_nuits
@@ -1702,7 +1815,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write_formula(rrow_total, col_right + 1,
                      f'=COUNTA({A_range})&" allées planifiées"',
                      fmt_total_lbl)
-    for offset in range(2, 5):
+    for offset in range(2, 6):  # 2..5 = EEG, Rails, SA, Caméras
         col_letter = chr(ord('A') + col_right + offset)
         ws.write_formula(rrow_total, col_right + offset,
                          f"=SUM(${col_letter}${excel_total_first}:${col_letter}${excel_total_last})",
@@ -1733,7 +1846,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             n_end = cumul + nb
             cumul += nb
             # Header semaine
-            ws.merge_range(cur_row, col_right, cur_row, col_right + 4,
+            ws.merge_range(cur_row, col_right, cur_row, col_right + 5,
                            f"Semaine {wi} (Nuits {n_start} → {n_end})", fmt_week_hdr)
             cur_row += 1
             # Headers colonnes
@@ -1746,7 +1859,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 if n > nb_nuits:
                     # nuit au-delà du planificateur → ligne vide
                     ws.write(cur_row, col_right + 0, f"Nuit {n}", fmt_cell_neutral)
-                    for k in range(1, 5):
+                    for k in range(1, 6):
                         ws.write_blank(cur_row, col_right + k, None, fmt_num_neutral)
                 else:
                     nuit_label = f"Nuit {n}"
@@ -1763,12 +1876,20 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                      f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
                     ws.write_formula(cur_row, col_right + 4,
                                      f'=SUMIFS({D_range_sa},{E_range},"{nuit_label}")', fmt_sa_neutral)
+                    # Caméras (statique, comptées depuis Phasage cam)
+                    fmt_cam_week = workbook.add_format({"border": 1, "align": "right",
+                                                         "bold": True, "font_color": "#6B21A8"})
+                    cam_val_w = int(round(cam_per_night.get(n, 0)))
+                    if cam_val_w > 0:
+                        ws.write_number(cur_row, col_right + 5, cam_val_w, fmt_cam_week)
+                    else:
+                        ws.write_blank(cur_row, col_right + 5, None, fmt_cam_week)
                 cur_row += 1
             sub_last = cur_row  # 1-indexed row of last data line
             # Sous-total semaine
             ws.write(cur_row, col_right + 0, f"Sous-total S{wi}", fmt_subtotal_lbl)
             ws.write(cur_row, col_right + 1, "", fmt_subtotal_lbl)
-            for offset in range(2, 5):
+            for offset in range(2, 6):  # 2..5 inclus = EEG, Rails, SA, Caméras
                 col_letter = chr(ord('A') + col_right + offset)
                 ws.write_formula(cur_row, col_right + offset,
                                  f"=SUM(${col_letter}${sub_first}:${col_letter}${sub_last})",
@@ -1782,7 +1903,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 cf_fmt = cf_formats_right.get(n)
                 if cf_fmt:
                     ws.conditional_format(
-                        data_first_0, col_right, data_last_0, col_right + 4,
+                        data_first_0, col_right, data_last_0, col_right + 5,
                         {"type": "formula",
                          "criteria": f'=${nuit_col_right_letter}{sub_first}="Nuit {n}"',
                          "format": cf_fmt})
@@ -1800,11 +1921,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 "format": cf_fmt,
             }
         )
-    # Tableau droit : range G:K sur les lignes data, formule basée sur valeur en col G (Nuit)
+    # Tableau droit : range G:L (Nuit, Allées, EEG, Rails, SA, Caméras) sur les lignes data
     for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_right[n]
         ws.conditional_format(
-            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 4,
+            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 5,
             {
                 "type": "formula",
                 "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
@@ -2186,7 +2307,7 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center"})
     fmt_text = workbook.add_format({"border": 1, "align": "left", "text_wrap": True})
     fmt_num = workbook.add_format({"border": 1, "align": "right"})
-    fmt_nuit = workbook.add_format({"bold": True, "border": 1, "align": "center", "bg_color": "#F9FAFB"})
+    fmt_nuit = workbook.add_format({"bold": True, "border": 1, "align": "center", "bg_color": "#FFFFFF"})
     fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
     fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "center"})
 
@@ -2241,19 +2362,95 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         ws.write(r, 5, "", fmt_total_lbl)
         ws.write_formula(r, 6, f"=SUM(G{first_excel}:G{last_excel})", fmt_total_row)
 
-        # Mise en forme conditionnelle par nuit : colore TOUTE la ligne (A-G) selon le numéro de nuit
-        # Utilisation de la formule =$E4=N (référence absolue colonne E)
+        # Mise en forme conditionnelle par nuit : colore les lignes A-D et F-G selon le numéro
+        # de nuit. La colonne E (Nuit) garde un fond BLANC (demande utilisateur).
         for night_num in range(1, max(sorted_nuits) + 1):
-            # Couleur = position dans la semaine pour la phase ES (les nuits caméras
-            # commencent à start_at_nuit, on les considère hors-semaine → cycle modulo 4)
             color = night_color_hex(night_num, weeks_full)
             fmt_night = workbook.add_format({"bg_color": color, "border": 1})
-            ws.conditional_format(3, 0, last_excel - 1, 6,
+            # A:D (cols 0..3)
+            ws.conditional_format(3, 0, last_excel - 1, 3,
+                {"type": "formula",
+                 "criteria": f'=$E4={night_num}',
+                 "format": fmt_night})
+            # F:G (cols 5..6) — saute la colonne E (Nuit, fond blanc)
+            ws.conditional_format(3, 5, last_excel - 1, 6,
                 {"type": "formula",
                  "criteria": f'=$E4={night_num}',
                  "format": fmt_night})
 
     ws.freeze_panes(3, 0)
+
+
+def _write_code_couleur_sheet(workbook, writer, d):
+    """Feuille de référence : "Code couleur nuits".
+    Liste toutes les nuits (ES + Caméras) avec leur couleur de fond selon la position
+    dans la semaine. Affichée en colonnes (1 nuit par colonne) à la manière de la PJ
+    fournie par l'utilisateur."""
+    phasage_full = _normalize_phasage(d.get("phasage"))
+    es = phasage_full.get("es", {})
+    cam = phasage_full.get("cam", {})
+    nb_es = int(es.get("nb_nuits") or 0)
+    nb_cam = int(cam.get("nb_nuits") or 0)
+    start_at = int(cam.get("start_at_nuit") or (nb_es + 1))
+    weeks_list = es.get("weeks") or []
+
+    ws = workbook.add_worksheet("Code couleur nuits")
+    writer.sheets["Code couleur nuits"] = ws
+
+    fmt_title = workbook.add_format({
+        "bold": True, "font_size": 16, "align": "center", "valign": "vcenter",
+        "bg_color": "#1F2937", "font_color": "white", "border": 1,
+    })
+    fmt_sub = workbook.add_format({
+        "bold": True, "italic": True, "align": "center", "valign": "vcenter",
+        "bg_color": "#F3F4F6", "font_color": "#374151", "border": 1, "font_size": 10,
+    })
+
+    # Construit la liste complète de nuits (ES 1..nb_es puis caméras à start_at..)
+    all_nights: list[tuple[int, str]] = []
+    for n in range(1, nb_es + 1):
+        all_nights.append((n, "ES"))
+    for n in range(1, nb_cam + 1):
+        global_n = start_at + n - 1
+        # évite doublon si la nuit caméra chevauche une nuit ES
+        if not any(g == global_n for g, _ in all_nights):
+            all_nights.append((global_n, "Cam"))
+    if not all_nights:
+        ws.write(0, 0, "Aucune nuit configurée", fmt_sub)
+        return
+    all_nights.sort(key=lambda x: x[0])
+
+    total = len(all_nights)
+    # Limite par ligne pour rester lisible (16 colonnes max par ligne, comme la PJ)
+    cols_per_row = 16
+
+    ws.merge_range(0, 0, 0, min(cols_per_row, total) - 1, "Code couleur nuits", fmt_title)
+    ws.set_row(0, 30)
+    ws.write(1, 0, f"{total} nuits · récurrence des couleurs : bleu / jaune / rouge / vert", fmt_sub)
+    if total > 1:
+        ws.merge_range(1, 0, 1, min(cols_per_row, total) - 1, f"{total} nuits · récurrence : bleu (pos 1) / jaune (pos 2) / rouge (pos 3) / vert (pos 4)", fmt_sub)
+    ws.set_row(1, 20)
+
+    cell_w = 14
+    for i, (n, typ) in enumerate(all_nights):
+        row_block = (i // cols_per_row) * 3 + 3  # 3 rows per block (label + couleur + type)
+        col = i % cols_per_row
+        ws.set_column(col, col, cell_w)
+        color = night_color_hex(n, weeks_list)
+        fmt_cell = workbook.add_format({
+            "bg_color": color, "border": 1, "align": "center", "valign": "vcenter",
+            "font_size": 14, "bold": True,
+        })
+        fmt_type = workbook.add_format({
+            "bg_color": color, "border": 1, "align": "center", "valign": "vcenter",
+            "italic": True, "font_size": 9, "font_color": "#374151",
+        })
+        ws.write_string(row_block, col, f"Nuit {n}", fmt_cell)
+        ws.set_row(row_block, 30)
+        ws.write_string(row_block + 1, col, typ, fmt_type)
+        ws.set_row(row_block + 1, 18)
+        # row_block + 2 : ligne vide entre les blocs
+    ws.set_column(0, cols_per_row - 1, cell_w)
 
 
 def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
@@ -2746,6 +2943,9 @@ async def export_excel(upload_id: str, sheet: str = "all"):
 
         if sheet in ("all", "suivi"):
             _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
+
+        if sheet in ("all", "code_couleur"):
+            _write_code_couleur_sheet(workbook, writer, d)
 
         if sheet in ("all", "comment"):
             ct = d.get("comment_table") or {"columns": [], "rows": []}

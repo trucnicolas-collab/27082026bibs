@@ -74,7 +74,7 @@ function EditableCell({ value, onCommit, type = "text", align = "left", placehol
     );
 }
 
-export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDeleteRow, surfaceCategory, onSurfaceChange }) {
+export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDeleteRow, surfaceCategory, onSurfaceChange, donglesQuantity, onDonglesChange }) {
     const filtered = useMemo(() => {
         if (!search) return rows.map((r, i) => ({ ...r, _origIndex: i }));
         const q = search.toLowerCase();
@@ -130,9 +130,29 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         </div>
                         {surfaceCategory && (
                             <span className="text-xs text-amber-900 font-semibold italic">
-                                → +{surfaceCategory === "plus_10000" ? "6 000" : "4 000"} SA 2.1 (noir) <span className="font-normal">sans spare</span>
+                                → +{surfaceCategory === "plus_10000" ? "6 000" : "4 000"} SA 2.1 (noir) <span className="font-normal">+ Support indiv. alu SA</span> <span className="font-normal">sans spare</span>
                             </span>
                         )}
+                    </div>
+                    {/* Sélecteur dongles */}
+                    <div className="flex items-center gap-2 px-4 py-2 bg-indigo-100 border-2 border-indigo-500 rounded-lg shadow-md" data-testid="dongles-toggle">
+                        <span className="text-sm font-extrabold text-indigo-900 uppercase tracking-wide">Dongles :</span>
+                        <input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={donglesQuantity || ""}
+                            onChange={(e) => {
+                                const v = parseInt(e.target.value || "0", 10);
+                                onDonglesChange && onDonglesChange(isNaN(v) ? 0 : Math.max(0, v));
+                            }}
+                            placeholder="0"
+                            data-testid="dongles-quantity"
+                            className="w-24 h-10 px-3 text-base font-bold text-indigo-900 border-2 border-indigo-500 rounded bg-white focus:ring-2 focus:ring-indigo-300 outline-none text-right font-mono-data"
+                        />
+                        <span className="text-xs text-indigo-900 italic">
+                            réf. <span className="font-mono-data font-bold">16639</span> · sans spare
+                        </span>
                     </div>
                     <button
                         onClick={onAddRow}

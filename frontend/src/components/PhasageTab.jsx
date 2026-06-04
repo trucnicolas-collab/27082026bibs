@@ -171,7 +171,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, allees: [] };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, cameras: 0, allees: [] };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -187,6 +187,18 @@ export default function PhasageTab({ uploadId }) {
                 tot[r.nuit].seasonal += node.seasonal_eeg || 0;
             }
             tot[r.nuit].allees.push(String(r.allee));
+        });
+        // Caméras assignées : depuis phasage.cam (les nuits cam sont décalées par start_at_nuit
+        // ex: cam.nuit=1 + start_at=5 → nuit globale 5)
+        const camPhasage = summary?.phasage?.cam || { rows: [], start_at_nuit: 5 };
+        const startAt = camPhasage.start_at_nuit || 5;
+        (camPhasage.rows || []).forEach((cr) => {
+            if (!cr.nuit) return;
+            const globalNuit = startAt + cr.nuit - 1;
+            if (!tot[globalNuit]) return;
+            const node = alleeIndex[String(cr.allee)];
+            if (!node) return;
+            tot[globalNuit].cameras += node.cameras || 0;
         });
         // Tri "intelligent" via l'ordre déjà calculé côté serveur (summary.allees est trié smart).
         const orderIndex = new Map();
@@ -221,6 +233,7 @@ export default function PhasageTab({ uploadId }) {
             sa_21: values.reduce((a, x) => a + (x.sa_21 || 0), 0),
             seasonal: values.reduce((a, x) => a + (x.seasonal || 0), 0),
             bonus: values.reduce((a, x) => a + (x.bonus || 0), 0),
+            cameras: values.reduce((a, x) => a + (x.cameras || 0), 0),
         };
     }, [nightTotals]);
 
@@ -573,6 +586,7 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info (non inclus dans EEG)">
                                             {isMagasin2 ? "SA 2.1" : "SA"}
                                         </th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-purple-700" title="Caméras (depuis Phasage caméras)">Caméras</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -606,6 +620,9 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">
                                                     {fmt(isMagasin2 ? (t.sa_21 || 0) : (t.sa || 0))}
                                                 </td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-purple-700 font-semibold">
+                                                    {t.cameras > 0 ? fmt(t.cameras) : <span className="text-gray-300">—</span>}
+                                                </td>
                                             </tr>
                                         );
                                     })}
@@ -627,6 +644,9 @@ export default function PhasageTab({ uploadId }) {
                                         )}
                                         <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
                                             {fmt(isMagasin2 ? grandTotals.sa_21 : grandTotals.sa)}
+                                        </td>
+                                        <td className="px-2 py-1 text-right font-mono-data text-purple-700">
+                                            {fmt(grandTotals.cameras)}
                                         </td>
                                     </tr>
                                 </tbody>

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -400,32 +399,6 @@ export default function PhasageCamTab({ uploadId }) {
                                     })}
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                <div className="mt-8 pb-6" data-testid="phasagecam-chart">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-2">Répartition caméras par nuit</h3>
-                    <div
-                        className="border border-gray-200 rounded p-3 bg-gray-50/30 relative overflow-hidden"
-                        style={{ width: "100%", height: 280, minHeight: 280, isolation: "isolate", zIndex: 0 }}
-                    >
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                                data={Array.from({ length: nbNuits }, (_, i) => {
-                                    const n = i + 1;
-                                    const t = nightTotals[n] || { cameras: 0 };
-                                    return { name: `Nuit ${startAt + n - 1}`, Caméras: Math.round(t.cameras || 0) };
-                                })}
-                                margin={{ top: 12, right: 16, left: 0, bottom: 4 }}
-                            >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                                <YAxis tick={{ fontSize: 11 }} />
-                                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => new Intl.NumberFormat("fr-FR").format(v)} />
-                                <Legend wrapperStyle={{ fontSize: 12 }} />
-                                <Bar dataKey="Caméras" fill="#7C3AED" />
-                            </BarChart>
-                        </ResponsiveContainer>
                     </div>
                 </div>
             </div>

@@ -201,6 +201,20 @@ export default function App() {
         }
     }, [dataset]);
 
+    const updateDonglesQuantity = useCallback(async (qty) => {
+        if (!dataset?.upload_id) return;
+        try {
+            const res = await axios.patch(`${API}/dataset/${dataset.upload_id}/dongles`, { quantity: qty });
+            setDataset((d) => ({
+                ...d,
+                dongles_quantity: res.data.quantity,
+                data: { ...d.data, recap: res.data.rows },
+            }));
+        } catch (err) {
+            toast.error(`Dongles : ${err.response?.data?.detail || err.message}`);
+        }
+    }, [dataset]);
+
     const tabs = useMemo(() => {
         if (!dataset) return [];
         return [
@@ -255,6 +269,8 @@ export default function App() {
                                     onDeleteRow={deleteRecapRow}
                                     surfaceCategory={dataset.surface_category || null}
                                     onSurfaceChange={updateSurfaceCategory}
+                                    donglesQuantity={dataset.dongles_quantity || 0}
+                                    onDonglesChange={updateDonglesQuantity}
                                 />
                             )}
                             {activeTab === "phasage" && (
