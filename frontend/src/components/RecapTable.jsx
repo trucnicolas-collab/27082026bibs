@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 function fmtNum(v) {
@@ -75,6 +75,38 @@ function EditableCell({ value, onCommit, type = "text", align = "left", placehol
 }
 
 export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDeleteRow, surfaceCategory, onSurfaceChange, donglesQuantity, onDonglesChange }) {
+    // ---- Dongles : input local + commit debounced (700ms) ou au blur/Enter
+    // pour éviter que chaque caractère tapé déclenche une requête backend qui
+    // re-render le composant et fait sauter le focus.
+    const [donglesDraft, setDonglesDraft] = useState(donglesQuantity ? String(donglesQuantity) : "");
+    const donglesDirtyRef = useRef(false);
+    const donglesTimer = useRef(null);
+
+    // Quand la prop change depuis l'extérieur (autre source) ET qu'on n'est pas
+    // en train de taper, on resynchronise. Si l'utilisateur tape, on garde son draft.
+    useEffect(() => {
+        if (donglesDirtyRef.current) return;
+        setDonglesDraft(donglesQuantity ? String(donglesQuantity) : "");
+    }, [donglesQuantity]);
+
+    const commitDongles = useCallback((rawVal) => {
+        const v = parseInt(rawVal || "0", 10);
+        const safe = isNaN(v) ? 0 : Math.max(0, v);
+        donglesDirtyRef.current = false;
+        if (safe !== (donglesQuantity || 0)) {
+            onDonglesChange && onDonglesChange(safe);
+        }
+    }, [donglesQuantity, onDonglesChange]);
+
+    const onDonglesInput = (val) => {
+        donglesDirtyRef.current = true;
+        // Autorise champ vide ou chiffres uniquement
+        const cleaned = val.replace(/[^0-9]/g, "");
+        setDonglesDraft(cleaned);
+        if (donglesTimer.current) clearTimeout(donglesTimer.current);
+        donglesTimer.current = setTimeout(() => commitDongles(cleaned), 700);
+    };
+
     const filtered = useMemo(() => {
         if (!search) return rows.map((r, i) => ({ ...r, _origIndex: i }));
         const q = search.toLowerCase();
@@ -138,17 +170,27 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                     <div className="flex items-center gap-2 px-4 py-2 bg-indigo-100 border-2 border-indigo-500 rounded-lg shadow-md" data-testid="dongles-toggle">
                         <span className="text-sm font-extrabold text-indigo-900 uppercase tracking-wide">Dongles :</span>
                         <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={donglesQuantity || ""}
-                            onChange={(e) => {
-                                const v = parseInt(e.target.value || "0", 10);
-                                onDonglesChange && onDonglesChange(isNaN(v) ? 0 : Math.max(0, v));
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={donglesDraft}
+                            onChange={(e) => onDonglesInput(e.target.value)}
+                            onBlur={() => {
+                                if (donglesTimer.current) clearTimeout(donglesTimer.current);
+                                commitDongles(donglesDraft);
                             }}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    if (donglesTimer.current) clearTimeout(donglesTimer.current);
+                                    commitDongles(donglesDraft);
+                                    e.target.blur();
+                                }
+                            }}
+                            onFocus={(e) => e.target.select()}
                             placeholder="0"
                             data-testid="dongles-quantity"
-                            className="w-24 h-10 px-3 text-base font-bold text-indigo-900 border-2 border-indigo-500 rounded bg-white focus:ring-2 focus:ring-indigo-300 outline-none text-right font-mono-data"
+                            className="w-28 h-10 px-3 text-base font-bold text-indigo-900 border-2 border-indigo-500 rounded bg-white focus:ring-2 focus:ring-indigo-300 outline-none text-right font-mono-data"
                         />
                         <span className="text-xs text-indigo-900 italic">
                             réf. <span className="font-mono-data font-bold">16639</span> · sans spare
