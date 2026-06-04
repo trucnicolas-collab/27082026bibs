@@ -555,6 +555,19 @@ async def upload_excel(file: UploadFile = File(...)):
     }
 
 
+@api_router.get("/datasets")
+async def list_datasets():
+    """Liste les sessions sauvegardées (métadonnées légères, sans payload).
+    Triées de la plus récente à la plus ancienne."""
+    cursor = db.datasets.find(
+        {},
+        {"_id": 0, "upload_id": 1, "filename": 1, "uploaded_at": 1,
+         "row_count": 1, "size_bytes": 1, "compressed_bytes": 1},
+    ).sort("uploaded_at", -1)
+    items = await cursor.to_list(length=500)
+    return {"datasets": items}
+
+
 @api_router.get("/dataset/{upload_id}")
 async def get_dataset(upload_id: str):
     """Récupère métadonnées + recap + secteur (PAS les raw records, voir /raw)."""
@@ -566,6 +579,8 @@ async def get_dataset(upload_id: str):
         "filename": d["filename"],
         "columns": d["columns"],
         "row_count": len(d["raw_records"]),
+        "surface_category": d.get("surface_category"),
+        "dongles_quantity": int(d.get("dongles_quantity") or 0),
         "data": {
             "recap": d["recap_rows"],
             "secteur": d["secteur_rows"],
@@ -575,6 +590,16 @@ async def get_dataset(upload_id: str):
             },
         },
     }
+
+
+@api_router.delete("/dataset/{upload_id}")
+async def delete_dataset(upload_id: str):
+    """Supprime un dataset (libère l'espace serveur + cache mémoire)."""
+    res = await db.datasets.delete_one({"upload_id": upload_id})
+    DATASTORE.pop(upload_id, None)
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    return {"deleted": True, "upload_id": upload_id}
 
 
 @api_router.get("/dataset/{upload_id}/raw")

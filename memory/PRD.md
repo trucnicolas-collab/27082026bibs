@@ -79,6 +79,18 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
+## Feature additions (04/06/2026) — Persistance des sessions + menu multi-fichiers
+- [x] **Auto-restauration au refresh** : l'`upload_id` de la dernière session est stocké en `localStorage` (clé `eeg.lastUploadId`). Au reload de la page, l'app recharge automatiquement la session via `GET /api/dataset/{upload_id}` (incluant `surface_category` et `dongles_quantity`). Plus de perte de travail accidentelle.
+- [x] **Bandeau "Restauration de la session précédente…"** affiché brièvement pendant le chargement.
+- [x] **Menu "Sessions" dans le Header** (component `SessionsMenu.jsx`) : liste toutes les sessions sauvegardées sur le serveur (filename, date, nb lignes, taille gzippée) triées du plus récent au plus ancien. Permet de basculer entre fichiers à tout moment et de supprimer une session pour libérer l'espace serveur (confirmation native + cache mémoire vidé côté backend).
+- [x] **Nouveaux endpoints backend** :
+   - `GET /api/datasets` → liste métadonnées légères (sans payload), max 500 récents
+   - `DELETE /api/dataset/{upload_id}` → supprime de MongoDB + cache `DATASTORE`
+   - `GET /api/dataset/{upload_id}` enrichi avec `surface_category` + `dongles_quantity` pour restauration complète UI
+- [x] **Reset (`Nouveau`) et suppression de la session active** vident le `localStorage` pour revenir à l'écran d'upload.
+- [x] **Validé E2E** : restauration après refresh (toast "Session restaurée : vusion.xlsx"), 109 sessions affichées dans le menu, ouverture d'une session passée OK, suppression OK.
+
+
 ## Couleurs nuit fixes par position dans la semaine (03/06/2026)
 - [x] Nouvelles **4 couleurs muted** récurrentes selon la position dans la semaine :
    - Position 1 → **bleu** `#DBEAFE`

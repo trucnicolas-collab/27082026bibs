@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import axios from "axios";
 import { Toaster, toast } from "sonner";
 import UploadZone from "./components/UploadZone";
@@ -17,6 +17,7 @@ import "./App.css";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const LS_KEY = "eeg.lastUploadId";
 
 export default function App() {
     const [dataset, setDataset] = useState(null);
@@ -24,6 +25,54 @@ export default function App() {
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
     const [rawLoading, setRawLoading] = useState(false);
+    const [restoring, setRestoring] = useState(true);
+
+    // Charge un dataset par son upload_id (utilisé par auto-restore et menu Sessions)
+    const loadDataset = useCallback(async (uploadId, { silent = false } = {}) => {
+        try {
+            const res = await axios.get(`${API}/dataset/${uploadId}`);
+            const d = res.data;
+            const ds = {
+                upload_id: d.upload_id,
+                filename: d.filename,
+                row_count: d.row_count,
+                columns: d.columns,
+                surface_category: d.surface_category || null,
+                dongles_quantity: d.dongles_quantity || 0,
+                data: { ...d.data, raw: null },
+            };
+            setDataset(ds);
+            setActiveTab("recap");
+            setSearch("");
+            try { localStorage.setItem(LS_KEY, uploadId); } catch (_) {}
+            if (!silent) {
+                toast.success(`Session restaurée : ${d.filename}`);
+            }
+            return true;
+        } catch (err) {
+            if (err.response?.status === 404) {
+                try { localStorage.removeItem(LS_KEY); } catch (_) {}
+                if (!silent) toast.error("Cette session n'existe plus sur le serveur.");
+            } else if (!silent) {
+                toast.error(`Erreur de chargement : ${err.message}`);
+            }
+            return false;
+        }
+    }, []);
+
+    // Auto-restauration au montage de l'app
+    useEffect(() => {
+        const lastId = (() => { try { return localStorage.getItem(LS_KEY); } catch { return null; } })();
+        if (!lastId) {
+            setRestoring(false);
+            return;
+        }
+        (async () => {
+            await loadDataset(lastId, { silent: false });
+            setRestoring(false);
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleUpload = useCallback(async (file) => {
         setLoading(true);
@@ -34,13 +83,13 @@ export default function App() {
                 headers: { "Content-Type": "multipart/form-data" },
                 timeout: 300000,  // 5 min pour gros fichiers
             });
-            // Initialiser avec raw=null ; sera chargé à la demande au clic sur l'onglet
             const ds = {
                 ...res.data,
                 data: { ...res.data.data, raw: null },
             };
             setDataset(ds);
-            setActiveTab("recap");  // Récap par défaut (instantané, raw chargé après)
+            setActiveTab("recap");
+            try { localStorage.setItem(LS_KEY, res.data.upload_id); } catch (_) {}
             toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
@@ -102,7 +151,22 @@ export default function App() {
         setDataset(null);
         setSearch("");
         setActiveTab("recap");
+        try { localStorage.removeItem(LS_KEY); } catch (_) {}
     }, []);
+
+    const handleOpenSession = useCallback(async (uploadId) => {
+        await loadDataset(uploadId, { silent: false });
+    }, [loadDataset]);
+
+    const handleDeletedSession = useCallback((uploadId) => {
+        // Si on a supprimé la session active, on revient à l'écran d'upload
+        if (dataset?.upload_id === uploadId) {
+            setDataset(null);
+            setSearch("");
+            setActiveTab("recap");
+            try { localStorage.removeItem(LS_KEY); } catch (_) {}
+        }
+    }, [dataset]);
 
     const updateRecapRow = useCallback(async (index, patch) => {
         if (!dataset?.upload_id) return;
@@ -239,10 +303,16 @@ export default function App() {
                 onSearchChange={setSearch}
                 onExport={handleExport}
                 onReset={handleReset}
+                onOpenSession={handleOpenSession}
+                onDeletedSession={handleDeletedSession}
             />
 
             <main className="flex-1 overflow-hidden flex flex-col">
-                {!dataset ? (
+                {restoring ? (
+                    <div className="flex-1 flex items-center justify-center text-sm text-gray-500" data-testid="session-restoring">
+                        Restauration de la session précédente…
+                    </div>
+                ) : !dataset ? (
                     <UploadZone onUpload={handleUpload} loading={loading} />
                 ) : (
                     <>

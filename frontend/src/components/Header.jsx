@@ -1,7 +1,8 @@
 import React from "react";
 import { Download, RotateCcw, Search, FileSpreadsheet } from "lucide-react";
+import SessionsMenu from "./SessionsMenu";
 
-export default function Header({ dataset, search, onSearchChange, onExport, onReset }) {
+export default function Header({ dataset, search, onSearchChange, onExport, onReset, onOpenSession, onDeletedSession }) {
     return (
         <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -20,8 +21,8 @@ export default function Header({ dataset, search, onSearchChange, onExport, onRe
                 </div>
             </div>
 
-            {dataset && (
-                <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+                {dataset && (
                     <div className="relative">
                         <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                         <input
@@ -33,25 +34,34 @@ export default function Header({ dataset, search, onSearchChange, onExport, onRe
                             className="h-8 w-48 sm:w-64 pl-8 pr-3 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
                         />
                     </div>
-                    <button
-                        onClick={onExport}
-                        data-testid="export-button"
-                        className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
-                    >
-                        <Download className="w-4 h-4" />
-                        <span className="hidden sm:inline">Exporter</span>
-                    </button>
-                    <button
-                        onClick={onReset}
-                        data-testid="reset-button"
-                        className="h-8 px-3 bg-white border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-100 flex items-center gap-1.5 transition-colors"
-                        title="Nouveau fichier"
-                    >
-                        <RotateCcw className="w-4 h-4" />
-                        <span className="hidden sm:inline">Nouveau</span>
-                    </button>
-                </div>
-            )}
+                )}
+                <SessionsMenu
+                    currentUploadId={dataset?.upload_id}
+                    onOpen={onOpenSession}
+                    onDeleted={onDeletedSession}
+                />
+                {dataset && (
+                    <>
+                        <button
+                            onClick={onExport}
+                            data-testid="export-button"
+                            className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
+                        >
+                            <Download className="w-4 h-4" />
+                            <span className="hidden sm:inline">Exporter</span>
+                        </button>
+                        <button
+                            onClick={onReset}
+                            data-testid="reset-button"
+                            className="h-8 px-3 bg-white border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-100 flex items-center gap-1.5 transition-colors"
+                            title="Nouveau fichier"
+                        >
+                            <RotateCcw className="w-4 h-4" />
+                            <span className="hidden sm:inline">Nouveau</span>
+                        </button>
+                    </>
+                )}
+            </div>
         </header>
     );
 }
