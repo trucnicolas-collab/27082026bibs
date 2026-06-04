@@ -3072,32 +3072,9 @@ async def _build_export(d: dict, sheet: str = "all"):
         if sheet in ("all", "parsecteur"):
             _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_total, fmt_inclineur)
 
-        if sheet in ("all", "secteur"):
-            secteur = d["secteur_rows"]
-            ws = workbook.add_worksheet("Tableau phasage")
-            writer.sheets["Tableau phasage"] = ws
-            headers = ["Secteur", "Rayon", "N° Allée", "EEG ES", "EEG SA", "Rails", "Caméras"]
-            for col_i, h in enumerate(headers):
-                ws.write(0, col_i, h, fmt_header)
-            for row_i, r in enumerate(secteur, start=1):
-                ws.write(row_i, 0, r["secteur"], fmt_cell)
-                ws.write(row_i, 1, r["rayon"], fmt_cell)
-                # N° Allée : convertir en nombre si possible pour permettre le tri numérique dans Excel
-                allee_val = r["allee"]
-                try:
-                    allee_num = int(allee_val) if str(allee_val).isdigit() else float(allee_val)
-                    ws.write_number(row_i, 2, allee_num, fmt_cell)
-                except (ValueError, TypeError):
-                    ws.write(row_i, 2, allee_val, fmt_cell)
-                ws.write(row_i, 3, r["nb_eeg_es"], fmt_cell)
-                ws.write(row_i, 4, r["nb_eeg_sa"], fmt_cell)
-                ws.write(row_i, 5, r["nb_rail"], fmt_cell)
-                ws.write(row_i, 6, r["nb_camera"], fmt_cell)
-            ws.set_column(0, 1, 14)
-            ws.set_column(2, 6, 12)
-            if len(secteur) > 0:
-                ws.autofilter(0, 0, len(secteur), 6)
-                ws.freeze_panes(1, 0)
+        # Feuille "Tableau phasage" supprimée (demande utilisateur 04/06/2026) :
+        # les données restent disponibles dans la feuille "Recap par secteur" (rayon)
+        # qui couvre les mêmes informations de comptage.
 
         if sheet in ("all", "phasage"):
             _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
