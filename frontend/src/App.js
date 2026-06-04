@@ -14,6 +14,9 @@ import PhasageCamTab from "./components/PhasageCamTab";
 import PhasageFullTab from "./components/PhasageFullTab";
 import SuiviPhasageTab from "./components/SuiviPhasageTab";
 import AuthScreen from "./components/AuthScreen";
+import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
+import ResetPasswordScreen from "./components/ResetPasswordScreen";
+import SharedView from "./components/SharedView";
 import { useAuth } from "./contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 import "./App.css";
@@ -22,7 +25,46 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 const LS_KEY = "eeg.lastUploadId";
 
+// Lit les paramètres d'URL au montage (très simple, pas besoin de router)
+function getUrlParam(name) {
+    try {
+        return new URLSearchParams(window.location.search).get(name);
+    } catch {
+        return null;
+    }
+}
+
+// Router racine : aiguillage simple par query string
+//  ?share=token     → SharedView (lecture seule, sans auth)
+//  ?reset=token     → ResetPasswordScreen
+//  sinon            → MainApp (gateé par auth)
 export default function App() {
+    const shareToken = getUrlParam("share");
+    const resetTokenParam = getUrlParam("reset") || getUrlParam("token");
+
+    if (shareToken) {
+        return (
+            <>
+                <Toaster position="top-right" richColors />
+                <SharedView token={shareToken} />
+            </>
+        );
+    }
+    if (resetTokenParam) {
+        return (
+            <>
+                <Toaster position="top-right" richColors />
+                <ResetPasswordScreen
+                    token={resetTokenParam}
+                    onSuccess={() => { window.location.href = "/"; }}
+                />
+            </>
+        );
+    }
+    return <MainApp />;
+}
+
+function MainApp() {
     const { user, logout } = useAuth();
     const [dataset, setDataset] = useState(null);
     const [activeTab, setActiveTab] = useState("recap");
@@ -30,6 +72,7 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [rawLoading, setRawLoading] = useState(false);
     const [restoring, setRestoring] = useState(true);
+    const [authView, setAuthView] = useState("login"); // 'login' | 'forgot'
 
     // Charge un dataset par son upload_id (utilisé par auto-restore et menu Sessions)
     const loadDataset = useCallback(async (uploadId, { silent = false } = {}) => {
@@ -315,7 +358,11 @@ export default function App() {
                     <Loader2 className="w-5 h-5 animate-spin mr-2" /> Chargement…
                 </div>
             ) : !user ? (
-                <AuthScreen />
+                authView === "forgot" ? (
+                    <ForgotPasswordScreen onBack={() => setAuthView("login")} />
+                ) : (
+                    <AuthScreen onForgotPassword={() => setAuthView("forgot")} />
+                )
             ) : (
                 <>
                     <Header

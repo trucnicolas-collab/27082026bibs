@@ -594,7 +594,8 @@ async def list_datasets(current_user: dict = Depends(get_current_user)):
     cursor = db.datasets.find(
         {"user_id": user_id},
         {"_id": 0, "upload_id": 1, "filename": 1, "uploaded_at": 1,
-         "row_count": 1, "size_bytes": 1, "compressed_bytes": 1},
+         "row_count": 1, "size_bytes": 1, "compressed_bytes": 1,
+         "label": 1, "share_enabled": 1, "share_token": 1},
     ).sort("uploaded_at", -1)
     items = await cursor.to_list(length=500)
     return {"datasets": items}
@@ -637,6 +638,129 @@ async def delete_dataset(upload_id: str, current_user: dict = Depends(get_curren
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     return {"deleted": True, "upload_id": upload_id}
+
+
+# ---- Renommage de session (label personnalisé) ----------------------------
+class DatasetLabelUpdate(BaseModel):
+    label: Optional[str] = ""
+
+
+@api_router.patch("/dataset/{upload_id}/label")
+async def update_dataset_label(upload_id: str, payload: DatasetLabelUpdate,
+                               current_user: dict = Depends(get_current_user)):
+    """Définit un libellé personnalisé pour une session.
+    Le label peut être vide (= retour au filename brut)."""
+    user_id = str(current_user["_id"])
+    new_label = (payload.label or "").strip()[:200]
+    res = await db.datasets.update_one(
+        {"upload_id": upload_id, "user_id": user_id},
+        {"$set": {"label": new_label}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    # Invalide le cache pour que la prochaine lecture remonte le nouveau label
+    DATASTORE.pop(upload_id, None)
+    return {"upload_id": upload_id, "label": new_label}
+
+
+# ---- Partage de session lecture-seule ------------------------------------
+import secrets as _secrets
+
+
+@api_router.post("/dataset/{upload_id}/share")
+async def enable_share(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Active (ou régénère) un lien de partage public lecture-seule.
+    Retourne le `share_token` à utiliser dans l'URL frontend (ex: /share/<token>)."""
+    user_id = str(current_user["_id"])
+    token = _secrets.token_urlsafe(24)
+    res = await db.datasets.update_one(
+        {"upload_id": upload_id, "user_id": user_id},
+        {"$set": {"share_token": token, "share_enabled": True}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    DATASTORE.pop(upload_id, None)
+    return {"upload_id": upload_id, "share_token": token, "share_enabled": True}
+
+
+@api_router.delete("/dataset/{upload_id}/share")
+async def disable_share(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Désactive le partage : le lien existant ne fonctionne plus."""
+    user_id = str(current_user["_id"])
+    res = await db.datasets.update_one(
+        {"upload_id": upload_id, "user_id": user_id},
+        {"$set": {"share_enabled": False}, "$unset": {"share_token": ""}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    DATASTORE.pop(upload_id, None)
+    return {"upload_id": upload_id, "share_enabled": False}
+
+
+async def _resolve_share_token(share_token: str) -> dict:
+    """Récupère le doc dataset à partir d'un share_token public."""
+    doc = await db.datasets.find_one(
+        {"share_token": share_token, "share_enabled": True},
+        {"_id": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Lien de partage invalide ou désactivé")
+    upload_id = doc["upload_id"]
+    payload = json.loads(gzip.decompress(doc["payload"]).decode("utf-8"))
+    for f in ("recap_rows", "comment_table", "phasage", "surface_category",
+              "dongles_quantity", "user_id", "label"):
+        if f in doc:
+            payload[f] = doc[f]
+    DATASTORE[upload_id] = payload
+    return payload
+
+
+@api_router.get("/share/{share_token}")
+async def get_shared_dataset(share_token: str):
+    """Endpoint PUBLIC (sans auth) : récupère les métadonnées + recap + secteur
+    d'un dataset partagé en lecture seule."""
+    d = await _resolve_share_token(share_token)
+    return {
+        "upload_id": d.get("upload_id") or d.get("filename"),
+        "filename": d["filename"],
+        "label": d.get("label") or "",
+        "columns": d["columns"],
+        "row_count": len(d["raw_records"]),
+        "surface_category": d.get("surface_category"),
+        "dongles_quantity": int(d.get("dongles_quantity") or 0),
+        "shared": True,
+        "data": {
+            "recap": d["recap_rows"],
+            "secteur": d["secteur_rows"],
+            "comment_table": d.get("comment_table") or {
+                "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
+                "rows": [["", "", "", "", ""] for _ in range(8)],
+            },
+        },
+    }
+
+
+@api_router.get("/share/{share_token}/raw")
+async def get_shared_raw(share_token: str):
+    """Endpoint PUBLIC : données brutes d'un dataset partagé."""
+    d = await _resolve_share_token(share_token)
+    return {"columns": d["columns"], "raw": d["raw_records"]}
+
+
+@api_router.get("/share/{share_token}/phasage-summary")
+async def get_shared_phasage(share_token: str):
+    """Endpoint PUBLIC : summary phasage d'un dataset partagé."""
+    d = await _resolve_share_token(share_token)
+    summary = compute_phasage_summary(d)
+    summary["phasage"] = _normalize_phasage(d.get("phasage"))
+    return summary
+
+
+@api_router.get("/share/{share_token}/export")
+async def export_shared(share_token: str, sheet: str = "all"):
+    """Endpoint PUBLIC : téléchargement de l'export Excel d'un dataset partagé."""
+    d = await _resolve_share_token(share_token)
+    return await _build_export(d, sheet)
 
 
 @api_router.get("/dataset/{upload_id}/raw")
@@ -2906,7 +3030,10 @@ async def export_excel(upload_id: str, sheet: str = "all", current_user: dict = 
     d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
+    return await _build_export(d, sheet)
 
+
+async def _build_export(d: dict, sheet: str = "all"):
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:

@@ -252,6 +252,68 @@ def build_auth_router(db) -> APIRouter:
         except jwt.InvalidTokenError:
             raise HTTPException(status_code=401, detail="Refresh token invalide")
 
+    # ---- Récupération mot de passe -------------------------------------
+    class ForgotPasswordPayload(BaseModel):
+        email: str
+
+    class ResetPasswordPayload(BaseModel):
+        token: str
+        password: str = Field(..., min_length=6, max_length=200)
+
+    @router.post("/forgot-password")
+    async def forgot_password(payload: ForgotPasswordPayload):
+        """Génère un token de réinitialisation et le loggue dans la console serveur.
+        Pour ne pas leaker quels emails existent, on renvoie toujours la même réponse.
+        Limite : 1 demande / 60s / email."""
+        import secrets as _secrets_local
+        email = _normalize_email(payload.email)
+        user = await db.users.find_one({"email": email})
+        # Throttle
+        recent = await db.password_reset_tokens.find_one({
+            "email": email,
+            "created_at": {"$gte": datetime.now(timezone.utc) - timedelta(seconds=60)},
+        })
+        if user and not recent:
+            token = _secrets_local.token_urlsafe(32)
+            await db.password_reset_tokens.insert_one({
+                "token": token,
+                "email": email,
+                "user_id": str(user["_id"]),
+                "created_at": datetime.now(timezone.utc),
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+                "used": False,
+            })
+            base = os.environ.get("FRONTEND_URL", "").rstrip("/")
+            reset_link = f"{base}/reset-password?token={token}" if base else f"/reset-password?token={token}"
+            logger.info(
+                "\n" + "=" * 60 +
+                f"\n[PASSWORD RESET] Lien pour {email} :\n   {reset_link}\n"
+                f"   (Valable 1h, à transmettre manuellement à l'utilisateur)\n"
+                + "=" * 60
+            )
+        return {"ok": True, "message": "Si un compte existe pour cet email, un lien de réinitialisation a été généré."}
+
+    @router.post("/reset-password")
+    async def reset_password(payload: ResetPasswordPayload):
+        rec = await db.password_reset_tokens.find_one({"token": payload.token, "used": False})
+        if not rec:
+            raise HTTPException(status_code=400, detail="Lien invalide ou déjà utilisé")
+        expires_at = rec.get("expires_at")
+        # Mongo retourne parfois des datetime naïfs ; on s'assure d'avoir un offset
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at and expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Lien expiré (1h max)")
+        await db.users.update_one(
+            {"_id": ObjectId(rec["user_id"])},
+            {"$set": {"password_hash": hash_password(payload.password)}},
+        )
+        await db.password_reset_tokens.update_one(
+            {"_id": rec["_id"]},
+            {"$set": {"used": True, "used_at": datetime.now(timezone.utc)}},
+        )
+        return {"ok": True, "message": "Mot de passe réinitialisé. Vous pouvez vous connecter."}
+
     return router
 
 
@@ -264,6 +326,12 @@ async def setup_auth(db):
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
     await db.datasets.create_index("user_id")
+    await db.datasets.create_index("share_token", sparse=True)
+    # TTL : Mongo supprime automatiquement les reset tokens expirés
+    try:
+        await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    except Exception:
+        pass
 
     # Seed admin
     admin_email = _normalize_email(os.environ.get("ADMIN_EMAIL", "admin@example.com"))

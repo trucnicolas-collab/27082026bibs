@@ -16,7 +16,7 @@ function formatApiErrorDetail(detail) {
     return String(detail);
 }
 
-export default function AuthScreen() {
+export default function AuthScreen({ onForgotPassword }) {
     const [mode, setMode] = useState("login"); // 'login' | 'register'
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -153,6 +153,19 @@ export default function AuthScreen() {
                             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                             {mode === "login" ? "Se connecter" : "Créer mon compte"}
                         </button>
+
+                        {mode === "login" && onForgotPassword && (
+                            <div className="text-center">
+                                <button
+                                    type="button"
+                                    onClick={onForgotPassword}
+                                    data-testid="auth-forgot-link"
+                                    className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline"
+                                >
+                                    Mot de passe oublié ?
+                                </button>
+                            </div>
+                        )}
                     </form>
 
                     <div className="px-6 pb-4 text-xs text-gray-500 text-center">
