@@ -926,7 +926,7 @@ def night_color_hex(nuit: int, weeks: list | None) -> str:
 #                       (PAS de bonus rails→ES 1.5 dans le Phasage)
 #   - 2 colonnes SA séparées : "SA 1.5" (à installer, hors EEG) + "SA 2.1 (info)" (hors EEG)
 #   - Bonus rails→ES 1.5 reste appliqué dans Commandes (recap inchangé)
-STORE_MODE = os.environ.get("STORE_MODE", "magasin_2")
+STORE_MODE = os.environ.get("STORE_MODE", "magasin_1")
 
 # Patterns de rails qui DÉCLENCHENT le bonus "+1 EEG ES 1.5 par rail"
 # (selon liste utilisateur — 1187 EXCLU, 535 INCLUS)
