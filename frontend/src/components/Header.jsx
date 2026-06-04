@@ -11,7 +11,7 @@ export default function Header({ dataset, search, onSearchChange, onExport, onRe
                 </div>
                 <div className="min-w-0">
                     <h1 className="text-base font-semibold text-gray-900 leading-tight truncate" data-testid="app-title">
-                        Inventaire EEG
+                        VT/Phasage Carrefour
                     </h1>
                     {dataset && (
                         <p className="text-xs text-gray-500 truncate" data-testid="file-info">

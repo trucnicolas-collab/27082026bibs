@@ -53,8 +53,8 @@ export default function AuthScreen({ onForgotPassword }) {
                         <FileSpreadsheet className="w-7 h-7 text-white" strokeWidth={2} />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">Inventaire EEG</h1>
-                        <p className="text-sm text-gray-500">Gestion des étiquettes électroniques</p>
+                        <h1 className="text-2xl font-bold text-gray-900">VT/Phasage Carrefour</h1>
+                        <p className="text-sm text-gray-500">Aide VT Carrefour</p>
                     </div>
                 </div>
 
