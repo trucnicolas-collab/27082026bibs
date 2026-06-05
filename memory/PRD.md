@@ -79,7 +79,22 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
+## Feature additions (05/06/2026, v4) — Liste des jours fériés français (détection auto)
+
+- [x] **Module `utils/frenchHolidays.js`** : calcul automatique de Pâques (algorithme grégorien anonyme) + fériés FR fixes (Jour de l'an, Fête travail, Victoire 1945, Fête nationale, Assomption, Toussaint, Armistice, Noël) + variables (Lundi de Pâques, Ascension, Lundi de Pentecôte).
+- [x] **Intégration dans `PrefillDatesDialog`** : dès qu'une date Nuit 1 est saisie, l'app calcule les semaines suivantes (Lundi + 7n), détecte les fériés tombant sur Lun-Ven, et applique la règle métier :
+   - Férié Lun → exclut nuit Lun
+   - Férié Mar → exclut nuit Lun + nuit Mar
+   - Férié Mer → exclut nuit Mar + nuit Mer
+   - Férié Jeu → exclut nuit Mer + nuit Jeu
+   - Férié Ven → exclut nuit Jeu
+   - Auto-coche seulement si le nb de jours suggérés == nb nuits attendu pour la semaine (sinon fallback heuristique précédente).
+- [x] **UI** : badge rouge `📅` sur les jours fériés (boutons Lun/Mar/Mer/Jeu), tooltip avec le nom du férié, note en bas de chaque semaine listant les fériés détectés.
+- [x] Validé E2E avec date Nuit 1 = 30/03/2026 → la semaine 2 (06/04→09/04) détecte **Lundi de Pâques 2026** (6 avril) avec badge rouge sur "Lun" et message "Lundi : Lundi de Pâques".
+
 ## Feature additions (05/06/2026, v3) — Date/Secteur dans Excel Phasage pose+cam + Réordo onglets
+
+
 
 - [x] **Excel "Phasage de pose"** récap droit + tableaux par semaine : +2 colonnes (Date dd/mm/yyyy + Secteur/Rayon). 8 colonnes au total : Nuit | Date | Secteur/Rayon | Allées | EEG | Rails ES | SA | Caméras. CF couleur préservée en sautant Date+SR (fond blanc). Sous-totaux par semaine adaptés.
 - [x] **Excel "Phasage caméras"** récap droit : +2 colonnes (Date + Secteur/Rayon). 5 colonnes : Nuit | Date | Secteur/Rayon | Allées | Caméras. La Date affichée est la nuit globale (start_at + n - 1).

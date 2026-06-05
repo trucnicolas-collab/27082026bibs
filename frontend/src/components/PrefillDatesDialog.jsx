@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { X, Wand2, Loader2 } from "lucide-react";
+import { X, Wand2, CalendarX } from "lucide-react";
+import { workingDaysWithHolidays, dayLabel } from "../utils/frenchHolidays";
 
 // Jours par défaut travaillés : Lundi=0, Mardi=1, Mercredi=2, Jeudi=3
 const WEEK_DAYS = [
@@ -56,13 +57,50 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
     // État : date de Nuit 1 + pour chaque semaine, set des jours cochés
     const [nuit1Date, setNuit1Date] = useState(initialNuit1 || "");
     const [weekDays, setWeekDays] = useState([]); // [ [0,1,2,3], [2,3], ... ]
+    // Info fériés détectés pour chaque semaine : [{name, dayIdx}, ...]
+    const [weekHolidaysInfo, setWeekHolidaysInfo] = useState([]);
 
-    // (Re)initialisation à l'ouverture
+    // (Re)initialisation à l'ouverture ET à chaque changement de nuit1Date :
+    // On essaie de détecter les fériés français pour chaque semaine ;
+    // si une semaine a (4 - férié_excl) nuits attendues, on applique la règle métier auto.
+    // Sinon on garde le fallback heuristique.
     useEffect(() => {
         if (!open) return;
-        setNuit1Date(initialNuit1 || "");
-        setWeekDays(computedWeeks.map((c) => defaultDaysForWeek(c)));
-    }, [open, initialNuit1, computedWeeks]);
+        if (!nuit1Date) {
+            setWeekDays(computedWeeks.map((c) => defaultDaysForWeek(c)));
+            setWeekHolidaysInfo(computedWeeks.map(() => []));
+            return;
+        }
+        const monday0 = mondayOf(new Date(nuit1Date + "T12:00:00"));
+        const days = [];
+        const infos = [];
+        for (let wi = 0; wi < computedWeeks.length; wi++) {
+            const wMonday = new Date(monday0);
+            wMonday.setDate(wMonday.getDate() + wi * 7);
+            const { days: autoDays, holidays, friHoliday } = workingDaysWithHolidays(wMonday);
+            const cnt = computedWeeks[wi];
+            // Si le nombre de jours suggérés par les fériés matche la semaine, on prend cette suggestion
+            if (autoDays.length === cnt) {
+                days.push(autoDays);
+            } else {
+                days.push(defaultDaysForWeek(cnt));
+            }
+            const list = [];
+            Object.entries(holidays).forEach(([k, name]) => {
+                list.push({ name, dayIdx: Number(k), label: dayLabel(Number(k)) });
+            });
+            if (friHoliday) list.push({ name: friHoliday, dayIdx: 4, label: "Vendredi" });
+            infos.push(list);
+        }
+        setWeekDays(days);
+        setWeekHolidaysInfo(infos);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, nuit1Date, computedWeeks]);
+
+    // Synchronise la valeur initiale Nuit 1 quand on ouvre
+    useEffect(() => {
+        if (open) setNuit1Date(initialNuit1 || "");
+    }, [open, initialNuit1]);
 
     const toggleDay = (weekIdx, dayIdx) => {
         setWeekDays((prev) => {
@@ -133,48 +171,65 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
                     <div className="border-t border-gray-100 pt-3">
                         <p className="text-xs text-gray-700 mb-2">
                             <strong>Jours travaillés par semaine.</strong>{" "}
-                            Par défaut, on travaille <strong>Lun-Mar-Mer-Jeu</strong>. Si une semaine a moins de nuits (jour férié), décochez les jours non travaillés (la nuit dont la fin tombe un férié <em>et</em> celle qui couvre le férié sont à exclure).
+                            Par défaut, on travaille <strong>Lun-Mar-Mer-Jeu</strong>. Les jours fériés français sont <strong>détectés automatiquement</strong> (badge rouge <CalendarX className="inline w-3 h-3" />) et la sélection est ajustée selon la règle : la nuit dont la fin tombe sur un férié <em>et</em> celle qui couvre le férié ne sont pas travaillées.
                         </p>
 
                         <div className="space-y-2" data-testid="prefill-weeks">
                             {computedWeeks.map((cnt, wi) => {
                                 const selected = weekDays[wi] || [];
                                 const ok = selected.length === cnt;
+                                const holidays = weekHolidaysInfo[wi] || [];
                                 return (
                                     <div
                                         key={wi}
-                                        className={`flex items-center gap-3 p-2 rounded border ${ok ? "border-emerald-200 bg-emerald-50/40" : "border-amber-300 bg-amber-50/40"}`}
+                                        className={`p-2 rounded border ${ok ? "border-emerald-200 bg-emerald-50/40" : "border-amber-300 bg-amber-50/40"}`}
                                     >
-                                        <span className="text-xs font-semibold text-gray-700 w-24 flex-shrink-0">
-                                            Semaine {wi + 1}
-                                            <span className="block text-[10px] font-normal text-gray-500">
-                                                {cnt} nuit{cnt > 1 ? "s" : ""}
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs font-semibold text-gray-700 w-24 flex-shrink-0">
+                                                Semaine {wi + 1}
+                                                <span className="block text-[10px] font-normal text-gray-500">
+                                                    {cnt} nuit{cnt > 1 ? "s" : ""}
+                                                </span>
                                             </span>
-                                        </span>
-                                        <div className="flex gap-1.5 flex-wrap">
-                                            {WEEK_DAYS.map((d) => {
-                                                const on = selected.includes(d.idx);
-                                                return (
-                                                    <button
-                                                        key={d.idx}
-                                                        type="button"
-                                                        onClick={() => toggleDay(wi, d.idx)}
-                                                        data-testid={`prefill-w${wi}-day-${d.idx}`}
-                                                        className={`px-2.5 py-1 text-xs rounded border transition-colors ${
-                                                            on
-                                                                ? "bg-emerald-600 text-white border-emerald-600"
-                                                                : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-                                                        }`}
-                                                        title={d.label}
-                                                    >
-                                                        {d.short}
-                                                    </button>
-                                                );
-                                            })}
+                                            <div className="flex gap-1.5 flex-wrap">
+                                                {WEEK_DAYS.map((d) => {
+                                                    const on = selected.includes(d.idx);
+                                                    const isHoliday = holidays.some((h) => h.dayIdx === d.idx);
+                                                    return (
+                                                        <button
+                                                            key={d.idx}
+                                                            type="button"
+                                                            onClick={() => toggleDay(wi, d.idx)}
+                                                            data-testid={`prefill-w${wi}-day-${d.idx}`}
+                                                            className={`px-2.5 py-1 text-xs rounded border transition-colors relative ${
+                                                                on
+                                                                    ? "bg-emerald-600 text-white border-emerald-600"
+                                                                    : isHoliday
+                                                                        ? "bg-red-50 text-red-700 border-red-200"
+                                                                        : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                                                            }`}
+                                                            title={isHoliday ? `Férié : ${holidays.find(h => h.dayIdx === d.idx).name}` : d.label}
+                                                        >
+                                                            {d.short}
+                                                            {isHoliday && <CalendarX className="inline-block w-2.5 h-2.5 ml-0.5" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <span className={`text-xs ml-auto ${ok ? "text-emerald-700" : "text-amber-700 font-semibold"}`}>
+                                                {selected.length} / {cnt}
+                                            </span>
                                         </div>
-                                        <span className={`text-xs ${ok ? "text-emerald-700" : "text-amber-700 font-semibold"}`}>
-                                            {selected.length} / {cnt}
-                                        </span>
+                                        {holidays.length > 0 && (
+                                            <div className="mt-1.5 ml-[100px] text-[10.5px] text-red-700 flex items-center gap-1 flex-wrap">
+                                                <CalendarX className="w-3 h-3 flex-shrink-0" />
+                                                {holidays.map((h, idx) => (
+                                                    <span key={idx} className="bg-red-100 px-1.5 py-0.5 rounded">
+                                                        {h.label} : <strong>{h.name}</strong>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
