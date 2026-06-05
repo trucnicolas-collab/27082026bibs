@@ -79,7 +79,22 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
+## Feature additions (05/06/2026, v5) — Historique des modifications (audit log)
+
+- [x] **Collection `audit_log`** + helper `log_audit(upload_id, user, action, target, details)` non-bloquant.
+- [x] **Index Mongo** : `upload_id` + TTL 1 an sur `timestamp`.
+- [x] **Endpoints loggés** : `session_created` (upload), `session_deleted`, `label_changed`, `share_enabled`, `share_disabled`, `surface_changed`, `dongles_changed`, `phasage_updated` (avec liste des sous-éléments modifiés : dates / planning ES / planning Caméras / suivi), `comment_table_updated`, `recap_row_deleted`.
+- [x] **Endpoint `GET /api/dataset/{id}/activity`** : retourne max 200 entrées, plus récentes d'abord, vérifie l'ownership.
+- [x] **Composant frontend `ActivityPanel.jsx`** : bouton "Historique" dans le header, panel dropdown 460 px avec :
+   - Badge coloré par action (créa = vert, suppr = rouge, etc.)
+   - Cible (label, nom de fichier, etc.) + détails sérialisés humainement (`quantité = 500`, `19780 lignes`, etc.)
+   - Timestamp relatif (`il y a 3 min`, `il y a 2 h`...) + email/nom de l'auteur
+   - Bouton refresh
+- [x] Validé E2E : actions de modification depuis l'API tracées et affichées correctement dans le panel.
+
 ## Feature additions (05/06/2026, v4) — Liste des jours fériés français (détection auto)
+
+
 
 - [x] **Module `utils/frenchHolidays.js`** : calcul automatique de Pâques (algorithme grégorien anonyme) + fériés FR fixes (Jour de l'an, Fête travail, Victoire 1945, Fête nationale, Assomption, Toussaint, Armistice, Noël) + variables (Lundi de Pâques, Ascension, Lundi de Pentecôte).
 - [x] **Intégration dans `PrefillDatesDialog`** : dès qu'une date Nuit 1 est saisie, l'app calcule les semaines suivantes (Lundi + 7n), détecte les fériés tombant sur Lun-Ven, et applique la règle métier :

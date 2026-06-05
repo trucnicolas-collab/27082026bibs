@@ -1,6 +1,7 @@
 import React from "react";
 import { Download, RotateCcw, Search, FileSpreadsheet, LogOut } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
+import ActivityPanel from "./ActivityPanel";
 
 export default function Header({ dataset, search, onSearchChange, onExport, onReset, onOpenSession, onDeletedSession, user, onLogout }) {
     return (
@@ -40,6 +41,9 @@ export default function Header({ dataset, search, onSearchChange, onExport, onRe
                     onOpen={onOpenSession}
                     onDeleted={onDeletedSession}
                 />
+                {dataset && (
+                    <ActivityPanel uploadId={dataset.upload_id} />
+                )}
                 {dataset && (
                     <>
                         <button

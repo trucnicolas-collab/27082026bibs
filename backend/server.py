@@ -60,6 +60,30 @@ async def _on_startup():
         await setup_auth(db)
     except Exception as e:
         logger.warning(f"setup_auth failed: {e}")
+    try:
+        # TTL : audit_log conservé 365 jours
+        await db.audit_log.create_index("upload_id")
+        await db.audit_log.create_index("timestamp", expireAfterSeconds=60 * 60 * 24 * 365)
+    except Exception as e:
+        logger.warning(f"audit_log index failed: {e}")
+
+
+async def log_audit(upload_id: Optional[str], user: Optional[dict],
+                    action: str, target: str = "", details: Optional[dict] = None):
+    """Append une entrée d'audit. Best-effort : un échec ne casse pas l'opération métier."""
+    try:
+        await db.audit_log.insert_one({
+            "upload_id": upload_id,
+            "user_id": str(user["_id"]) if user else None,
+            "user_email": (user.get("email") if user else None) or "anonyme",
+            "user_name": (user.get("name") if user else None) or "",
+            "action": action,
+            "target": target or "",
+            "details": details or {},
+            "timestamp": datetime.now(timezone.utc),
+        })
+    except Exception as e:
+        logger.warning(f"log_audit failed: {e}")
 
 
 async def persist_dataset(upload_id: str, data: dict, user_id: Optional[str] = None):
@@ -562,6 +586,10 @@ async def upload_excel(file: UploadFile = File(...), current_user: dict = Depend
     except Exception as e:
         logger.warning(f"Mongo persist failed: {e}")
 
+    await log_audit(upload_id, current_user, "session_created",
+                    target=file.filename,
+                    details={"row_count": len(raw_records)})
+
     autre_rows_count = len(_filter_autre_rows(DATASTORE[upload_id]))
     return {
         "upload_id": upload_id,
@@ -643,6 +671,7 @@ async def delete_dataset(upload_id: str, current_user: dict = Depends(get_curren
     DATASTORE.pop(upload_id, None)
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
+    await log_audit(upload_id, current_user, "session_deleted")
     return {"deleted": True, "upload_id": upload_id}
 
 
@@ -666,6 +695,7 @@ async def update_dataset_label(upload_id: str, payload: DatasetLabelUpdate,
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     # Invalide le cache pour que la prochaine lecture remonte le nouveau label
     DATASTORE.pop(upload_id, None)
+    await log_audit(upload_id, current_user, "label_changed", target=new_label or "(libellé vidé)")
     return {"upload_id": upload_id, "label": new_label}
 
 
@@ -686,6 +716,7 @@ async def enable_share(upload_id: str, current_user: dict = Depends(get_current_
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     DATASTORE.pop(upload_id, None)
+    await log_audit(upload_id, current_user, "share_enabled")
     return {"upload_id": upload_id, "share_token": token, "share_enabled": True}
 
 
@@ -700,6 +731,7 @@ async def disable_share(upload_id: str, current_user: dict = Depends(get_current
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     DATASTORE.pop(upload_id, None)
+    await log_audit(upload_id, current_user, "share_disabled")
     return {"upload_id": upload_id, "share_enabled": False}
 
 
@@ -782,7 +814,49 @@ async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_curre
     }
 
 
+@api_router.get("/dataset/{upload_id}/activity")
+async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Retourne l'historique des modifications d'une session (max 200 entrées, plus récentes d'abord)."""
+    # Vérifie propriété
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    cursor = db.audit_log.find(
+        {"upload_id": upload_id},
+        {"_id": 0},
+    ).sort("timestamp", -1).limit(200)
+    items = await cursor.to_list(length=200)
+    # Sérialise les timestamps
+    for it in items:
+        ts = it.get("timestamp")
+        if hasattr(ts, "isoformat"):
+            it["timestamp"] = ts.isoformat()
+    return {"activity": items, "count": len(items)}
+
+
 def _filter_autre_rows(d: dict) -> list[dict]:
+    """Retourne les lignes du fichier original dont Type == 'Fixation' (insensible
+    à la casse, accents tolérés) ET Référence commence par 'AUTRE' (toutes variantes :
+    AUTRE1, AUTRE3, AUTRE A, etc.).
+    """
+    raw = d.get("raw_records") or []
+    cols = d.get("detected_cols") or {}
+    type_col = cols.get("type")
+    ref_col = cols.get("reference")
+    if not type_col or not ref_col:
+        return []
+    out = []
+    for r in raw:
+        typ = str(r.get(type_col) or "").strip().lower()
+        if typ != "fixation":
+            continue
+        ref = str(r.get(ref_col) or "").strip().upper()
+        if ref.startswith("AUTRE"):
+            out.append(r)
+    return out
+
+
+
     """Retourne les lignes du fichier original dont Type == 'Fixation' (insensible
     à la casse, accents tolérés) ET Référence commence par 'AUTRE' (toutes variantes :
     AUTRE1, AUTRE3, AUTRE A, etc.).
@@ -967,6 +1041,7 @@ async def update_dongles(upload_id: str, payload: DonglesUpdate, current_user: d
         await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"dongles_quantity": qty}})
     except Exception as e:
         logger.warning(f"Mongo persist dongles failed: {e}")
+    await log_audit(upload_id, current_user, "dongles_changed", details={"quantity": qty})
     return {"quantity": qty, "rows": rows}
 
 
@@ -1152,6 +1227,7 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
         await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"surface_category": cat}})
     except Exception as e:
         logger.warning(f"Mongo persist surface failed: {e}")
+    await log_audit(upload_id, current_user, "surface_changed", details={"category": cat or "aucune"})
     return {"category": cat, "rows": rows}
 
 
@@ -1166,12 +1242,16 @@ async def delete_recap_row(upload_id: str, index: int, current_user: dict = Depe
         raise HTTPException(status_code=404, detail="Ligne introuvable")
     if rows[index]["kind"] == "header":
         raise HTTPException(status_code=400, detail="Les en-têtes de section ne sont pas supprimables")
+    deleted = dict(rows[index])
     rows.pop(index)
     try:
         await persist_recap_rows(upload_id, rows)
     except Exception as e:
         logger.warning(f"Mongo persist recap failed: {e}")
-    return {"ok": True, "remaining": len(rows)}
+    await log_audit(upload_id, current_user, "recap_row_deleted",
+                    target=str(deleted.get("designation", "") or deleted.get("reference", "")),
+                    details={"index": index})
+    return {"ok": True, "remaining": len(rows), "deleted_index": index}
 
 
 class CommentTableUpdate(BaseModel):
@@ -1190,6 +1270,8 @@ async def update_comment_table(upload_id: str, payload: CommentTableUpdate, curr
         await persist_comment_table(upload_id, d["comment_table"])
     except Exception as e:
         logger.warning(f"Mongo persist comment_table failed: {e}")
+    await log_audit(upload_id, current_user, "comment_table_updated",
+                    details={"cols": len(payload.columns), "rows": len(payload.rows)})
     return {"ok": True, "comment_table": d["comment_table"]}
 
 
@@ -1693,6 +1775,16 @@ async def update_phasage(upload_id: str, payload: PhasageFullUpdate, current_use
         await persist_phasage(upload_id, d["phasage"])
     except Exception as e:
         logger.warning(f"Mongo persist phasage failed: {e}")
+    # Détermine ce qui a changé pour le log
+    changed = []
+    if payload.dates is not None: changed.append("dates")
+    if (prev_phasage or {}).get("es") != es: changed.append("planning ES")
+    if (prev_phasage or {}).get("cam") != cam: changed.append("planning Caméras")
+    if (prev_phasage or {}).get("suivi", {}).get("rows") != suivi_rows: changed.append("suivi")
+    if changed:
+        await log_audit(upload_id, current_user, "phasage_updated",
+                        target=", ".join(changed),
+                        details={"nb_nuits_es": es.get("nb_nuits"), "nb_nuits_cam": cam.get("nb_nuits")})
     return {"ok": True, "phasage": d["phasage"]}
 
 
