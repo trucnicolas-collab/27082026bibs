@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
-import { CalendarDays, Loader2 } from "lucide-react";
+import { CalendarDays, Loader2, Wand2 } from "lucide-react";
+import PrefillDatesDialog from "./PrefillDatesDialog";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -62,6 +63,7 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [prefillOpen, setPrefillOpen] = useState(false);
 
     const load = useCallback(() => {
         if (!uploadId) return;
@@ -179,6 +181,20 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
                     {nbNuits} nuit{nbNuits > 1 ? "s" : ""} · structure depuis « Phasage de pose »
                 </span>
                 {saving && <span className="text-xs text-gray-500 ml-2">Sauvegarde…</span>}
+                <div className="ml-auto">
+                    {!readOnly && (
+                        <button
+                            onClick={() => setPrefillOpen(true)}
+                            disabled={nbNuits === 0}
+                            data-testid="prefill-open-button"
+                            className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+                            title="Pré-remplir automatiquement les dates de toutes les nuits"
+                        >
+                            <Wand2 className="w-3.5 h-3.5" />
+                            Pré-remplir les dates
+                        </button>
+                    )}
+                </div>
             </div>
 
             <div className="flex-1 overflow-auto custom-scroll p-3">
@@ -288,6 +304,18 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
                     </tbody>
                 </table>
             </div>
+
+            <PrefillDatesDialog
+                open={prefillOpen}
+                weeks={weeks}
+                nbNuits={nbNuits}
+                initialNuit1={dates["1"] || ""}
+                onClose={() => setPrefillOpen(false)}
+                onApply={(newDates) => {
+                    setDates(newDates);
+                    setPrefillOpen(false);
+                }}
+            />
         </div>
     );
 }

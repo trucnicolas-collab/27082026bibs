@@ -79,7 +79,22 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
+## Feature additions (05/06/2026, v2) — Pré-remplir les dates (calendrier 4 jours/semaine)
+
+- [x] **Bouton "Pré-remplir les dates"** dans l'onglet Tableau date → ouvre un modal `PrefillDatesDialog.jsx`.
+- [x] **Logique métier 4 jours/semaine** (Lun-Mar-Mer-Jeu) avec détection automatique des fériés selon les semaines courtes du Phasage de pose :
+   - 4 nuits → Lun + Mar + Mer + Jeu
+   - 3 nuits → Mar + Mer + Jeu (férié Lundi par défaut)
+   - 2 nuits → Mer + Jeu (férié Mardi par défaut)
+   - 1 nuit → Jeu seulement
+   - Règle métier : on saute la nuit dont la fin tombe sur un férié ET celle qui couvre le férié.
+- [x] **Sélecteur manuel** : pour chaque semaine, l'utilisateur peut décocher/cocher des jours via 4 boutons Lun/Mar/Mer/Jeu. Badge vert si total OK, badge orange si écart avec le nombre de nuits attendu.
+- [x] **Édition manuelle ultérieure préservée** : chaque cellule date reste éditable individuellement après le pré-remplissage (input HTML5 date).
+- [x] **Validé E2E** : 6 nuits avec weeks=[4, 2], date Nuit 1 = 23/03/2026 (Lundi). Résultat : Lun 23, Mar 24, Mer 25, Jeu 26, Mer 01 Avr, Jeu 02 Avr — la semaine 2 saute correctement Lun + Mar grâce à la règle férié Mardi.
+
 ## Feature additions (05/06/2026) — Onglet Autre + Tableau date + colonnes Date/Secteur/Rayon
+
+
 
 - [x] **Onglet "Autre"** (apparait uniquement si le fichier contient des fixations AUTRE*) :
    - Endpoints `/api/dataset/{id}/autre` + `/api/share/{token}/autre` qui filtrent `Type=Fixation && Référence.startswith("AUTRE")` (insensible casse/accents).
