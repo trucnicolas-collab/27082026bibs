@@ -126,6 +126,9 @@ async def persist_dataset(upload_id: str, data: dict, user_id: Optional[str] = N
         },
         "surface_category": data.get("surface_category"),
         "dongles_quantity": data.get("dongles_quantity") or 0,
+        "vt_start_date": data.get("vt_start_date") or "",
+        "store_name": data.get("store_name") or "",
+        "store_code": data.get("store_code") or "",
     }
     if user_id is not None:
         update_doc["user_id"] = user_id
@@ -194,6 +197,12 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
         payload["surface_category"] = doc["surface_category"]
     if "dongles_quantity" in doc:
         payload["dongles_quantity"] = doc["dongles_quantity"]
+    if "vt_start_date" in doc:
+        payload["vt_start_date"] = doc["vt_start_date"]
+    if "store_name" in doc:
+        payload["store_name"] = doc["store_name"]
+    if "store_code" in doc:
+        payload["store_code"] = doc["store_code"]
     if "user_id" in doc:
         payload["user_id"] = doc["user_id"]
     DATASTORE[upload_id] = payload
@@ -647,6 +656,9 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
         "row_count": len(d["raw_records"]),
         "surface_category": d.get("surface_category"),
         "dongles_quantity": int(d.get("dongles_quantity") or 0),
+        "vt_start_date": d.get("vt_start_date") or "",
+        "store_name": d.get("store_name") or "",
+        "store_code": d.get("store_code") or "",
         "has_autre": len(rows) > 0,
         "autre_count": len(rows),
         "data": {
@@ -791,6 +803,9 @@ async def get_shared_phasage(share_token: str):
     d = await _resolve_share_token(share_token)
     summary = compute_phasage_summary(d)
     summary["phasage"] = _normalize_phasage(d.get("phasage"))
+    summary["vt_start_date"] = d.get("vt_start_date") or ""
+    summary["store_name"] = d.get("store_name") or ""
+    summary["store_code"] = d.get("store_code") or ""
     return summary
 
 
@@ -814,7 +829,46 @@ async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_curre
     }
 
 
-@api_router.get("/dataset/{upload_id}/activity")
+class StoreInfoUpdate(BaseModel):
+    vt_start_date: Optional[str] = None  # ISO "YYYY-MM-DD"
+    store_name: Optional[str] = None     # ex: "Carrefour Massy"
+    store_code: Optional[str] = None     # texte libre
+
+
+@api_router.patch("/dataset/{upload_id}/store-info")
+async def update_store_info(upload_id: str, payload: StoreInfoUpdate,
+                            current_user: dict = Depends(get_current_user)):
+    """Met à jour les méta-infos du magasin/VT.
+    - vt_start_date : 1er jour de la VT (la fin est calculée à +2 jours côté front/export)
+    - store_name    : nom du magasin (ex: "Carrefour Massy")
+    - store_code    : code magasin (texte libre)
+    """
+    user_id = str(current_user["_id"])
+    update_fields = {}
+    if payload.vt_start_date is not None:
+        v = (payload.vt_start_date or "").strip()[:10]
+        if v and not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            raise HTTPException(status_code=400, detail="Date VT invalide (YYYY-MM-DD attendu)")
+        update_fields["vt_start_date"] = v
+    if payload.store_name is not None:
+        update_fields["store_name"] = (payload.store_name or "").strip()[:150]
+    if payload.store_code is not None:
+        update_fields["store_code"] = (payload.store_code or "").strip()[:50]
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="Aucune modification fournie")
+    res = await db.datasets.update_one(
+        {"upload_id": upload_id, "user_id": user_id},
+        {"$set": update_fields},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    DATASTORE.pop(upload_id, None)
+    await log_audit(upload_id, current_user, "store_info_updated",
+                    details=update_fields)
+    return {"ok": True, **update_fields}
+
+
+
 async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne l'historique des modifications d'une session (max 200 entrées, plus récentes d'abord)."""
     # Vérifie propriété
@@ -1676,6 +1730,9 @@ async def get_phasage_summary(upload_id: str, current_user: dict = Depends(get_c
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     summary = compute_phasage_summary(d)
     summary["phasage"] = _normalize_phasage(d.get("phasage"))
+    summary["vt_start_date"] = d.get("vt_start_date") or ""
+    summary["store_name"] = d.get("store_name") or ""
+    summary["store_code"] = d.get("store_code") or ""
     return summary
 
 

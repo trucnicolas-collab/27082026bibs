@@ -71,6 +71,11 @@ export default function PhasageTab({ uploadId }) {
     const [weeks, setWeeks] = useState([]); // ex: [5,3,6] ou [] (pas de découpage)
     const [saving, setSaving] = useState(false);
     const [dates, setDates] = useState({}); // {"1": "2026-02-15", ...} (lecture seule ici)
+    // Méta-infos magasin / VT
+    const [vtStartDate, setVtStartDate] = useState("");
+    const [storeName, setStoreName] = useState("");
+    const [storeCode, setStoreCode] = useState("");
+    const [storeInfoLoaded, setStoreInfoLoaded] = useState(false);
 
     // Charger summary
     useEffect(() => {
