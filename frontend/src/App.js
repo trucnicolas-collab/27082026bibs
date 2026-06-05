@@ -350,10 +350,10 @@ function MainApp() {
         }
         t.push({ id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 });
         t.push({ id: "pose", label: "Phasage de pose", count: 0 });
+        t.push({ id: "tableau_date", label: "Tableau date", count: 0 });
         t.push({ id: "pose_cam", label: "Phasage caméras", count: 0 });
         t.push({ id: "pose_full", label: "Phasage full", count: 0 });
         t.push({ id: "suivi", label: "Suivi phasage", count: 0 });
-        t.push({ id: "tableau_date", label: "Tableau date", count: 0 });
         t.push({ id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 });
         return t;
     }, [dataset]);

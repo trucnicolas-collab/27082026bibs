@@ -79,12 +79,20 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 2. Activer édition inline des 3 lignes vides
 3. Permettre tri/regroupement personnalisé
 
-## Feature additions (05/06/2026, v2) — Pré-remplir les dates (calendrier 4 jours/semaine)
+## Feature additions (05/06/2026, v3) — Date/Secteur dans Excel Phasage pose+cam + Réordo onglets
+
+- [x] **Excel "Phasage de pose"** récap droit + tableaux par semaine : +2 colonnes (Date dd/mm/yyyy + Secteur/Rayon). 8 colonnes au total : Nuit | Date | Secteur/Rayon | Allées | EEG | Rails ES | SA | Caméras. CF couleur préservée en sautant Date+SR (fond blanc). Sous-totaux par semaine adaptés.
+- [x] **Excel "Phasage caméras"** récap droit : +2 colonnes (Date + Secteur/Rayon). 5 colonnes : Nuit | Date | Secteur/Rayon | Allées | Caméras. La Date affichée est la nuit globale (start_at + n - 1).
+- [x] **Ordre des onglets UI** : Tableau date repositionné juste après « Phasage de pose » (à la demande utilisateur).
+- [x] Validé E2E : export 1.5 MB, openpyxl confirme la structure correcte des deux feuilles, dates dd/mm/yyyy au format Excel natif, Secteur/Rayon dédupliqués avec ` / `.
+
 
 - [x] **Bouton "Pré-remplir les dates"** dans l'onglet Tableau date → ouvre un modal `PrefillDatesDialog.jsx`.
 - [x] **Logique métier 4 jours/semaine** (Lun-Mar-Mer-Jeu) avec détection automatique des fériés selon les semaines courtes du Phasage de pose :
    - 4 nuits → Lun + Mar + Mer + Jeu
    - 3 nuits → Mar + Mer + Jeu (férié Lundi par défaut)
+
+## Feature additions (05/06/2026, v2) — Pré-remplir les dates (calendrier 4 jours/semaine)
    - 2 nuits → Mer + Jeu (férié Mardi par défaut)
    - 1 nuit → Jeu seulement
    - Règle métier : on saute la nuit dont la fin tombe sur un férié ET celle qui couvre le férié.

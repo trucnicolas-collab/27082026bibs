@@ -1820,10 +1820,13 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.set_column(4, 4, 12)   # E Nuit
     ws.set_column(5, 5, 3)    # F spacer
     ws.set_column(6, 6, 10)   # G Nuit
-    ws.set_column(7, 7, 32)   # H Allées
-    ws.set_column(8, 8, 12)   # I ES
-    ws.set_column(9, 9, 12)   # J Rails ES
-    ws.set_column(10, 10, 10) # K SA (info)
+    ws.set_column(7, 7, 11)   # H Date
+    ws.set_column(8, 8, 18)   # I Secteur/Rayon
+    ws.set_column(9, 9, 32)   # J Allées
+    ws.set_column(10, 10, 12) # K EEG
+    ws.set_column(11, 11, 12) # L Rails ES
+    ws.set_column(12, 12, 10) # M SA (info)
+    ws.set_column(13, 13, 10) # N Caméras
 
     fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
                                      "border": 1, "font_size": 12, "align": "left"})
@@ -1993,10 +1996,31 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # ----- Tableau droite (formules SUMIFS, mise en forme conditionnelle pour les couleurs) -----
     col_right = 6
-    ws.merge_range(start_left, col_right, start_left, col_right + 5, "Récap par nuit", fmt_title)
-    headers_right = ["Nuit", "Allées", "EEG", "Rails ES", "SA 2.1" if is_m2 else "SA", "Caméras"]
+    NB_RIGHT_COLS = 8  # Nuit | Date | Secteur/Rayon | Allées | EEG | Rails ES | SA | Caméras
+    ws.merge_range(start_left, col_right, start_left, col_right + NB_RIGHT_COLS - 1, "Récap par nuit", fmt_title)
+    headers_right = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA 2.1" if is_m2 else "SA", "Caméras"]
     for ci, h in enumerate(headers_right):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
+
+    # Map dates par nuit + Secteur/Rayon par nuit (déduplication)
+    dates_map_es = phasage_full.get("dates") or {}
+    idx_allees_full = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
+    sr_by_nuit_es: dict[int, list[str]] = {}
+    for r2 in rows_assign:
+        n2 = r2.get("nuit")
+        a_uid = str(r2.get("allee") or "").strip()
+        if not n2 or not a_uid:
+            continue
+        node = idx_allees_full.get(a_uid)
+        if not node:
+            continue
+        sec = node.get("secteur") or ""
+        ray = node.get("rayon") or ""
+        if sec or ray:
+            k = f"{sec}{':' + ray if ray else ''}"
+            sr_by_nuit_es.setdefault(int(n2), [])
+            if k not in sr_by_nuit_es[int(n2)]:
+                sr_by_nuit_es[int(n2)].append(k)
 
     # Pré-calcul des allées par nuit pour la colonne "Allées" (texte statique)
     # Conversion uid -> label court (8, 112-1, ZS1)
@@ -2040,46 +2064,62 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     fmt_sa_neutral = workbook.add_format({"border": 1, "align": "right",
                                            "italic": True, "font_color": "#6B7280"})
     fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
+    fmt_date_neutral = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy", "bg_color": "#FFFFFF"})
+    fmt_sr_neutral = workbook.add_format({"border": 1, "align": "left", "font_size": 9, "text_wrap": True, "bg_color": "#FFFFFF"})
 
     for i, n in enumerate(range(1, nb_nuits + 1), start=0):
         rrow = first_data_row + i
         nuit_label = f"Nuit {n}"
         ws.write(rrow, col_right + 0, nuit_label, fmt_cell_neutral)
+        # Date (col_right + 1) — fond blanc
+        date_iso = dates_map_es.get(str(n))
+        if date_iso:
+            try:
+                from datetime import datetime as _dt
+                ws.write_datetime(rrow, col_right + 1, _dt.strptime(date_iso, "%Y-%m-%d").date(), fmt_date_neutral)
+            except Exception:
+                ws.write_string(rrow, col_right + 1, date_iso, fmt_date_neutral)
+        else:
+            ws.write_blank(rrow, col_right + 1, None, fmt_date_neutral)
+        # Secteur/Rayon (col_right + 2) — fond blanc
+        sr_list = sr_by_nuit_es.get(n) or []
+        ws.write_string(rrow, col_right + 2, " / ".join(sr_list) if sr_list else "", fmt_sr_neutral)
         # Colonne "Allées" : texte statique (calculé à l'export)
         allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
         allees_text = ", ".join(allees_sorted) if allees_sorted else ""
-        ws.write_string(rrow, col_right + 1, allees_text, fmt_allees_neutral)
+        ws.write_string(rrow, col_right + 3, allees_text, fmt_allees_neutral)
         # EEG par nuit :
-        #   - Magasin 2 : simple SUMIFS sur col B (qui contient déjà ES+SA1.5+saisonnier des zones affectées)
-        #   - Magasin 1 : SUMIFS + prorata SA 2.1 saisonnier sur les nuits ES
         if is_m2:
             eeg_formula = f'=SUMIFS({B_range},{E_range},"{nuit_label}")'
         else:
             eeg_formula = (f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
                            f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)')
-        ws.write_formula(rrow, col_right + 2, eeg_formula, fmt_num_neutral)
-        ws.write_formula(rrow, col_right + 3,
+        ws.write_formula(rrow, col_right + 4, eeg_formula, fmt_num_neutral)
+        ws.write_formula(rrow, col_right + 5,
                          f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
-        ws.write_formula(rrow, col_right + 4,
+        ws.write_formula(rrow, col_right + 6,
                          f'=SUMIFS({D_range_sa},{E_range},"{nuit_label}")', fmt_sa_neutral)
-        # Colonne Caméras (statique : valeur calculée à l'export depuis phasage cam)
+        # Colonne Caméras (col_right + 7)
         fmt_cam_neutral = workbook.add_format({"border": 1, "align": "right",
                                                 "bold": True, "font_color": "#6B21A8"})
         cam_val = int(round(cam_per_night.get(n, 0)))
         if cam_val > 0:
-            ws.write_number(rrow, col_right + 5, cam_val, fmt_cam_neutral)
+            ws.write_number(rrow, col_right + 7, cam_val, fmt_cam_neutral)
         else:
-            ws.write_blank(rrow, col_right + 5, None, fmt_cam_neutral)
+            ws.write_blank(rrow, col_right + 7, None, fmt_cam_neutral)
 
     # Ligne TOTAL (somme des nb_nuits lignes)
     rrow_total = first_data_row + nb_nuits
     excel_total_first = first_data_row + 1
     excel_total_last = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
-    ws.write_formula(rrow_total, col_right + 1,
+    # Date + Secteur/Rayon : cellules vides
+    ws.write_blank(rrow_total, col_right + 1, None, fmt_total_lbl)
+    ws.write_blank(rrow_total, col_right + 2, None, fmt_total_lbl)
+    ws.write_formula(rrow_total, col_right + 3,
                      f'=COUNTA({A_range})&" allées planifiées"',
                      fmt_total_lbl)
-    for offset in range(2, 6):  # 2..5 = EEG, Rails, SA, Caméras
+    for offset in range(4, 8):  # 4..7 = EEG, Rails, SA, Caméras
         col_letter = chr(ord('A') + col_right + offset)
         ws.write_formula(rrow_total, col_right + offset,
                          f"=SUM(${col_letter}${excel_total_first}:${col_letter}${excel_total_last})",
@@ -2110,7 +2150,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             n_end = cumul + nb
             cumul += nb
             # Header semaine
-            ws.merge_range(cur_row, col_right, cur_row, col_right + 5,
+            ws.merge_range(cur_row, col_right, cur_row, col_right + NB_RIGHT_COLS - 1,
                            f"Semaine {wi} (Nuits {n_start} → {n_end})", fmt_week_hdr)
             cur_row += 1
             # Headers colonnes
@@ -2121,53 +2161,77 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             sub_first = cur_row + 1
             for n in range(n_start, n_end + 1):
                 if n > nb_nuits:
-                    # nuit au-delà du planificateur → ligne vide
                     ws.write(cur_row, col_right + 0, f"Nuit {n}", fmt_cell_neutral)
-                    for k in range(1, 6):
+                    ws.write_blank(cur_row, col_right + 1, None, fmt_date_neutral)
+                    ws.write_blank(cur_row, col_right + 2, None, fmt_sr_neutral)
+                    for k in range(3, NB_RIGHT_COLS):
                         ws.write_blank(cur_row, col_right + k, None, fmt_num_neutral)
                 else:
                     nuit_label = f"Nuit {n}"
                     ws.write(cur_row, col_right + 0, nuit_label, fmt_cell_neutral)
+                    # Date
+                    date_iso_w = dates_map_es.get(str(n))
+                    if date_iso_w:
+                        try:
+                            from datetime import datetime as _dt
+                            ws.write_datetime(cur_row, col_right + 1, _dt.strptime(date_iso_w, "%Y-%m-%d").date(), fmt_date_neutral)
+                        except Exception:
+                            ws.write_string(cur_row, col_right + 1, date_iso_w, fmt_date_neutral)
+                    else:
+                        ws.write_blank(cur_row, col_right + 1, None, fmt_date_neutral)
+                    # Secteur/Rayon
+                    sr_list_w = sr_by_nuit_es.get(n) or []
+                    ws.write_string(cur_row, col_right + 2, " / ".join(sr_list_w) if sr_list_w else "", fmt_sr_neutral)
+                    # Allées
                     allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
-                    ws.write_string(cur_row, col_right + 1,
+                    ws.write_string(cur_row, col_right + 3,
                                     ", ".join(allees_sorted) if allees_sorted else "",
                                     fmt_allees_neutral)
-                    ws.write_formula(cur_row, col_right + 2,
+                    ws.write_formula(cur_row, col_right + 4,
                                      f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
                                      f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)',
                                      fmt_num_neutral)
-                    ws.write_formula(cur_row, col_right + 3,
+                    ws.write_formula(cur_row, col_right + 5,
                                      f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
-                    ws.write_formula(cur_row, col_right + 4,
+                    ws.write_formula(cur_row, col_right + 6,
                                      f'=SUMIFS({D_range_sa},{E_range},"{nuit_label}")', fmt_sa_neutral)
-                    # Caméras (statique, comptées depuis Phasage cam)
+                    # Caméras
                     fmt_cam_week = workbook.add_format({"border": 1, "align": "right",
                                                          "bold": True, "font_color": "#6B21A8"})
                     cam_val_w = int(round(cam_per_night.get(n, 0)))
                     if cam_val_w > 0:
-                        ws.write_number(cur_row, col_right + 5, cam_val_w, fmt_cam_week)
+                        ws.write_number(cur_row, col_right + 7, cam_val_w, fmt_cam_week)
                     else:
-                        ws.write_blank(cur_row, col_right + 5, None, fmt_cam_week)
+                        ws.write_blank(cur_row, col_right + 7, None, fmt_cam_week)
                 cur_row += 1
             sub_last = cur_row  # 1-indexed row of last data line
             # Sous-total semaine
             ws.write(cur_row, col_right + 0, f"Sous-total S{wi}", fmt_subtotal_lbl)
             ws.write(cur_row, col_right + 1, "", fmt_subtotal_lbl)
-            for offset in range(2, 6):  # 2..5 inclus = EEG, Rails, SA, Caméras
+            ws.write(cur_row, col_right + 2, "", fmt_subtotal_lbl)
+            ws.write(cur_row, col_right + 3, "", fmt_subtotal_lbl)
+            for offset in range(4, NB_RIGHT_COLS):  # 4..7 = EEG, Rails, SA, Caméras
                 col_letter = chr(ord('A') + col_right + offset)
                 ws.write_formula(cur_row, col_right + offset,
                                  f"=SUM(${col_letter}${sub_first}:${col_letter}${sub_last})",
                                  fmt_subtotal)
             cur_row += 2  # une ligne d'espace entre les semaines
-            # CF couleur par nuit sur les lignes data de cette semaine
+            # CF couleur par nuit sur les lignes data de cette semaine — SAUTE Date(col+1) et SR(col+2) qui restent fond blanc
             data_first_0 = sub_first - 1  # 0-indexed
             data_last_0 = sub_last - 1
             for n in range(n_start, n_end + 1):
                 if n > nb_nuits: continue
                 cf_fmt = cf_formats_right.get(n)
                 if cf_fmt:
+                    # Bloc Nuit (col_right) seul
                     ws.conditional_format(
-                        data_first_0, col_right, data_last_0, col_right + 5,
+                        data_first_0, col_right, data_last_0, col_right,
+                        {"type": "formula",
+                         "criteria": f'=${nuit_col_right_letter}{sub_first}="Nuit {n}"',
+                         "format": cf_fmt})
+                    # Bloc Allées + EEG + Rails + SA + Caméras (col_right+3 → col_right+7)
+                    ws.conditional_format(
+                        data_first_0, col_right + 3, data_last_0, col_right + NB_RIGHT_COLS - 1,
                         {"type": "formula",
                          "criteria": f'=${nuit_col_right_letter}{sub_first}="Nuit {n}"',
                          "format": cf_fmt})
@@ -2185,11 +2249,22 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 "format": cf_fmt,
             }
         )
-    # Tableau droit : range G:L (Nuit, Allées, EEG, Rails, SA, Caméras) sur les lignes data
+    # Tableau droit : range G:N (Nuit, Date, SR, Allées, EEG, Rails, SA, Caméras) sur les lignes data
+    # Date (col_right+1) et Secteur/Rayon (col_right+2) gardent leur fond BLANC : on saute ces colonnes
     for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_right[n]
+        # Bloc Nuit (col_right) seul
         ws.conditional_format(
-            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 5,
+            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right,
+            {
+                "type": "formula",
+                "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
+                "format": cf_fmt,
+            }
+        )
+        # Bloc Allées..Caméras (col_right+3 → col_right+7)
+        ws.conditional_format(
+            first_data_row, col_right + 3, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS - 1,
             {
                 "type": "formula",
                 "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
@@ -2210,7 +2285,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # Petite note d'aide en bas
     note_row = max(first_data_row + nb_rows_left, chart_row + 2) + 1
-    ws.merge_range(note_row, 0, note_row, 10,
+    ws.merge_range(note_row, 0, note_row, 13,
                    "Astuce : sélectionne une allée et une nuit dans les colonnes déroulantes — "
                    "les comptes (ES = somme ES 1.5 + ES 2.1, Rails ES, SA) et le récap par nuit se mettent à jour automatiquement. "
                    "La couleur de chaque ligne suit la nuit sélectionnée. "
@@ -2276,8 +2351,10 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         ws_data.write_number(i, 1, a.get("cameras") or 0)
     ws_data.hide()
 
-    for c in range(7):
-        ws.set_column(c, c, [12, 12, 12, 3, 12, 32, 12][c])
+    # A=Allée, B=Caméras, C=Nuit, D=spacer, E=Nuit, F=Date, G=Secteur/Rayon, H=Allées, I=Caméras
+    widths = [12, 12, 12, 3, 12, 11, 18, 32, 12]
+    for c in range(len(widths)):
+        ws.set_column(c, c, widths[c])
 
     fmt_title = workbook.add_format({"bold": True, "bg_color": "#7C3AED", "font_color": "white",
                                      "border": 1, "font_size": 12, "align": "left"})
@@ -2352,9 +2429,33 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
             ws.write_blank(rr, 2, None, fmt_cell_neutral)
 
     col_right = 4
-    ws.merge_range(start_left, col_right, start_left, col_right + 2, "Récap par nuit", fmt_title)
-    for ci, h in enumerate(["Nuit", "Allées", "Caméras"]):
+    NB_RIGHT_COLS_CAM = 5  # Nuit | Date | Secteur/Rayon | Allées | Caméras
+    ws.merge_range(start_left, col_right, start_left, col_right + NB_RIGHT_COLS_CAM - 1, "Récap par nuit", fmt_title)
+    for ci, h in enumerate(["Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]):
         ws.write(start_left + 1, col_right + ci, h, fmt_lbl)
+
+    # Map dates par nuit globale (start_at + n - 1) + Secteur/Rayon par nuit locale
+    dates_map_cam = phasage_full.get("dates") or {}
+    idx_allees_cam = {str(a.get("uid") or a["allee"]): a for a in all_allees}
+    sr_by_nuit_cam: dict[int, list[str]] = {}
+    for r2 in rows_assign:
+        n2 = r2.get("nuit")
+        a_uid = str(r2.get("allee") or "").strip()
+        if not n2 or not a_uid:
+            continue
+        node = idx_allees_cam.get(a_uid)
+        if not node:
+            continue
+        sec = node.get("secteur") or ""
+        ray = node.get("rayon") or ""
+        if sec or ray:
+            k = f"{sec}{':' + ray if ray else ''}"
+            sr_by_nuit_cam.setdefault(int(n2), [])
+            if k not in sr_by_nuit_cam[int(n2)]:
+                sr_by_nuit_cam[int(n2)].append(k)
+
+    fmt_date_cam = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy", "bg_color": "#FFFFFF"})
+    fmt_sr_cam = workbook.add_format({"border": 1, "align": "left", "font_size": 9, "text_wrap": True, "bg_color": "#FFFFFF"})
 
     night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
     for row in rows_assign:
@@ -2368,24 +2469,47 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
 
     for i, n in enumerate(range(1, nb_nuits + 1)):
         rrow = first_data_row + i
-        nuit_label = f"Nuit {start_at + n - 1}"
+        global_n = start_at + n - 1
+        nuit_label = f"Nuit {global_n}"
         ws.write(rrow, col_right + 0, nuit_label, fmt_cell_neutral)
-        ws.write_string(rrow, col_right + 1, ", ".join(sorted(night_allees_static.get(n, []), key=_sak)), fmt_allees_neutral)
-        ws.write_formula(rrow, col_right + 2, f'=SUMIFS({B_range},{C_range},"{nuit_label}")', fmt_num_neutral)
+        # Date (col_right + 1)
+        date_iso_cam = dates_map_cam.get(str(global_n))
+        if date_iso_cam:
+            try:
+                from datetime import datetime as _dt
+                ws.write_datetime(rrow, col_right + 1, _dt.strptime(date_iso_cam, "%Y-%m-%d").date(), fmt_date_cam)
+            except Exception:
+                ws.write_string(rrow, col_right + 1, date_iso_cam, fmt_date_cam)
+        else:
+            ws.write_blank(rrow, col_right + 1, None, fmt_date_cam)
+        # Secteur/Rayon (col_right + 2) — clé = nuit locale n
+        sr_list_c = sr_by_nuit_cam.get(n) or []
+        ws.write_string(rrow, col_right + 2, " / ".join(sr_list_c) if sr_list_c else "", fmt_sr_cam)
+        # Allées (col_right + 3)
+        ws.write_string(rrow, col_right + 3, ", ".join(sorted(night_allees_static.get(n, []), key=_sak)), fmt_allees_neutral)
+        # Caméras (col_right + 4)
+        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({B_range},{C_range},"{nuit_label}")', fmt_num_neutral)
 
     rrow_total = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
-    ws.write_formula(rrow_total, col_right + 1, f'=COUNTA({A_range})&" allées planifiées"', fmt_total_lbl)
-    ws.write_formula(rrow_total, col_right + 2,
-                     f"=SUM(${chr(ord('A')+col_right+2)}${excel_first}:${chr(ord('A')+col_right+2)}${first_data_row + nb_nuits})",
+    ws.write_blank(rrow_total, col_right + 1, None, fmt_total_lbl)
+    ws.write_blank(rrow_total, col_right + 2, None, fmt_total_lbl)
+    ws.write_formula(rrow_total, col_right + 3, f'=COUNTA({A_range})&" allées planifiées"', fmt_total_lbl)
+    ws.write_formula(rrow_total, col_right + 4,
+                     f"=SUM(${chr(ord('A')+col_right+4)}${excel_first}:${chr(ord('A')+col_right+4)}${first_data_row + nb_nuits})",
                      fmt_total_row)
 
     for n in range(1, nb_nuits + 1):
-        nuit_label = f"Nuit {start_at + n - 1}"
+        global_n = start_at + n - 1
+        nuit_label = f"Nuit {global_n}"
         ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 2,
             {"type": "formula", "criteria": f'=$C{first_data_row + 1}="{nuit_label}"', "format": cf_left[n]})
         nuit_col = chr(ord('A') + col_right)
-        ws.conditional_format(first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + 2,
+        # Bloc Nuit (col_right) seul
+        ws.conditional_format(first_data_row, col_right, first_data_row + nb_nuits - 1, col_right,
+            {"type": "formula", "criteria": f'=${nuit_col}{first_data_row + 1}="{nuit_label}"', "format": cf_right[n]})
+        # Bloc Allées + Caméras (col_right+3..col_right+4) — saute Date(col_right+1) et SR(col_right+2)
+        ws.conditional_format(first_data_row, col_right + 3, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS_CAM - 1,
             {"type": "formula", "criteria": f'=${nuit_col}{first_data_row + 1}="{nuit_label}"', "format": cf_right[n]})
     fmt_dup = workbook.add_format({"bg_color": "#FEE2E2", "font_color": "#991B1B", "border": 1, "bold": True})
     ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 0,
