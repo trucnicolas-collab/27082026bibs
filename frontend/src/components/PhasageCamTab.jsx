@@ -33,6 +33,7 @@ export default function PhasageCamTab({ uploadId }) {
     const [startAt, setStartAt] = useState(5);
     const [rows, setRows] = useState([]);
     const [saving, setSaving] = useState(false);
+    const [dates, setDates] = useState({});
 
     useEffect(() => {
         if (!uploadId) return;
@@ -46,6 +47,7 @@ export default function PhasageCamTab({ uploadId }) {
                 const c = ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 };
                 setNbNuits(c.nb_nuits || 3);
                 setStartAt(c.start_at_nuit || 5);
+                setDates(ph.dates || {});
                 setRows((c.rows || []).map((r) => ({
                     id: r.id || newRowId(),
                     allee: r.allee || "",
@@ -114,13 +116,16 @@ export default function PhasageCamTab({ uploadId }) {
 
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { cameras: 0, allees: [] };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { cameras: 0, allees: [], secteur_rayon: new Set() };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
             if (!node) return;
             tot[r.nuit].cameras += node.cameras || 0;
             tot[r.nuit].allees.push(String(r.allee));
+            const sec = node.secteur || "";
+            const ray = node.rayon || "";
+            if (sec || ray) tot[r.nuit].secteur_rayon.add(`${sec}${ray ? ":" + ray : ""}`);
         });
         const orderIndex = new Map();
         (summary?.allees || []).forEach((a, i) => { orderIndex.set(String(a.uid || a.allee), i); });
@@ -302,19 +307,29 @@ export default function PhasageCamTab({ uploadId }) {
                                 <thead className="bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold whitespace-nowrap">Date</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-[10px] text-gray-600">Secteur/Rayon</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Allées</th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Caméras</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                        const t = nightTotals[n] || { cameras: 0, allees: [] };
+                                        const t = nightTotals[n] || { cameras: 0, allees: [], secteur_rayon: new Set() };
                                         const color = nightColor(n);
+                                        const globalN = startAt + n - 1;
+                                        const dateStr = dates[String(globalN)];
                                         return (
                                             <tr key={n} className="border-t border-gray-100"
                                                 style={color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {}}
                                                 data-testid={`camrecap-nuit-${n}`}>
-                                                <td className="px-2 py-1 font-medium text-gray-900">Nuit {startAt + n - 1}</td>
+                                                <td className="px-2 py-1 font-medium text-gray-900">Nuit {globalN}</td>
+                                                <td className="px-2 py-1 text-[10.5px] text-gray-700 whitespace-nowrap font-mono-data">
+                                                    {dateStr ? new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : <span className="text-gray-300">—</span>}
+                                                </td>
+                                                <td className="px-2 py-1 text-[10px] text-gray-600 max-w-[120px] truncate" title={Array.from(t.secteur_rayon).join(" / ")}>
+                                                    {t.secteur_rayon.size ? Array.from(t.secteur_rayon).join(" / ") : <span className="text-gray-300">—</span>}
+                                                </td>
                                                 <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate" title={t.allees.join(", ")}>
                                                     {t.allees.length ? t.allees.join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
@@ -326,6 +341,8 @@ export default function PhasageCamTab({ uploadId }) {
                                     })}
                                     <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
                                         <td className="px-2 py-1 text-gray-900">TOTAL</td>
+                                        <td className="px-2 py-1 text-gray-300">—</td>
+                                        <td className="px-2 py-1 text-gray-300">—</td>
                                         <td className="px-2 py-1 text-gray-500 text-[11px]">
                                             {grandTotals.nbAllees} allées
                                         </td>

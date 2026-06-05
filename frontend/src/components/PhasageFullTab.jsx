@@ -65,16 +65,17 @@ export default function PhasageFullTab({ uploadId }) {
         const startAt = cam.start_at_nuit || 5;
         const idx = {};
         (summary.allees || []).forEach((a) => { idx[String(a.uid || a.allee)] = a; });
-        const nuits = {}; // globalNuit -> {type, allees:Set, es, cam}
+        const nuits = {}; // globalNuit -> {type, allees:Set, es, cam, secteur_rayon:Set}
 
         (es.rows || []).forEach((r) => {
             const n = r.nuit, a = String(r.allee || "").trim();
             if (!n || !a) return;
             const node = idx[a]; if (!node) return;
             const gn = Number(n);
-            if (!nuits[gn]) nuits[gn] = { type: "ES", allees: new Set(), es: 0, cam: 0 };
+            if (!nuits[gn]) nuits[gn] = { type: "ES", allees: new Set(), es: 0, cam: 0, secteur_rayon: new Set() };
             nuits[gn].allees.add(a);
             nuits[gn].es += (node.es_15 || 0) + (node.es_21 || 0);
+            if (node.secteur || node.rayon) nuits[gn].secteur_rayon.add(`${node.secteur || ""}${node.rayon ? ":" + node.rayon : ""}`);
         });
         (cam.rows || []).forEach((r) => {
             const n = r.nuit, a = String(r.allee || "").trim();
@@ -82,12 +83,13 @@ export default function PhasageFullTab({ uploadId }) {
             const node = idx[a]; if (!node) return;
             const gn = startAt + Number(n) - 1;
             if (!nuits[gn]) {
-                nuits[gn] = { type: "Caméras", allees: new Set(), es: 0, cam: 0 };
+                nuits[gn] = { type: "Caméras", allees: new Set(), es: 0, cam: 0, secteur_rayon: new Set() };
             } else if (nuits[gn].es > 0) {
                 nuits[gn].type = "Mixte";
             }
             nuits[gn].allees.add(a);
             nuits[gn].cam += (node.cameras || 0);
+            if (node.secteur || node.rayon) nuits[gn].secteur_rayon.add(`${node.secteur || ""}${node.rayon ? ":" + node.rayon : ""}`);
         });
 
         // Tri smart des allées
@@ -100,9 +102,11 @@ export default function PhasageFullTab({ uploadId }) {
                 const ib = orderIndex.has(b) ? orderIndex.get(b) : 9999;
                 return ia - ib;
             });
-            return { nuit: gn, type: nuits[gn].type, allees, es: Math.round(nuits[gn].es), cam: Math.round(nuits[gn].cam) };
+            return { nuit: gn, type: nuits[gn].type, allees, es: Math.round(nuits[gn].es), cam: Math.round(nuits[gn].cam), secteur_rayon: Array.from(nuits[gn].secteur_rayon) };
         });
     }, [summary]);
+
+    const dates = summary?.phasage?.dates || {};
 
     const totals = useMemo(() => {
         return consolidated.reduce(
@@ -151,7 +155,9 @@ export default function PhasageFullTab({ uploadId }) {
                         <thead className="bg-gray-50 text-gray-700 sticky top-0">
                             <tr>
                                 <th className="px-3 py-2 text-left font-semibold w-16">Nuit</th>
+                                <th className="px-3 py-2 text-left font-semibold w-20 whitespace-nowrap">Date</th>
                                 <th className="px-3 py-2 text-left font-semibold w-24">Type</th>
+                                <th className="px-3 py-2 text-left font-semibold text-[10px] text-gray-600 w-40">Secteur/Rayon</th>
                                 <th className="px-3 py-2 text-left font-semibold">Allées</th>
                                 <th className="px-3 py-2 text-right font-semibold w-24">ES</th>
                                 <th className="px-3 py-2 text-right font-semibold w-24">Caméras</th>
@@ -159,23 +165,30 @@ export default function PhasageFullTab({ uploadId }) {
                         </thead>
                         <tbody>
                             {consolidated.length === 0 && (
-                                <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-500 italic">
+                                <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-500 italic">
                                     Aucune nuit planifiée. Renseigne « Phasage de pose » ou « Phasage caméras » d'abord.
                                 </td></tr>
                             )}
                             {consolidated.map((r) => {
                                 const color = nightColor(r.nuit, (summary?.phasage?.es?.weeks) || []);
                                 const tb = TYPE_BADGE[r.type] || TYPE_BADGE["ES"];
+                                const dateStr = dates[String(r.nuit)];
                                 return (
                                     <tr key={r.nuit} className="border-t border-gray-100"
                                         style={color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {}}
                                         data-testid={`full-nuit-${r.nuit}`}>
                                         <td className="px-3 py-1.5 font-medium text-gray-900">Nuit {r.nuit}</td>
+                                        <td className="px-3 py-1.5 text-[10.5px] text-gray-700 whitespace-nowrap font-mono-data">
+                                            {dateStr ? new Date(dateStr + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : <span className="text-gray-300">—</span>}
+                                        </td>
                                         <td className="px-3 py-1.5">
                                             <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
                                                   style={{ backgroundColor: tb.bg, color: tb.text }}>
                                                 {r.type}
                                             </span>
+                                        </td>
+                                        <td className="px-3 py-1.5 text-[10px] text-gray-600 truncate max-w-[200px]" title={r.secteur_rayon.join(" / ")}>
+                                            {r.secteur_rayon.length ? r.secteur_rayon.join(" / ") : <span className="text-gray-300">—</span>}
                                         </td>
                                         <td className="px-3 py-1.5 font-mono-data text-gray-700 text-[11px]" title={r.allees.join(", ")}>
                                             {r.allees.join(", ")}
@@ -188,7 +201,9 @@ export default function PhasageFullTab({ uploadId }) {
                             {consolidated.length > 0 && (
                                 <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
                                     <td className="px-3 py-1.5 text-gray-900">TOTAL</td>
+                                    <td className="px-3 py-1.5 text-gray-300">—</td>
                                     <td className="px-3 py-1.5"></td>
+                                    <td className="px-3 py-1.5 text-gray-300">—</td>
                                     <td className="px-3 py-1.5 text-gray-600 text-[11px]">{totals.nuits} nuits</td>
                                     <td className="px-3 py-1.5 text-right font-mono-data">{fmt(totals.es)}</td>
                                     <td className="px-3 py-1.5 text-right font-mono-data">{fmt(totals.cam)}</td>

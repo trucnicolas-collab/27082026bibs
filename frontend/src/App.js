@@ -12,6 +12,8 @@ import PhasageTab from "./components/PhasageTab";
 import PhasageCamTab from "./components/PhasageCamTab";
 import PhasageFullTab from "./components/PhasageFullTab";
 import SuiviPhasageTab from "./components/SuiviPhasageTab";
+import AutreTab from "./components/AutreTab";
+import TableauDateTab from "./components/TableauDateTab";
 import AuthScreen from "./components/AuthScreen";
 import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
 import ResetPasswordScreen from "./components/ResetPasswordScreen";
@@ -85,6 +87,8 @@ function MainApp() {
                 columns: d.columns,
                 surface_category: d.surface_category || null,
                 dongles_quantity: d.dongles_quantity || 0,
+                has_autre: !!d.has_autre,
+                autre_count: d.autre_count || 0,
                 data: { ...d.data, raw: null },
             };
             setDataset(ds);
@@ -336,16 +340,22 @@ function MainApp() {
 
     const tabs = useMemo(() => {
         if (!dataset) return [];
-        return [
+        const t = [
             { id: "raw", label: "Données Brutes", count: dataset.row_count || 0 },
             { id: "recap", label: "Commandes", count: dataset.data.recap.length },
-            { id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 },
-            { id: "pose", label: "Phasage de pose", count: 0 },
-            { id: "pose_cam", label: "Phasage caméras", count: 0 },
-            { id: "pose_full", label: "Phasage full", count: 0 },
-            { id: "suivi", label: "Suivi phasage", count: 0 },
-            { id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 },
         ];
+        // Onglet "Autre" : seulement si le fichier contient des fixations AUTRE*
+        if (dataset.has_autre) {
+            t.push({ id: "autre", label: "Autre", count: dataset.autre_count || 0 });
+        }
+        t.push({ id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 });
+        t.push({ id: "pose", label: "Phasage de pose", count: 0 });
+        t.push({ id: "pose_cam", label: "Phasage caméras", count: 0 });
+        t.push({ id: "pose_full", label: "Phasage full", count: 0 });
+        t.push({ id: "suivi", label: "Suivi phasage", count: 0 });
+        t.push({ id: "tableau_date", label: "Tableau date", count: 0 });
+        t.push({ id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 });
+        return t;
     }, [dataset]);
 
     return (
@@ -442,6 +452,12 @@ function MainApp() {
                             )}
                             {activeTab === "suivi" && (
                                 <SuiviPhasageTab uploadId={dataset.upload_id} />
+                            )}
+                            {activeTab === "autre" && (
+                                <AutreTab uploadId={dataset.upload_id} search={search} />
+                            )}
+                            {activeTab === "tableau_date" && (
+                                <TableauDateTab uploadId={dataset.upload_id} />
                             )}
                         </div>
                         <BottomTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />

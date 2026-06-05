@@ -70,6 +70,7 @@ export default function PhasageTab({ uploadId }) {
     const [rows, setRows] = useState([]);
     const [weeks, setWeeks] = useState([]); // ex: [5,3,6] ou [] (pas de découpage)
     const [saving, setSaving] = useState(false);
+    const [dates, setDates] = useState({}); // {"1": "2026-02-15", ...} (lecture seule ici)
 
     // Charger summary
     useEffect(() => {
@@ -84,6 +85,7 @@ export default function PhasageTab({ uploadId }) {
                 const p = ph.es || { nb_nuits: 3, rows: [] };
                 setNbNuits(p.nb_nuits || 3);
                 setWeeks(Array.isArray(p.weeks) ? p.weeks : []);
+                setDates(ph.dates || {});
                 setRows((p.rows || []).map((r) => ({
                     id: r.id || newRowId(),
                     allee: r.allee || "",
@@ -171,7 +173,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, cameras: 0, allees: [] };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, cameras: 0, allees: [], secteur_rayon: new Set() };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -187,6 +189,10 @@ export default function PhasageTab({ uploadId }) {
                 tot[r.nuit].seasonal += node.seasonal_eeg || 0;
             }
             tot[r.nuit].allees.push(String(r.allee));
+            // Concatène secteur:rayon (déduplication par Set)
+            const sec = node.secteur || "";
+            const ray = node.rayon || "";
+            if (sec || ray) tot[r.nuit].secteur_rayon.add(`${sec}${ray ? ":" + ray : ""}`);
         });
         // Caméras assignées : depuis phasage.cam (les nuits cam sont décalées par start_at_nuit
         // ex: cam.nuit=1 + start_at=5 → nuit globale 5)
@@ -572,6 +578,8 @@ export default function PhasageTab({ uploadId }) {
                                 <thead className="bg-gray-50 text-gray-700">
                                     <tr>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold whitespace-nowrap">Date</th>
+                                        <th className="px-2 py-1.5 text-left font-semibold text-[10px] text-gray-600" title="Secteurs / Rayons des allées sélectionnées">Secteur/Rayon</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Allées</th>
                                         <th className="px-2 py-1.5 text-right font-semibold"
                                             title={isMagasin2
@@ -605,6 +613,12 @@ export default function PhasageTab({ uploadId }) {
                                                 data-testid={`recap-nuit-${n}`}
                                             >
                                                 <td className="px-2 py-1 font-medium text-gray-900">Nuit {n}</td>
+                                                <td className="px-2 py-1 text-[10.5px] text-gray-700 whitespace-nowrap font-mono-data" data-testid={`recap-nuit-date-${n}`}>
+                                                    {dates[String(n)] ? new Date(dates[String(n)] + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : <span className="text-gray-300">—</span>}
+                                                </td>
+                                                <td className="px-2 py-1 text-[10px] text-gray-600 max-w-[120px] truncate" title={Array.from(t.secteur_rayon).join(" / ")} data-testid={`recap-nuit-sr-${n}`}>
+                                                    {t.secteur_rayon.size ? Array.from(t.secteur_rayon).join(" / ") : <span className="text-gray-300">—</span>}
+                                                </td>
                                                 <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate"
                                                     title={t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ")}>
                                                     {t.allees.length ? t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ") : <span className="text-gray-400">—</span>}
@@ -628,6 +642,8 @@ export default function PhasageTab({ uploadId }) {
                                     })}
                                     <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
                                         <td className="px-2 py-1 text-gray-900">TOTAL</td>
+                                        <td className="px-2 py-1 text-gray-300">—</td>
+                                        <td className="px-2 py-1 text-gray-300">—</td>
                                         <td className="px-2 py-1 text-gray-500 text-[11px]">
                                             {grandTotals.nbAllees} allées
                                         </td>
