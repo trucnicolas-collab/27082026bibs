@@ -617,6 +617,18 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
             if key in mapping and mapping[key]:
                 _set_table_cell(row.cells[1], mapping[key])
 
+    # Slide 9 (index 8) : "Informations Magasin" (horaires, contacts, accès Vusion)
+    # — Le template originel contenait des données Massy en exemple. On vide
+    # les cellules de droite pour repartir d'un tableau vierge à compléter
+    # manuellement par l'utilisateur, mais on garde les libellés en col 0.
+    slide_info_magasin_extra = prs.slides[8]
+    extra_tbl = _find_shape(slide_info_magasin_extra, "Tableau 5")
+    if extra_tbl and extra_tbl.has_table:
+        for row in extra_tbl.table.rows:
+            for ci in range(1, len(row.cells)):
+                if row.cells[ci].text.strip():
+                    _set_table_cell(row.cells[ci], "", font_size=11)
+
     # Slide 10 (index 9) : "Date installation: du XX au YY"
     slide9 = prs.slides[9]
     sub9 = _find_shape(slide9, "Untertitel 2")
@@ -667,6 +679,22 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
             title11.text_frame,
             f"Plan de phasage EEG et rails complet par nuit ({nb_es} nuits)"
         )
+    # ZoneTexte 1 — Le texte hérité du template mentionne explicitement
+    # "la nuit 17 (20/07/26) et la nuit 18 (21/07/26)" qui sont les nuits
+    # signalétiques de l'exemple Massy. On le rend dynamique : les nuits
+    # signalétique sont les 2 nuits juste après le phasage ES (N+1, N+2)
+    # et on retire les dates Massy pour que l'utilisateur les complète.
+    signa_text = _find_shape(slide11, "ZoneTexte 1")
+    if signa_text and signa_text.has_text_frame and nb_es > 0:
+        n_sig1 = nb_es + 1
+        n_sig2 = nb_es + 2
+        new_signa = (
+            "Ce plan de phasage ne comprend pas la pose des étiquettes "
+            "EdgeSense 1.5 utilisées pour la signalétique. La pose de ces "
+            f"étiquettes aura lieu dans l'ensemble du magasin la nuit {n_sig1} "
+            f"et la nuit {n_sig2} (dates à confirmer)."
+        )
+        _set_textframe_text(signa_text.text_frame, new_signa)
     # Remplace la grande image (Image 11)
     img11 = _find_shape(slide11, "Image 11")
     if img11 is not None and nb_es > 0:

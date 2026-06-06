@@ -242,6 +242,69 @@ def test_fallback_when_store_info_missing():
     assert sub.text_frame.text.strip() == ""
 
 
+def test_no_massy_residuals_in_generated_pptx():
+    """Aucun reste de l'exemple Massy (Hermon, Briis, Cissokho, horaires,
+    dates 20/07/26, 'nuit 17/18', 8500) ne doit subsister dans le PPT généré.
+    Le template avait ces données en exemple, elles doivent toutes être
+    écrasées ou retirées dynamiquement.
+    """
+    data = generate_pptx(_fake_dataset(), _fake_summary())
+    prs = Presentation(io.BytesIO(data))
+    forbidden = [
+        "hermon", "briis", "cissokho",
+        "8h30", "21h00", "5h00", "11h30",
+        "20/07/26", "21/07/26",
+        "nuit 17", "nuit 18",
+        "8500",
+    ]
+    all_text = []
+    for s in prs.slides:
+        for sh in s.shapes:
+            if sh.has_text_frame:
+                all_text.append(sh.text_frame.text.lower())
+            if sh.has_table:
+                for ri in range(len(sh.table.rows)):
+                    for cell in sh.table.rows[ri].cells:
+                        all_text.append(cell.text.lower())
+    joined = " ".join(all_text)
+    for f in forbidden:
+        assert f not in joined, f"Résidu Massy détecté: '{f}' présent dans le PPT généré"
+
+
+def test_info_magasin_extra_table_is_cleared():
+    """Slide 9 (Informations Magasin secondaire) : col 1+ doit être vide,
+    libellés conservés en col 0."""
+    data = generate_pptx(_fake_dataset(), _fake_summary())
+    prs = Presentation(io.BytesIO(data))
+    tbl = next((sh for sh in prs.slides[8].shapes
+                if sh.has_table and sh.name == "Tableau 5"), None)
+    assert tbl is not None
+    # Au moins 1 libellé doit rester (ex: "Horaire magasin")
+    labels = [tbl.table.rows[i].cells[0].text.strip()
+              for i in range(len(tbl.table.rows))]
+    assert any("horaire" in l.lower() for l in labels)
+    # Aucune cellule de col 1+ ne doit contenir de texte
+    for i in range(len(tbl.table.rows)):
+        row = tbl.table.rows[i]
+        for ci in range(1, len(row.cells)):
+            assert row.cells[ci].text.strip() == "", \
+                f"Cellule r{i}c{ci} non vide: {row.cells[ci].text!r}"
+
+
+def test_signaletique_text_is_dynamic():
+    """Slide 12 ZoneTexte 1 : nuits signalétique doivent être nb_es+1, nb_es+2
+    sans dates hardcodées du template original."""
+    data = generate_pptx(_fake_dataset(), _fake_summary())  # 4 nuits ES
+    prs = Presentation(io.BytesIO(data))
+    zt = next((sh for sh in prs.slides[11].shapes
+               if sh.has_text_frame and sh.name == "ZoneTexte 1"), None)
+    assert zt is not None
+    txt = zt.text_frame.text
+    assert "nuit 5" in txt  # nb_es=4 → nuits 5 et 6 signalétique
+    assert "nuit 6" in txt
+    assert "à confirmer" in txt
+
+
 def test_fmt_date_short():
     assert _fmt_date_short("2026-04-27") == "27/04/26"
     assert _fmt_date_short("") == ""
