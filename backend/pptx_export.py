@@ -617,8 +617,8 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
             if key in mapping and mapping[key]:
                 _set_table_cell(row.cells[1], mapping[key])
 
-    # Slide 9 (index 8) : "Date installation: du XX au YY"
-    slide9 = prs.slides[8]
+    # Slide 10 (index 9) : "Date installation: du XX au YY"
+    slide9 = prs.slides[9]
     sub9 = _find_shape(slide9, "Untertitel 2")
     if sub9 and sub9.has_text_frame:
         if install_start and install_end:
@@ -627,8 +627,8 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
             txt = "Date installation: —"
         _set_textframe_text(sub9.text_frame, txt)
 
-    # Slide 10 (index 9) : zone de contenu - on met à jour les dates et nuits
-    slide10 = prs.slides[9]
+    # Slide 11 (index 10) : zone de contenu - on met à jour les dates et nuits
+    slide10 = prs.slides[10]
     content10 = _find_shape(slide10, "Espace réservé du contenu 2")
     nb_es = agg["nb_nuits_es"]
     nb_cam = agg["nb_nuits_cam"]
@@ -659,8 +659,8 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
         for j in range(len(lines), len(existing)):
             _set_paragraph_text(existing[j], "")
 
-    # Slide 11 (index 10) : titre "(X nuits)" + image phasage complet ES
-    slide11 = prs.slides[10]
+    # Slide 12 (index 11) : titre "(X nuits)" + image phasage complet ES
+    slide11 = prs.slides[11]
     title11 = _find_shape(slide11, "Titre 1")
     if title11 and title11.has_text_frame:
         _set_textframe_text(
@@ -679,8 +679,8 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
         )
         _replace_picture(slide11, img11, png)
 
-    # Slide 12 (index 11) : "Tableau phasage EEG et rails par nuit (X nuits)"
-    slide12 = prs.slides[11]
+    # Slide 13 (index 12) : "Tableau phasage EEG et rails par nuit (X nuits)"
+    slide12 = prs.slides[12]
     title12 = _find_shape(slide12, "Titre 1")
     if title12 and title12.has_text_frame:
         _set_textframe_text(
@@ -698,11 +698,14 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
         )
         _replace_picture(slide12, img12, png)
 
-    # Slides 13-17 (index 12-16) : semaines S1-S5
-    _fill_week_slides(prs, agg)
+    # Slides 14-18 (index 13-17) : semaines S1-S5
+    # NOTE: _fill_week_slides peut programmer la suppression de slides
+    # (semaines non utilisées). On la diffère pour ne pas perturber les
+    # indices des slides 19-22 qui sont traités juste après.
+    week_slides_to_remove = _fill_week_slides(prs, agg)
 
-    # Slide 18 (index 17) : Phasage caméras complet
-    slide18 = prs.slides[17]
+    # Slide 19 (index 18) : Phasage caméras complet
+    slide18 = prs.slides[18]
     title18_shape = _find_shape(slide18, "ZoneTexte 38")
     if title18_shape and title18_shape.has_text_frame:
         _set_textframe_text(
@@ -728,8 +731,8 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
                 _replace_picture(slide18, sh, png)
             break
 
-    # Slide 19 (index 18) : tableau "Récap par nuit" caméras
-    slide19 = prs.slides[18]
+    # Slide 20 (index 19) : tableau "Récap par nuit" caméras
+    slide19 = prs.slides[19]
     title19 = _find_shape(slide19, "Titre 1")
     if title19 and title19.has_text_frame:
         _set_textframe_text(
@@ -740,15 +743,20 @@ def generate_pptx(dataset: dict, summary: dict) -> bytes:
     if cam_tbl and cam_tbl.has_table:
         _fill_cam_recap_table(cam_tbl.table, agg)
 
-    # Slide 20 (index 19) : détail caméras par allée
-    slide20 = prs.slides[19]
+    # Slide 21 (index 20) : détail caméras par allée
+    slide20 = prs.slides[20]
     _fill_cam_detail_tables(slide20, agg, summary)
 
-    # Slide 21 (index 20) : tableau récap global
-    slide21 = prs.slides[20]
+    # Slide 22 (index 21) : tableau récap global
+    slide21 = prs.slides[21]
     recap_tbl = _find_shape(slide21, "Tableau 4")
     if recap_tbl and recap_tbl.has_table:
         _fill_global_recap_table(recap_tbl.table, agg)
+
+    # Suppression EFFECTIVE des slides de semaines non utilisées (en dernier
+    # pour ne pas décaler les indices ci-dessus)
+    if week_slides_to_remove:
+        _delete_slides(prs, sorted(week_slides_to_remove, reverse=True))
 
     out = io.BytesIO()
     prs.save(out)
@@ -801,44 +809,50 @@ def _fill_nuit_dates_table(table, agg: dict, nights: list[int]) -> None:
             _set_table_cell(table.rows[1].cells[j], "", font_size=11)
 
 
-def _fill_week_slides(prs, agg: dict) -> None:
-    """Remplit les slides 13 à 17 (S1 à S5).
-    - Slide 13 (idx 12) = S1 : Image 7 (image phasage) + pas de tableau date
-    - Slides 14-17 (idx 13-16) = S2-S5 : Tableau 2/35/31/16 (dates) + Image 5/2/1/1
+def _fill_week_slides(prs, agg: dict) -> list[int]:
+    """Remplit les slides S1 à S5 (slides 14 à 18 dans le template 22-slides).
+    - Slide 14 (idx 13) = S1 : Image 7 (image phasage) + pas de tableau date
+    - Slides 15-18 (idx 14-17) = S2-S5 : Tableau 2/35/31/16 (dates) + Image 5/2/1/1
+
+    Retourne la liste des indices de slides à SUPPRIMER (semaines non
+    utilisées). La suppression effective est faite en fin de génération
+    pour ne pas perturber les indices restants.
     """
     weeks = _nights_by_week_es(agg)
 
-    # Pour chaque slide week, on associe (idx_slide, week_nights, title_shape_name, image_shape_name, date_table_name)
     mapping = [
-        # idx_slide_0based, week_index, title_shape_names (candidates), image_shape_names, date_table_name
-        (12, 0, ["Titre 1"], ["Image 7"], None),                       # S1
-        (13, 1, ["Titre 1"], ["Image 5"], "Tableau 2"),               # S2
-        (14, 2, ["Titre 1"], ["Image 2"], "Tableau 35"),              # S3
-        (15, 3, ["ZoneTexte 38"], ["Image 1"], "Tableau 31"),         # S4
-        (16, 4, ["ZoneTexte 38"], ["Image 1"], "Tableau 16"),         # S5
+        (13, 0, ["Titre 1"], ["Image 7"], None),                       # S1
+        (14, 1, ["Titre 1"], ["Image 5"], "Tableau 2"),               # S2
+        (15, 2, ["Titre 1"], ["Image 2"], "Tableau 35"),              # S3
+        (16, 3, ["ZoneTexte 38"], ["Image 1"], "Tableau 31"),         # S4
+        (17, 4, ["ZoneTexte 38"], ["Image 1"], "Tableau 16"),         # S5
     ]
+
+    slides_to_remove: list[int] = []
+
     for slide_idx, week_idx, title_names, img_names, date_tbl_name in mapping:
         slide = prs.slides[slide_idx]
         week_nights = weeks[week_idx] if week_idx < len(weeks) else []
 
-        # Mise à jour titre (juste le numéro de semaine — Sx — garde le format)
+        if not week_nights:
+            slides_to_remove.append(slide_idx)
+            continue
+
         for tname in title_names:
             sh = _find_shape(slide, tname)
-            if sh and sh.has_text_frame and week_nights:
+            if sh and sh.has_text_frame:
                 new = f"Plan de phasage EEG et rails par nuit – S{week_idx + 1}"
                 _set_textframe_text(sh.text_frame, new)
                 break
 
-        # Tableau dates (s'il existe)
         if date_tbl_name:
             tbl_sh = _find_shape(slide, date_tbl_name)
             if tbl_sh and tbl_sh.has_table:
                 _fill_nuit_dates_table(tbl_sh.table, agg, week_nights)
 
-        # Image phasage semaine
         for iname in img_names:
             img_sh = _find_shape(slide, iname)
-            if img_sh and week_nights:
+            if img_sh:
                 png = _render_phasage_image(
                     title=f"Semaine {week_idx + 1} — Nuit"
                     f"{'s' if len(week_nights) > 1 else ''} "
@@ -850,6 +864,27 @@ def _fill_week_slides(prs, agg: dict) -> None:
                 )
                 _replace_picture(slide, img_sh, png)
                 break
+
+    return slides_to_remove
+
+
+def _delete_slides(prs, indices: list[int]) -> None:
+    """Supprime proprement plusieurs slides du PPT (indices 0-based)."""
+    sldIdLst = prs.slides._sldIdLst
+    slide_ids = list(sldIdLst)
+    for idx in indices:
+        if idx < 0 or idx >= len(slide_ids):
+            continue
+        sld_id = slide_ids[idx]
+        # 1) Retirer la relation rId vers la slide depuis la présentation
+        rId = sld_id.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        if rId:
+            try:
+                prs.part.drop_rel(rId)
+            except Exception:
+                pass
+        # 2) Retirer l'entrée du sldIdLst
+        sldIdLst.remove(sld_id)
 
 
 def _fill_cam_recap_table(table, agg: dict) -> None:

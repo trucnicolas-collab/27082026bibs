@@ -76,7 +76,8 @@ def test_generate_pptx_returns_valid_bytes():
     assert isinstance(data, bytes)
     assert len(data) > 1000  # PPT non vide
     prs = Presentation(io.BytesIO(data))
-    assert len(prs.slides) == 21
+    # Template = 22 slides ; weeks=[2,2] → S3/S4/S5 supprimées → 22 - 3 = 19
+    assert len(prs.slides) == 19
 
 
 def test_store_name_and_code_in_cover():
@@ -117,64 +118,115 @@ def test_dynamic_night_count_in_titles():
     """(X nuits) doit refléter le nb_nuits actuel du dataset."""
     data = generate_pptx(_fake_dataset(), _fake_summary())
     prs = Presentation(io.BytesIO(data))
-    # Slide 11 : "Plan de phasage EEG et rails complet par nuit (4 nuits)"
-    title11 = next((s for s in prs.slides[10].shapes if s.name == "Titre 1"), None)
+    # Slide 12 (idx 11) : "Plan de phasage EEG et rails complet par nuit (4 nuits)"
+    title11 = next((s for s in prs.slides[11].shapes if s.name == "Titre 1"), None)
     assert title11 is not None
     assert "(4 nuits)" in title11.text_frame.text
-    # Slide 18 (cam) : "(2 nuits)"
-    title18 = next((s for s in prs.slides[17].shapes
-                    if s.name == "ZoneTexte 38"), None)
-    assert title18 is not None
-    assert "(2 nuits)" in title18.text_frame.text
+    # Avec weeks=[2,2], S3-S5 sont supprimées donc le slide "cam complet"
+    # n'est plus à l'index 17 mais à l'index 17 - 3 = 14.
+    # On le retrouve par recherche du shape ZoneTexte 38 contenant "(X nuits)".
+    found = False
+    for s in prs.slides:
+        for sh in s.shapes:
+            if sh.name == "ZoneTexte 38" and sh.has_text_frame and "(2 nuits)" in sh.text_frame.text:
+                found = True
+                break
+        if found:
+            break
+    assert found, "Le titre '(2 nuits)' caméras doit être présent dans le PPT"
 
 
 def test_week_date_table_filled():
-    """Slide 14 (S2) doit afficher les dates des nuits 3-4 (semaine 2)."""
+    """S2 doit afficher les dates des nuits 3-4 (semaine 2).
+    Note : avec weeks=[2,2], la slide S2 est à l'index 14 (15ème slide).
+    """
     data = generate_pptx(_fake_dataset(), _fake_summary())
     prs = Presentation(io.BytesIO(data))
-    tbl_shape = next((s for s in prs.slides[13].shapes
-                      if s.has_table and s.name == "Tableau 2"), None)
+    # On recherche par nom de table (Tableau 2 = S2)
+    tbl_shape = None
+    for s in prs.slides:
+        sh = next((x for x in s.shapes
+                   if x.has_table and x.name == "Tableau 2"), None)
+        if sh:
+            tbl_shape = sh
+            break
     assert tbl_shape is not None
     cells = [c.text.strip() for c in tbl_shape.table.rows[0].cells]
-    # 2 premières colonnes = "Nuit 3" et "Nuit 4"
     assert cells[0] == "Nuit 3"
     assert cells[1] == "Nuit 4"
-    # 2e ligne = dates correspondantes (format DD/MM/YYYY)
     dates_row = [c.text.strip() for c in tbl_shape.table.rows[1].cells]
     assert dates_row[0] == "04/05/2026"
     assert dates_row[1] == "05/05/2026"
 
 
+def test_unused_week_slides_are_removed():
+    """Si seules 3 semaines sont définies, les slides S4 et S5 doivent
+    être physiquement supprimées du PPT."""
+    d = _fake_dataset()
+    d["phasage"]["es"]["nb_nuits"] = 6
+    d["phasage"]["es"]["weeks"] = [2, 2, 2]  # 3 semaines seulement
+    d["phasage"]["es"]["rows"] = [
+        {"id": f"r{i}", "allee": str(i), "nuit": i} for i in range(1, 7)
+    ]
+    summary = _fake_summary()
+    summary["allees"].extend([
+        {"uid": "5", "allee": "5", "es_15": 50, "es_21": 25, "rails_es": 5,
+         "sa": 0, "sa_15": 0, "sa_21": 0, "cameras": 0, "camera_elems": []},
+        {"uid": "6", "allee": "6", "es_15": 80, "es_21": 40, "rails_es": 7,
+         "sa": 0, "sa_15": 0, "sa_21": 0, "cameras": 0, "camera_elems": []},
+    ])
+    data = generate_pptx(d, summary)
+    prs = Presentation(io.BytesIO(data))
+    # 22 (template) - 2 (S4, S5 supprimées) = 20
+    assert len(prs.slides) == 20
+    # On ne doit plus trouver de slide titrée "– S4" ou "– S5"
+    all_text = []
+    for s in prs.slides:
+        for sh in s.shapes:
+            if sh.has_text_frame:
+                all_text.append(sh.text_frame.text)
+    joined = " ".join(all_text)
+    assert "– S4" not in joined
+    assert "– S5" not in joined
+    # Par contre S1/S2/S3 doivent être présentes
+    assert "– S3" in joined
+
+
 def test_cam_recap_table_filled():
-    """Slide 19 : tableau Récap caméras doit contenir les nuits cam (3-4)."""
+    """Le tableau Récap caméras doit contenir les nuits cam (3-4)."""
     data = generate_pptx(_fake_dataset(), _fake_summary())
     prs = Presentation(io.BytesIO(data))
-    cam_tbl = next((s for s in prs.slides[18].shapes
-                    if s.has_table and s.name == "Tableau 1"), None)
+    cam_tbl = None
+    for s in prs.slides:
+        sh = next((x for x in s.shapes
+                   if x.has_table and x.name == "Tableau 1"), None)
+        if sh:
+            cam_tbl = sh
+            break
     assert cam_tbl is not None
-    # Ligne 2 = nuit 3, ligne 3 = nuit 4
     assert cam_tbl.table.rows[2].cells[0].text.strip() == "Nuit 3"
     assert cam_tbl.table.rows[3].cells[0].text.strip() == "Nuit 4"
-    # Total (dernière ligne) doit contenir le total caméras (5 + 8 = 13)
     total_row = cam_tbl.table.rows[len(cam_tbl.table.rows) - 1]
     assert "TOTAL" in total_row.cells[0].text.upper()
     assert total_row.cells[2].text.strip() == "13"
 
 
 def test_global_recap_table_filled():
-    """Slide 21 : grand tableau récap doit avoir des données ES et cam."""
+    """Grand tableau récap doit avoir des données ES et cam."""
     data = generate_pptx(_fake_dataset(), _fake_summary())
     prs = Presentation(io.BytesIO(data))
-    tbl = next((s for s in prs.slides[20].shapes
-                if s.has_table and s.name == "Tableau 4"), None)
+    tbl = None
+    for s in prs.slides:
+        sh = next((x for x in s.shapes
+                   if x.has_table and x.name == "Tableau 4"), None)
+        if sh:
+            tbl = sh
+            break
     assert tbl is not None
-    # Ligne 2 = nuit 1 (1ère nuit ES)
     row1 = tbl.table.rows[2]
-    assert row1.cells[4].text.strip() == "1"  # colonne Nuit
-    assert row1.cells[0].text.strip() == "1"  # Allée 1
-    # Total ligne (last row) doit avoir somme correcte
+    assert row1.cells[4].text.strip() == "1"
+    assert row1.cells[0].text.strip() == "1"
     total_row = tbl.table.rows[len(tbl.table.rows) - 1]
-    # Total ES = 100+200+150+90 + 50+80+60+30 = 760
     assert "760" in total_row.cells[1].text
 
 
