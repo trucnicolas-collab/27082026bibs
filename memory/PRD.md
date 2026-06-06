@@ -24,6 +24,34 @@ L'utilisateur traite des inventaires d'étiquettes électroniques (EEG) avec leu
 5. Recherche globale sur tous les onglets
 6. Export Excel multi-onglets avec mise en forme (couleurs Total / Spare / Inclineur)
 
+
+## Feature additions (06/02/2026) — Export PowerPoint "CR VT + Plan de phasage"
+- [x] Nouveau template PowerPoint 21 slides stocké dans `/app/backend/templates/crvt_template.pptx`
+- [x] Nouveau module `/app/backend/pptx_export.py` (générateur basé sur python-pptx + Pillow)
+- [x] Nouveau endpoint `GET /api/dataset/{upload_id}/export-pptx` — renvoie le PPTX prérempli
+- [x] Dialog "Infos magasin" (`StoreInfoDialog.jsx`) auto-ouvert après upload (étape obligatoire)
+  + accessible à tout moment via le bouton **Infos magasin** dans le header
+  + champs obligatoires : Nom magasin, Ville, Code magasin, Date début VT
+  + champs optionnels : Adresse, Date fin VT, Participants, Resp magasin, Resp Vusion, Prestataire, Plan prévention, Version, Date validation Carrefour
+- [x] Endpoint `PATCH /api/dataset/{id}/store-info` étendu pour tous ces champs, avec validation stricte des dates (rejet `2026-13-99`, `2026-02-30`)
+- [x] Bouton header **PPT** (orange `#B45309`) à côté du bouton Excel (vert `#056839`) — `data-testid="export-pptx-button"`
+- [x] Injection automatique dans le PPT :
+  - Slide 1 (cover) : "{ville} {code magasin}"
+  - Slide 4 : "Date de VT: du XX au YY"
+  - Slide 6 : tableau Informations générales (Nom, Code, Adresse, VT, Participants, …)
+  - Slide 9 : "Date installation: du XX au YY" (min/max du Tableau Date)
+  - Slide 10 : nb nuits ES + nb nuits caméras + plage de dates
+  - Slides 11/12 : titre "(X nuits)" dynamique
+  - Slides 13-17 (S1-S5) : tableaux dates par semaine remplis automatiquement
+  - Slide 18 : "(X nuits)" caméras + dates nuits caméras
+  - Slide 19 : tableau récap caméras par nuit
+  - Slide 20 : détail caméras par allée (2 colonnes)
+  - Slide 21 : grand tableau récap global (EEG + Caméras)
+  - Images statiques (slides 11-18) remplacées par des rendus PNG des données actuelles (avec marge 0.06")
+- [x] Décorateur `@api_router.get` ajouté à `GET /api/dataset/{id}/activity` (manquant précédemment)
+- [x] Tests pytest : `/app/backend/tests/test_pptx_export.py` (11/11 pass) + `test_pptx_export_e2e.py` (11/11 pass)
+- [x] Testing agent : tous les flux UI validés (login, header, dialog, validation, save, export PPT 40 MB téléchargé)
+
 ## Architecture
 - **Backend** : FastAPI + pandas + openpyxl + xlsxwriter
   - `POST /api/upload-excel` : upload + traitement

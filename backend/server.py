@@ -897,8 +897,13 @@ async def update_store_info(upload_id: str, payload: StoreInfoUpdate,
         s = str(v).strip()
         if k in STORE_INFO_DATE_FIELDS:
             s = s[:10]
-            if s and not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-                raise HTTPException(status_code=400, detail=f"Date invalide pour {k} (YYYY-MM-DD attendu)")
+            if s:
+                if not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+                    raise HTTPException(status_code=400, detail=f"Date invalide pour {k} (YYYY-MM-DD attendu)")
+                try:
+                    datetime.strptime(s, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail=f"Date invalide pour {k} (jour/mois inexistant)")
             update_fields[k] = s
         elif k in STORE_INFO_TEXT_FIELDS:
             update_fields[k] = s[:STORE_INFO_TEXT_FIELDS[k]]
