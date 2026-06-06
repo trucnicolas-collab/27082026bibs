@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Store, Presentation as PresentationIcon } from "lucide-react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 import ActivityPanel from "./ActivityPanel";
 
@@ -7,20 +7,14 @@ export default function Header({
     dataset,
     search,
     onSearchChange,
-    onExport,
-    onExportPptx,
+    onExport,            // RTR (full Excel)
+    onExportCarrefour,   // 5-tabs Carrefour
     onReset,
-    onOpenStoreInfo,
     onOpenSession,
     onDeletedSession,
     user,
     onLogout,
 }) {
-    const storeLabel = dataset
-        ? ([dataset.store_city || dataset.store_name, dataset.store_code]
-              .filter(Boolean).join(" ") || "Compléter")
-        : "";
-
     return (
         <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -62,37 +56,24 @@ export default function Header({
                     <ActivityPanel uploadId={dataset.upload_id} />
                 )}
                 {dataset && (
-                    <button
-                        onClick={onOpenStoreInfo}
-                        data-testid="store-info-button"
-                        title={`Infos magasin · ${storeLabel}`}
-                        className="h-8 px-2.5 bg-white border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-100 flex items-center gap-1.5 transition-colors"
-                    >
-                        <Store className="w-4 h-4" />
-                        <span className="hidden xl:inline max-w-[140px] truncate">
-                            {storeLabel}
-                        </span>
-                    </button>
-                )}
-                {dataset && (
                     <>
                         <button
                             onClick={onExport}
-                            data-testid="export-button"
-                            title="Exporter Excel"
+                            data-testid="export-rtr-button"
+                            title="Exporter Excel — version complète pour le RTR"
                             className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
                         >
                             <Download className="w-4 h-4" />
-                            <span className="hidden sm:inline">Excel</span>
+                            <span className="hidden sm:inline">Excel RTR</span>
                         </button>
                         <button
-                            onClick={onExportPptx}
-                            data-testid="export-pptx-button"
-                            title="Exporter PowerPoint (CR VT + Plan de phasage)"
-                            className="h-8 px-3 bg-[#B45309] text-white text-sm rounded hover:bg-[#92400E] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
+                            onClick={onExportCarrefour}
+                            data-testid="export-carrefour-button"
+                            title="Exporter Excel — version Carrefour (5 onglets)"
+                            className="h-8 px-3 bg-[#B91C1C] text-white text-sm rounded hover:bg-[#991B1B] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
                         >
-                            <PresentationIcon className="w-4 h-4" />
-                            <span className="hidden sm:inline">PPT</span>
+                            <Download className="w-4 h-4" />
+                            <span className="hidden sm:inline">Excel Carrefour</span>
                         </button>
                         <button
                             onClick={onReset}

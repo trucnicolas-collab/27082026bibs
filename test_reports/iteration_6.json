@@ -1,0 +1,47 @@
+{
+  "summary": "E2E testing of iteration 6 changes: (a) PPTX + store-info endpoints removed, (b) new Excel Carrefour 5-tab export, (c) RTR Excel renamed, (d) Phasage full sheet 10-column split with white Nuit cell, (e) coloured Date + Secteur/Rayon columns. Backend: 8/8 tests PASS in /app/backend/tests/test_export_carrefour.py. Frontend (Playwright, logged in as admin): header buttons OK — 'Excel RTR' green rgb(5,104,57) + 'Excel Carrefour' red rgb(185,28,28), no PPT button, no Infos magasin button, no auto-opening dialog after dataset load. Both downloads triggered from the UI: vusion_Carrefour.xlsx (5 tabs, ~13 KB) and vusion_RTR.xlsx (full Excel, several MB). Activity log records 'carrefour_export_downloaded' on every Carrefour download. Récap complet sheet has the 10 expected columns with white Nuit cell. Phasage full sheet in RTR also has 10 columns with white Nuit cell.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Header (immediately after page load with restored session)",
+        "issues": [
+          "The 'Session restaurée : vusion.xlsx' toast in the top-right overlaps the Excel Carrefour button for the first 3-4 seconds. A real user can simply wait or click Excel RTR first, but the toast container has a high z-index that intercepts clicks until it fades out. Consider giving toasts a click-through pointer-events:none or anchoring them below the header. Minor UX issue, not blocking."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_export_carrefour.py",
+    "/app/test_reports/pytest/test_export_carrefour.xml"
+  ],
+  "action_items": [
+    "Optional: lower z-index or add pointer-events:none on the 'Session restaurée' toast so it doesn't overlap header buttons during the first seconds after a dataset restore."
+  ],
+  "critical_code_review_comments": [
+    "GOOD: /api/export-carrefour/{id} cleanly separates aggregation (_aggregate_phasage_for_export) from rendering (_build_carrefour_export), making future changes easier. Both helpers are colocated around server.py:3612-3760.",
+    "GOOD: PPTX export endpoint and store-info PATCH endpoint were fully removed from server.py (now returning 404 as required by the spec). No leftover references in routing.",
+    "GOOD: Header.jsx has clean data-testid coverage for export-rtr-button, export-carrefour-button, reset-button, logout-button, sessions-menu-button.",
+    "GOOD: The Carrefour file is correctly minimalistic (~13 KB) compared to the RTR file (~1.5 MB) since it contains only the 5 client-facing tabs without raw data.",
+    "NIT: server.py is 4064 lines — past the 700-line guideline. A future refactor splitting export logic (RTR + Carrefour) into a dedicated module would help maintainability.",
+    "NIT: legacy activity entries for 'pptx_exported' and 'store_info_updated' still exist in MongoDB from previous iterations; not a bug, just historical data."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_export_carrefour.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8)",
+    "frontend": "100% (header buttons, both downloads, no auto-dialog, activity logging — all verified)"
+  },
+  "test_credentials": "admin@vusion.local / admin123 — existing dataset upload_id aa7d9aa6-ec7d-4f27-968e-b2a5228b0065",
+  "seed_data_creation": "None — reused existing dataset. Triggering activity entries 'carrefour_export_downloaded' added during testing (expected side effect).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test suite /app/backend/tests/test_export_carrefour.py validates the 4 review points: (1) PPTX/store-info endpoints removed (404/405), (2) RTR endpoint unchanged and Phasage full has 10 cols + white Nuit, (3) Carrefour endpoint returns exactly 5 ordered visible tabs (Commandes, Récap EEG par nuit, Récap caméra par nuit, Caméra par élément, Récap complet) with 10 cols + white Nuit in Récap complet, (4) Activity log records carrefour_export_downloaded. The /api/dataset/{id}/activity endpoint returns {'activity': [...], 'count': N} (not a bare list). Filenames are <stem>_RTR.xlsx and <stem>_Carrefour.xlsx (confirmed via Playwright download interception).",
+  "rca of the issue": "N/A — no functional bug found in this iteration."
+}

@@ -18,7 +18,6 @@ import AuthScreen from "./components/AuthScreen";
 import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
 import ResetPasswordScreen from "./components/ResetPasswordScreen";
 import SharedView from "./components/SharedView";
-import StoreInfoDialog from "./components/StoreInfoDialog";
 import { useAuth } from "./contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 import "./App.css";
@@ -75,8 +74,6 @@ function MainApp() {
     const [rawLoading, setRawLoading] = useState(false);
     const [restoring, setRestoring] = useState(true);
     const [authView, setAuthView] = useState("login"); // 'login' | 'forgot'
-    const [storeInfoOpen, setStoreInfoOpen] = useState(false);
-    const [storeInfoFirstTime, setStoreInfoFirstTime] = useState(false);
 
     // Charge un dataset par son upload_id (utilisé par auto-restore et menu Sessions)
     const loadDataset = useCallback(async (uploadId, { silent = false } = {}) => {
@@ -92,20 +89,6 @@ function MainApp() {
                 dongles_quantity: d.dongles_quantity || 0,
                 has_autre: !!d.has_autre,
                 autre_count: d.autre_count || 0,
-                // Méta-infos magasin (pour le bouton header + dialog + export PPT)
-                store_name: d.store_name || "",
-                store_city: d.store_city || "",
-                store_code: d.store_code || "",
-                store_address: d.store_address || "",
-                vt_start_date: d.vt_start_date || "",
-                vt_end_date: d.vt_end_date || "",
-                participants: d.participants || "",
-                responsable_magasin: d.responsable_magasin || "",
-                responsable_vusion: d.responsable_vusion || "",
-                prestataire_install: d.prestataire_install || "",
-                plan_prevention_signe: d.plan_prevention_signe || "",
-                doc_version: d.doc_version || "",
-                date_validation_carrefour: d.date_validation_carrefour || "",
                 data: { ...d.data, raw: null },
             };
             setDataset(ds);
@@ -159,32 +142,14 @@ function MainApp() {
                 headers: { "Content-Type": "multipart/form-data" },
                 timeout: 300000,  // 5 min pour gros fichiers
             });
-            const d = res.data;
             const ds = {
-                ...d,
-                // valeurs par défaut pour les méta-infos (vides au premier upload)
-                store_name: d.store_name || "",
-                store_city: d.store_city || "",
-                store_code: d.store_code || "",
-                store_address: d.store_address || "",
-                vt_start_date: d.vt_start_date || "",
-                vt_end_date: d.vt_end_date || "",
-                participants: d.participants || "",
-                responsable_magasin: d.responsable_magasin || "",
-                responsable_vusion: d.responsable_vusion || "",
-                prestataire_install: d.prestataire_install || "",
-                plan_prevention_signe: d.plan_prevention_signe || "",
-                doc_version: d.doc_version || "",
-                date_validation_carrefour: d.date_validation_carrefour || "",
-                data: { ...d.data, raw: null },
+                ...res.data,
+                data: { ...res.data.data, raw: null },
             };
             setDataset(ds);
             setActiveTab("recap");
-            try { localStorage.setItem(LS_KEY, d.upload_id); } catch (_) {}
-            toast.success(`Fichier traité : ${d.row_count.toLocaleString("fr-FR")} lignes`);
-            // Première saisie obligatoire des infos magasin
-            setStoreInfoFirstTime(true);
-            setStoreInfoOpen(true);
+            try { localStorage.setItem(LS_KEY, res.data.upload_id); } catch (_) {}
+            toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
             toast.error(`Erreur : ${msg}`);
@@ -231,57 +196,38 @@ function MainApp() {
             const link = document.createElement("a");
             link.href = url;
             const base = dataset.filename.replace(/\.xlsx?$/i, "");
-            link.setAttribute("download", `${base}_traité.xlsx`);
+            link.setAttribute("download", `${base}_RTR.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
-            toast.success("Export téléchargé");
+            toast.success("Export RTR téléchargé");
         } catch (err) {
             toast.error(`Erreur d'export : ${err.message}`);
         }
     }, [dataset]);
 
-    const handleExportPptx = useCallback(async () => {
+    const handleExportCarrefour = useCallback(async () => {
         if (!dataset?.upload_id) return;
-        // Si les infos magasin essentielles manquent, on ouvre le dialog
-        const missing = ["store_name", "store_city", "store_code", "vt_start_date"]
-            .some((k) => !String(dataset[k] || "").trim());
-        if (missing) {
-            toast.warning("Merci de compléter les infos magasin avant l'export PPT.");
-            setStoreInfoFirstTime(false);
-            setStoreInfoOpen(true);
-            return;
-        }
         try {
-            toast.loading("Génération du PowerPoint en cours…", { id: "pptx-gen" });
-            const res = await axios.get(`${API}/dataset/${dataset.upload_id}/export-pptx`, {
+            toast.loading("Génération de l'export Carrefour…", { id: "carrefour-export" });
+            const res = await axios.get(`${API}/export-carrefour/${dataset.upload_id}`, {
                 responseType: "blob",
-                timeout: 300000,
+                timeout: 120000,
             });
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement("a");
             link.href = url;
-            const base = (dataset.store_name || dataset.filename).replace(/[^\w\-]+/g, "_");
-            const code = (dataset.store_code || "").replace(/[^\w\-]+/g, "_");
-            link.setAttribute("download", `CR_VT_Phasage_${base}${code ? `_${code}` : ""}.pptx`);
+            const base = dataset.filename.replace(/\.xlsx?$/i, "");
+            link.setAttribute("download", `${base}_Carrefour.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
-            toast.success("PowerPoint téléchargé", { id: "pptx-gen" });
+            toast.success("Export Carrefour téléchargé", { id: "carrefour-export" });
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
-            toast.error(`Erreur PPT : ${msg}`, { id: "pptx-gen" });
+            toast.error(`Erreur d'export Carrefour : ${msg}`, { id: "carrefour-export" });
         }
     }, [dataset]);
-
-    const handleOpenStoreInfo = useCallback(() => {
-        setStoreInfoFirstTime(false);
-        setStoreInfoOpen(true);
-    }, []);
-
-    const handleStoreInfoSaved = useCallback((patch) => {
-        setDataset((d) => d ? { ...d, ...patch } : d);
-    }, []);
 
     const handleReset = useCallback(() => {
         setDataset(null);
@@ -455,9 +401,8 @@ function MainApp() {
                         search={search}
                         onSearchChange={setSearch}
                         onExport={handleExport}
-                        onExportPptx={handleExportPptx}
+                        onExportCarrefour={handleExportCarrefour}
                         onReset={handleReset}
-                        onOpenStoreInfo={handleOpenStoreInfo}
                         onOpenSession={handleOpenSession}
                         onDeletedSession={handleDeletedSession}
                         user={user}
@@ -544,15 +489,6 @@ function MainApp() {
                 )}
             </main>
                 </>
-            )}
-            {dataset && (
-                <StoreInfoDialog
-                    open={storeInfoOpen}
-                    onClose={() => setStoreInfoOpen(false)}
-                    dataset={dataset}
-                    onSaved={handleStoreInfoSaved}
-                    firstTime={storeInfoFirstTime}
-                />
             )}
         </div>
     );

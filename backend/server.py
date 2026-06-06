@@ -850,78 +850,6 @@ async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_curre
     }
 
 
-class StoreInfoUpdate(BaseModel):
-    # Identité magasin
-    store_name: Optional[str] = None              # ex: "Carrefour Massy"
-    store_city: Optional[str] = None              # ex: "Massy"
-    store_code: Optional[str] = None              # ex: "HA4CG"
-    store_address: Optional[str] = None           # adresse libre
-    # Visite technique
-    vt_start_date: Optional[str] = None           # ISO "YYYY-MM-DD"
-    vt_end_date: Optional[str] = None             # ISO "YYYY-MM-DD"
-    # Slide 6 — informations générales
-    participants: Optional[str] = None
-    responsable_magasin: Optional[str] = None
-    responsable_vusion: Optional[str] = None
-    prestataire_install: Optional[str] = None
-    plan_prevention_signe: Optional[str] = None   # "Oui" / "Non" / texte libre
-    doc_version: Optional[str] = None
-    date_validation_carrefour: Optional[str] = None  # ISO
-
-
-STORE_INFO_TEXT_FIELDS = {
-    "store_name": 150,
-    "store_city": 100,
-    "store_code": 50,
-    "store_address": 300,
-    "participants": 500,
-    "responsable_magasin": 200,
-    "responsable_vusion": 200,
-    "prestataire_install": 200,
-    "plan_prevention_signe": 50,
-    "doc_version": 50,
-}
-STORE_INFO_DATE_FIELDS = {"vt_start_date", "vt_end_date", "date_validation_carrefour"}
-
-
-@api_router.patch("/dataset/{upload_id}/store-info")
-async def update_store_info(upload_id: str, payload: StoreInfoUpdate,
-                            current_user: dict = Depends(get_current_user)):
-    """Met à jour les méta-infos du magasin/VT (utilisées dans l'export PPT)."""
-    user_id = str(current_user["_id"])
-    update_fields: dict = {}
-    data = payload.model_dump(exclude_unset=True)
-    for k, v in data.items():
-        if v is None:
-            continue
-        s = str(v).strip()
-        if k in STORE_INFO_DATE_FIELDS:
-            s = s[:10]
-            if s:
-                if not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-                    raise HTTPException(status_code=400, detail=f"Date invalide pour {k} (YYYY-MM-DD attendu)")
-                try:
-                    datetime.strptime(s, "%Y-%m-%d")
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=f"Date invalide pour {k} (jour/mois inexistant)")
-            update_fields[k] = s
-        elif k in STORE_INFO_TEXT_FIELDS:
-            update_fields[k] = s[:STORE_INFO_TEXT_FIELDS[k]]
-    if not update_fields:
-        raise HTTPException(status_code=400, detail="Aucune modification fournie")
-    res = await db.datasets.update_one(
-        {"upload_id": upload_id, "user_id": user_id},
-        {"$set": update_fields},
-    )
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Dataset introuvable")
-    DATASTORE.pop(upload_id, None)
-    await log_audit(upload_id, current_user, "store_info_updated",
-                    details=update_fields)
-    return {"ok": True, **update_fields}
-
-
-
 @api_router.get("/dataset/{upload_id}/activity")
 async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne l'historique des modifications d'une session (max 200 entrées, plus récentes d'abord)."""
@@ -2267,8 +2195,12 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     fmt_sa_neutral = workbook.add_format({"border": 1, "align": "right",
                                            "italic": True, "font_color": "#6B7280"})
     fmt_allees_neutral = workbook.add_format({"border": 1, "align": "left"})
-    fmt_date_neutral = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy", "bg_color": "#FFFFFF"})
-    fmt_sr_neutral = workbook.add_format({"border": 1, "align": "left", "font_size": 9, "text_wrap": True, "bg_color": "#FFFFFF"})
+    # Date et Secteur/Rayon : on ne fixe PAS de bg blanc, pour que la CF par
+    # nuit puisse colorer la ligne entière (cf. demande du 06/02/2026).
+    fmt_date_neutral = workbook.add_format({"border": 1, "align": "center",
+                                             "num_format": "dd/mm/yyyy"})
+    fmt_sr_neutral = workbook.add_format({"border": 1, "align": "left",
+                                           "font_size": 9, "text_wrap": True})
 
     for i, n in enumerate(range(1, nb_nuits + 1), start=0):
         rrow = first_data_row + i
@@ -2419,22 +2351,17 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                  f"=SUM(${col_letter}${sub_first}:${col_letter}${sub_last})",
                                  fmt_subtotal)
             cur_row += 2  # une ligne d'espace entre les semaines
-            # CF couleur par nuit sur les lignes data de cette semaine — SAUTE Date(col+1) et SR(col+2) qui restent fond blanc
+            # CF couleur par nuit sur les lignes data de cette semaine — toutes
+            # les colonnes (Nuit, Date, SR, Allées, EEG, Rails, SA, Caméras)
+            # sont colorées (demande du 06/02/2026).
             data_first_0 = sub_first - 1  # 0-indexed
             data_last_0 = sub_last - 1
             for n in range(n_start, n_end + 1):
                 if n > nb_nuits: continue
                 cf_fmt = cf_formats_right.get(n)
                 if cf_fmt:
-                    # Bloc Nuit (col_right) seul
                     ws.conditional_format(
-                        data_first_0, col_right, data_last_0, col_right,
-                        {"type": "formula",
-                         "criteria": f'=${nuit_col_right_letter}{sub_first}="Nuit {n}"',
-                         "format": cf_fmt})
-                    # Bloc Allées + EEG + Rails + SA + Caméras (col_right+3 → col_right+7)
-                    ws.conditional_format(
-                        data_first_0, col_right + 3, data_last_0, col_right + NB_RIGHT_COLS - 1,
+                        data_first_0, col_right, data_last_0, col_right + NB_RIGHT_COLS - 1,
                         {"type": "formula",
                          "criteria": f'=${nuit_col_right_letter}{sub_first}="Nuit {n}"',
                          "format": cf_fmt})
@@ -2452,22 +2379,13 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                 "format": cf_fmt,
             }
         )
-    # Tableau droit : range G:N (Nuit, Date, SR, Allées, EEG, Rails, SA, Caméras) sur les lignes data
-    # Date (col_right+1) et Secteur/Rayon (col_right+2) gardent leur fond BLANC : on saute ces colonnes
+    # Tableau droit : range G:N (Nuit, Date, SR, Allées, EEG, Rails, SA, Caméras)
+    # — TOUTES les colonnes (y compris Date et SR) sont colorées par la CF
+    # selon la nuit (demande du 06/02/2026).
     for n in range(1, nb_nuits + 1):
         cf_fmt = cf_formats_right[n]
-        # Bloc Nuit (col_right) seul
         ws.conditional_format(
-            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right,
-            {
-                "type": "formula",
-                "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
-                "format": cf_fmt,
-            }
-        )
-        # Bloc Allées..Caméras (col_right+3 → col_right+7)
-        ws.conditional_format(
-            first_data_row, col_right + 3, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS - 1,
+            first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS - 1,
             {
                 "type": "formula",
                 "criteria": f'=${nuit_col_right_letter}{first_data_row + 1}="Nuit {n}"',
@@ -2657,8 +2575,9 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
             if k not in sr_by_nuit_cam[int(n2)]:
                 sr_by_nuit_cam[int(n2)].append(k)
 
-    fmt_date_cam = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy", "bg_color": "#FFFFFF"})
-    fmt_sr_cam = workbook.add_format({"border": 1, "align": "left", "font_size": 9, "text_wrap": True, "bg_color": "#FFFFFF"})
+    # Date / SR — pas de bg explicite : la CF par nuit colore toute la ligne
+    fmt_date_cam = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy"})
+    fmt_sr_cam = workbook.add_format({"border": 1, "align": "left", "font_size": 9, "text_wrap": True})
 
     night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
     for row in rows_assign:
@@ -2708,11 +2627,8 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 2,
             {"type": "formula", "criteria": f'=$C{first_data_row + 1}="{nuit_label}"', "format": cf_left[n]})
         nuit_col = chr(ord('A') + col_right)
-        # Bloc Nuit (col_right) seul
-        ws.conditional_format(first_data_row, col_right, first_data_row + nb_nuits - 1, col_right,
-            {"type": "formula", "criteria": f'=${nuit_col}{first_data_row + 1}="{nuit_label}"', "format": cf_right[n]})
-        # Bloc Allées + Caméras (col_right+3..col_right+4) — saute Date(col_right+1) et SR(col_right+2)
-        ws.conditional_format(first_data_row, col_right + 3, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS_CAM - 1,
+        # Toutes les colonnes du récap droit colorées (Nuit, Date, SR, Allées, Caméras)
+        ws.conditional_format(first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS_CAM - 1,
             {"type": "formula", "criteria": f'=${nuit_col}{first_data_row + 1}="{nuit_label}"', "format": cf_right[n]})
     fmt_dup = workbook.add_format({"bg_color": "#FEE2E2", "font_color": "#991B1B", "border": 1, "bold": True})
     ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 0,
@@ -2855,8 +2771,11 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     sorted_nuits = sorted(per_nuit.keys())
     dates_map = phasage_full.get("dates") or {}
 
-    # Construit la map Secteur:Rayon par nuit (déduplication)
-    sr_by_nuit: dict[int, list[str]] = {}
+    # Construit deux maps Secteur:Rayon par nuit (déduplication) — séparées
+    # ES (gauche) et Cam (droite) pour permettre l'affichage en colonnes
+    # distinctes dans le tableau full (demande du 06/02/2026).
+    sr_by_nuit_es: dict[int, list[str]] = {}
+    sr_by_nuit_cam: dict[int, list[str]] = {}
     for r2 in es_plan.get("rows") or []:
         n, a_uid = r2.get("nuit"), str(r2.get("allee") or "").strip()
         if not n or not a_uid: continue
@@ -2866,9 +2785,9 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         ray = node.get("rayon") or ""
         if sec or ray:
             key = f"{sec}{':' + ray if ray else ''}"
-            sr_by_nuit.setdefault(int(n), [])
-            if key not in sr_by_nuit[int(n)]:
-                sr_by_nuit[int(n)].append(key)
+            sr_by_nuit_es.setdefault(int(n), [])
+            if key not in sr_by_nuit_es[int(n)]:
+                sr_by_nuit_es[int(n)].append(key)
     for r2 in cam_plan.get("rows") or []:
         n, a_uid = r2.get("nuit"), str(r2.get("allee") or "").strip()
         if not n or not a_uid: continue
@@ -2879,22 +2798,23 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         ray = node.get("rayon") or ""
         if sec or ray:
             key = f"{sec}{':' + ray if ray else ''}"
-            sr_by_nuit.setdefault(gn, [])
-            if key not in sr_by_nuit[gn]:
-                sr_by_nuit[gn].append(key)
+            sr_by_nuit_cam.setdefault(gn, [])
+            if key not in sr_by_nuit_cam[gn]:
+                sr_by_nuit_cam[gn].append(key)
 
     ws = workbook.add_worksheet("Phasage full")
     writer.sheets["Phasage full"] = ws
-    # 9 colonnes : A B C D | E (Nuit) F (Date) G (Secteur/Rayon) | H I
+    # 10 colonnes : A B C D E (Sec EEG) | F (Nuit blanc) G (Date) | H (Sec Cam) I J
     ws.set_column(0, 0, 32)   # A Allées (ES)
     ws.set_column(1, 1, 10)   # B ES
     ws.set_column(2, 2, 10)   # C Rails ES
     ws.set_column(3, 3, 8)    # D SA
-    ws.set_column(4, 4, 8)    # E Nuit (partagée)
-    ws.set_column(5, 5, 11)   # F Date
-    ws.set_column(6, 6, 18)   # G Secteur/Rayon
-    ws.set_column(7, 7, 28)   # H Allées (Cam)
-    ws.set_column(8, 8, 10)   # I Caméras
+    ws.set_column(4, 4, 20)   # E Secteur/Rayon EEG
+    ws.set_column(5, 5, 8)    # F Nuit (partagée — BLANC)
+    ws.set_column(6, 6, 11)   # G Date
+    ws.set_column(7, 7, 20)   # H Secteur/Rayon Cam
+    ws.set_column(8, 8, 28)   # I Allées (Cam)
+    ws.set_column(9, 9, 10)   # J Caméras
 
     fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
                                      "border": 1, "font_size": 13, "align": "center"})
@@ -2907,28 +2827,34 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center"})
     fmt_text = workbook.add_format({"border": 1, "align": "left", "text_wrap": True})
     fmt_num = workbook.add_format({"border": 1, "align": "right"})
+    # Nuit reste la SEULE colonne à fond blanc (demande utilisateur 06/02/2026)
     fmt_nuit = workbook.add_format({"bold": True, "border": 1, "align": "center", "bg_color": "#FFFFFF"})
     fmt_total_row = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
     fmt_total_lbl = workbook.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "center"})
 
-    # Row 0 : titre global (fusionné A:I)
-    ws.merge_range(0, 0, 0, 8, "Phasage full — Planning consolidé", fmt_title)
+    # Row 0 : titre global (fusionné A:J)
+    ws.merge_range(0, 0, 0, 9, "Phasage full — Planning consolidé", fmt_title)
     # Row 1 : sous-titres distincts pour chaque bloc
-    ws.merge_range(1, 0, 1, 3, "Phasage étiquettes et rails", fmt_subtitle_es)
-    ws.merge_range(1, 4, 1, 6, "Nuit", fmt_subtitle_nuit)
-    ws.merge_range(1, 7, 1, 8, "Phasage caméras", fmt_subtitle_cam)
+    # Bloc ES = A..E (Allées, ES, Rails, SA, Secteur EEG)
+    # Bloc Nuit = F..G (Nuit, Date)
+    # Bloc Cam = H..J (Secteur Cam, Allées, Caméras)
+    ws.merge_range(1, 0, 1, 4, "Phasage étiquettes et rails", fmt_subtitle_es)
+    ws.merge_range(1, 5, 1, 6, "Nuit", fmt_subtitle_nuit)
+    ws.merge_range(1, 7, 1, 9, "Phasage caméras", fmt_subtitle_cam)
     # Row 2 : en-têtes de colonnes
-    headers = ["Allées", "ES", "Rails ES", "SA", "Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]
+    headers = ["Allées", "ES", "Rails ES", "SA", "Secteur/Rayon",
+               "Nuit", "Date",
+               "Secteur/Rayon", "Allées", "Caméras"]
     for ci, h in enumerate(headers):
         ws.write(2, ci, h, fmt_lbl)
 
-    # Couleurs douces par nuit (10 couleurs en rotation) — appliquées via CF
     # Couleurs FIXES par position dans la semaine (récupérées du Phasage ES)
     phasage_full_obj = _normalize_phasage(d.get("phasage"))
     weeks_full = phasage_full_obj["es"].get("weeks") or []
 
-    fmt_date_cell = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy", "bg_color": "#FFFFFF"})
-    fmt_sr_cell = workbook.add_format({"border": 1, "align": "left", "text_wrap": True, "font_size": 9, "bg_color": "#FFFFFF"})
+    # Pas de bg_color blanc explicite sur Date / SR — la CF colore tout (sauf Nuit)
+    fmt_date_cell = workbook.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy"})
+    fmt_sr_cell = workbook.add_format({"border": 1, "align": "left", "text_wrap": True, "font_size": 9})
     r = 3
     first_excel = r + 1
     for n in sorted_nuits:
@@ -2942,27 +2868,30 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         else:
             for c in range(0, 4):
                 ws.write_blank(r, c, None, fmt_num)
-        # Nuit (col E, centrée, couleur par CF)
-        ws.write_number(r, 4, n, fmt_nuit)
-        # Date (col F, fond blanc, format date)
+        # Secteur/Rayon EEG (col E)
+        sr_list_es = sr_by_nuit_es.get(n) or []
+        ws.write_string(r, 4, " / ".join(sr_list_es) if sr_list_es else "", fmt_sr_cell)
+        # Nuit (col F, BLANCHE par fmt_nuit)
+        ws.write_number(r, 5, n, fmt_nuit)
+        # Date (col G)
         date_iso = dates_map.get(str(n))
         if date_iso:
             try:
                 from datetime import datetime as _dt
-                ws.write_datetime(r, 5, _dt.strptime(date_iso, "%Y-%m-%d").date(), fmt_date_cell)
+                ws.write_datetime(r, 6, _dt.strptime(date_iso, "%Y-%m-%d").date(), fmt_date_cell)
             except Exception:
-                ws.write_string(r, 5, date_iso, fmt_date_cell)
+                ws.write_string(r, 6, date_iso, fmt_date_cell)
         else:
-            ws.write_blank(r, 5, None, fmt_date_cell)
-        # Secteur/Rayon (col G, fond blanc)
-        sr_list = sr_by_nuit.get(n) or []
-        ws.write_string(r, 6, " / ".join(sr_list) if sr_list else "", fmt_sr_cell)
-        # Bloc Cam (cols H-I)
+            ws.write_blank(r, 6, None, fmt_date_cell)
+        # Secteur/Rayon Cam (col H)
+        sr_list_cam = sr_by_nuit_cam.get(n) or []
+        ws.write_string(r, 7, " / ".join(sr_list_cam) if sr_list_cam else "", fmt_sr_cell)
+        # Bloc Cam (cols I-J)
         if info["cam_allees"]:
-            ws.write_string(r, 7, ", ".join(info["cam_allees"]), fmt_text)
-            ws.write_number(r, 8, round(info["cam"]), fmt_num)
+            ws.write_string(r, 8, ", ".join(info["cam_allees"]), fmt_text)
+            ws.write_number(r, 9, round(info["cam"]), fmt_num)
         else:
-            for c in range(7, 9):
+            for c in range(8, 10):
                 ws.write_blank(r, c, None, fmt_num)
         r += 1
     last_excel = r
@@ -2973,25 +2902,32 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         ws.write_formula(r, 1, f"=SUM(B{first_excel}:B{last_excel})", fmt_total_row)
         ws.write_formula(r, 2, f"=SUM(C{first_excel}:C{last_excel})", fmt_total_row)
         ws.write_formula(r, 3, f"=SUM(D{first_excel}:D{last_excel})", fmt_total_row)
-        ws.write_formula(r, 4, f'=COUNTA(E{first_excel}:E{last_excel})&" nuits"', fmt_total_lbl)
-        ws.write(r, 5, "", fmt_total_lbl)
+        ws.write(r, 4, "", fmt_total_lbl)  # Secteur EEG
+        ws.write_formula(r, 5, f'=COUNTA(F{first_excel}:F{last_excel})&" nuits"', fmt_total_lbl)
         ws.write(r, 6, "", fmt_total_lbl)
-        ws.write(r, 7, "", fmt_total_lbl)
-        ws.write_formula(r, 8, f"=SUM(I{first_excel}:I{last_excel})", fmt_total_row)
+        ws.write(r, 7, "", fmt_total_lbl)  # Secteur Cam
+        ws.write(r, 8, "", fmt_total_lbl)
+        ws.write_formula(r, 9, f"=SUM(J{first_excel}:J{last_excel})", fmt_total_row)
 
-        # Mise en forme conditionnelle par nuit : colore A-D et H-I, garde Nuit/Date/SR fond blanc
+        # Mise en forme conditionnelle par nuit : colore TOUTES les colonnes
+        # SAUF la Nuit (col F), conformément à la demande du 06/02/2026.
         for night_num in range(1, max(sorted_nuits) + 1):
             color = night_color_hex(night_num, weeks_full)
             fmt_night = workbook.add_format({"bg_color": color, "border": 1})
-            # A:D (cols 0..3)
-            ws.conditional_format(3, 0, last_excel - 1, 3,
+            # A:E (cols 0..4) — bloc ES + Secteur EEG
+            ws.conditional_format(3, 0, last_excel - 1, 4,
                 {"type": "formula",
-                 "criteria": f'=$E4={night_num}',
+                 "criteria": f'=$F4={night_num}',
                  "format": fmt_night})
-            # H:I (cols 7..8) — saute E (Nuit), F (Date), G (Secteur/Rayon) qui restent blanches
-            ws.conditional_format(3, 7, last_excel - 1, 8,
+            # G (col 6) — Date seule (skip Nuit en col F)
+            ws.conditional_format(3, 6, last_excel - 1, 6,
                 {"type": "formula",
-                 "criteria": f'=$E4={night_num}',
+                 "criteria": f'=$F4={night_num}',
+                 "format": fmt_night})
+            # H:J (cols 7..9) — Secteur Cam + Allées Cam + Caméras
+            ws.conditional_format(3, 7, last_excel - 1, 9,
+                {"type": "formula",
+                 "criteria": f'=$F4={night_num}',
                  "format": fmt_night})
 
     ws.freeze_panes(3, 0)
@@ -3550,43 +3486,6 @@ async def export_excel(upload_id: str, sheet: str = "all", current_user: dict = 
     return await _build_export(d, sheet)
 
 
-@api_router.get("/dataset/{upload_id}/export-pptx")
-async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_user)):
-    """Exporte le PowerPoint "CR VT et plan de phasage" pré-rempli avec
-    les infos magasin et le phasage actuel (textes, tableaux et screenshots
-    des récaps de phasage).
-    """
-    from pptx_export import generate_pptx
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset introuvable")
-    summary = compute_phasage_summary(d)
-    try:
-        pptx_bytes = generate_pptx(d, summary)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.exception("Erreur génération PPTX")
-        raise HTTPException(status_code=500, detail=f"Erreur génération PPTX: {e}")
-    await log_audit(upload_id, current_user, "pptx_exported",
-                    details={"nb_nuits_es": summary.get("phasage", {}).get("es", {}).get("nb_nuits"),
-                             "nb_nuits_cam": summary.get("phasage", {}).get("cam", {}).get("nb_nuits")})
-
-    # Nom de fichier suggéré
-    store_name = (d.get("store_name") or "magasin").replace("/", "-")
-    store_code = (d.get("store_code") or "").replace("/", "-")
-    base = f"CR_VT_Phasage_{store_name}"
-    if store_code:
-        base += f"_{store_code}"
-    filename = re.sub(r"[^\w\-\.]+", "_", base) + ".pptx"
-
-    return StreamingResponse(
-        io.BytesIO(pptx_bytes),
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 async def _build_export(d: dict, sheet: str = "all"):
     output = io.BytesIO()
 
@@ -3687,6 +3586,450 @@ async def _build_export(d: dict, sheet: str = "all"):
 
     output.seek(0)
     filename = f"{Path(d['filename']).stem}_traité.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# =============================================================================
+# Export "Carrefour" — fichier Excel à 5 onglets, simplifié pour transmission
+# au client Carrefour. Reprend les tableaux récap des onglets phasage déjà
+# présents dans l'app, mais en VERSION STATIQUE (pas de formules ni de listes
+# déroulantes) pour que le destinataire puisse lire sans risque de manip.
+# =============================================================================
+
+@api_router.get("/export-carrefour/{upload_id}")
+async def export_carrefour(upload_id: str, current_user: dict = Depends(get_current_user)):
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    await log_audit(upload_id, current_user, "carrefour_export_downloaded")
+    return await _build_carrefour_export(d)
+
+
+def _aggregate_phasage_for_export(d: dict) -> dict:
+    """Agrégation par nuit pour les onglets de l'export Carrefour.
+
+    Retourne :
+      {
+        "es_per_nuit": {n: {"allees": [...], "es":..., "rails_es":..., "sa":...,
+                            "secteurs_rayons": [...]}},
+        "cam_per_nuit": {n_global: {"allees": [...], "cam":...,
+                                    "secteurs_rayons": [...],
+                                    "cam_elems_by_allee": {label: [el, ...]}}},
+        "weeks_es": [...],
+        "nb_nuits_es": int,
+        "nb_nuits_cam": int,
+        "cam_start_at": int,
+        "dates": {str(n): iso},
+        "totals_es": {"es":..., "rails_es":..., "sa":...},
+        "totals_cam": {"cam":...},
+      }
+    """
+    summary = compute_phasage_summary(d)
+    phasage = _normalize_phasage(d.get("phasage"))
+    es_plan = phasage.get("es", {})
+    cam_plan = phasage.get("cam", {})
+    dates = phasage.get("dates") or {}
+
+    nb_es = int(es_plan.get("nb_nuits") or 0)
+    nb_cam = int(cam_plan.get("nb_nuits") or 0)
+    cam_start_at = int(cam_plan.get("start_at_nuit") or 5)
+    weeks_es = es_plan.get("weeks") or []
+
+    allees = summary.get("allees") or []
+    seasonal = summary.get("seasonal_zones") or []
+    idx: dict[str, dict] = {str(a.get("uid") or a.get("allee")): a for a in allees}
+    for z in seasonal:
+        idx[str(z.get("id"))] = {
+            "uid": str(z.get("id")), "allee": str(z.get("id")),
+            "es_15": 0, "es_21": 0, "sa": z.get("sa_21") or 0,
+            "sa_15": 0, "sa_21": z.get("sa_21") or 0,
+            "rails_es": 0, "cameras": 0, "camera_elems": [],
+            "secteur": "", "rayon": "",
+            "is_seasonal": True,
+        }
+
+    def _lbl(a_uid: str, node: dict) -> str:
+        if node.get("is_seasonal"):
+            return str(a_uid)
+        num = str(node.get("allee") or "").strip()
+        if node.get("is_dup"):
+            return f"{num}-{node.get('dup_index', 1)}"
+        return num
+
+    def _sr_key(node: dict) -> str:
+        sec = (node.get("secteur") or "").strip()
+        ray = (node.get("rayon") or "").strip()
+        if not sec and not ray:
+            return ""
+        return f"{sec}{':' + ray if ray else ''}"
+
+    es_per_nuit: dict[int, dict] = {}
+    for r in es_plan.get("rows") or []:
+        a_uid = str(r.get("allee") or "").strip()
+        n = r.get("nuit")
+        if not n or not a_uid:
+            continue
+        node = idx.get(a_uid)
+        if not node:
+            continue
+        gn = int(n)
+        b = es_per_nuit.setdefault(gn, {
+            "allees": [], "es": 0, "rails_es": 0, "sa": 0, "secteurs_rayons": [],
+        })
+        b["allees"].append(_lbl(a_uid, node))
+        b["es"] += float(node.get("es_15") or 0) + float(node.get("es_21") or 0)
+        b["rails_es"] += float(node.get("rails_es") or 0)
+        b["sa"] += float(node.get("sa") or 0)
+        sr = _sr_key(node)
+        if sr and sr not in b["secteurs_rayons"]:
+            b["secteurs_rayons"].append(sr)
+
+    cam_per_nuit: dict[int, dict] = {}
+    for r in cam_plan.get("rows") or []:
+        a_uid = str(r.get("allee") or "").strip()
+        n = r.get("nuit")
+        if not n or not a_uid:
+            continue
+        node = idx.get(a_uid)
+        if not node:
+            continue
+        gn = cam_start_at + int(n) - 1
+        b = cam_per_nuit.setdefault(gn, {
+            "allees": [], "cam": 0, "secteurs_rayons": [], "cam_elems_by_allee": {},
+        })
+        lbl = _lbl(a_uid, node)
+        b["allees"].append(lbl)
+        b["cam"] += float(node.get("cameras") or 0)
+        sr = _sr_key(node)
+        if sr and sr not in b["secteurs_rayons"]:
+            b["secteurs_rayons"].append(sr)
+        elems = node.get("camera_elems") or []
+        if elems:
+            b["cam_elems_by_allee"][lbl] = list(elems)
+
+    return {
+        "summary": summary,
+        "es_per_nuit": es_per_nuit,
+        "cam_per_nuit": cam_per_nuit,
+        "weeks_es": weeks_es,
+        "nb_nuits_es": nb_es,
+        "nb_nuits_cam": nb_cam,
+        "cam_start_at": cam_start_at,
+        "dates": dates,
+        "totals_es": {
+            "es": sum(b["es"] for b in es_per_nuit.values()),
+            "rails_es": sum(b["rails_es"] for b in es_per_nuit.values()),
+            "sa": sum(b["sa"] for b in es_per_nuit.values()),
+        },
+        "totals_cam": {"cam": sum(b["cam"] for b in cam_per_nuit.values())},
+    }
+
+
+async def _build_carrefour_export(d: dict):
+    """5 onglets :
+       1. Commandes  (recap_rows)
+       2. Récap EEG par nuit
+       3. Récap caméra par nuit
+       4. Caméra par élément
+       5. Récap complet (EEG + Cam par nuit)
+    """
+    output = io.BytesIO()
+    agg = _aggregate_phasage_for_export(d)
+
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        wb = writer.book
+
+        # Formats communs
+        fmt_h = wb.add_format({
+            "bold": True, "bg_color": "#056839", "font_color": "white",
+            "border": 1, "align": "center", "valign": "vcenter",
+        })
+        fmt_h_eeg = wb.add_format({
+            "bold": True, "bg_color": "#9BD9B5", "font_color": "#064E3B",
+            "border": 1, "align": "center",
+        })
+        fmt_h_cam = wb.add_format({
+            "bold": True, "bg_color": "#E5D6FF", "font_color": "#4C1D95",
+            "border": 1, "align": "center",
+        })
+        fmt_lbl = wb.add_format({"bold": True, "bg_color": "#F3F4F6",
+                                 "border": 1, "align": "left"})
+        fmt_cell = wb.add_format({"border": 1, "align": "left"})
+        fmt_num = wb.add_format({"border": 1, "align": "right"})
+        fmt_total = wb.add_format({"bold": True, "bg_color": "#FEF3C7",
+                                   "border": 1, "align": "left"})
+        fmt_total_n = wb.add_format({"bold": True, "bg_color": "#FEF3C7",
+                                     "border": 1, "align": "right"})
+        fmt_total_lbl = wb.add_format({"bold": True, "bg_color": "#FEF3C7",
+                                       "border": 1, "align": "center"})
+        fmt_inclineur = wb.add_format({"bold": True, "bg_color": "#DBEAFE",
+                                       "border": 1})
+        fmt_date = wb.add_format({"border": 1, "align": "center",
+                                  "num_format": "dd/mm/yyyy"})
+
+        # On précompile les couleurs par nuit (déclinaisons left/centre/right)
+        def make_palette(n_max: int, weeks: list | None) -> dict:
+            out = {}
+            for n in range(1, n_max + 1):
+                color = night_color_hex(int(n), weeks)
+                out[n] = {
+                    "right": wb.add_format({"bg_color": color, "border": 1, "align": "right"}),
+                    "right_b": wb.add_format({"bg_color": color, "border": 1, "align": "right", "bold": True}),
+                    "left": wb.add_format({"bg_color": color, "border": 1, "align": "left"}),
+                    "center": wb.add_format({"bg_color": color, "border": 1, "align": "center", "bold": True}),
+                    "date": wb.add_format({"bg_color": color, "border": 1, "align": "center", "num_format": "dd/mm/yyyy"}),
+                    "sr": wb.add_format({"bg_color": color, "border": 1, "align": "left",
+                                         "font_size": 9, "text_wrap": True}),
+                }
+            return out
+
+        weeks_es = agg["weeks_es"]
+        n_es = agg["nb_nuits_es"]
+        n_cam = agg["nb_nuits_cam"]
+        cam_start = agg["cam_start_at"]
+        # Palettes — pour Cam le n_global commence à cam_start ; on stocke par
+        # nuit globale + on calcule la couleur sur la position absolue (pas semaines)
+        es_palette = make_palette(n_es, weeks_es) if n_es else {}
+        cam_palette: dict[int, dict] = {}
+        for i in range(n_cam):
+            gn = cam_start + i
+            color = night_color_hex(i + 1, None)  # pas de semaines côté cam
+            cam_palette[gn] = {
+                "right": wb.add_format({"bg_color": color, "border": 1, "align": "right"}),
+                "right_b": wb.add_format({"bg_color": color, "border": 1, "align": "right", "bold": True}),
+                "left": wb.add_format({"bg_color": color, "border": 1, "align": "left"}),
+                "center": wb.add_format({"bg_color": color, "border": 1, "align": "center", "bold": True}),
+                "date": wb.add_format({"bg_color": color, "border": 1, "align": "center", "num_format": "dd/mm/yyyy"}),
+                "sr": wb.add_format({"bg_color": color, "border": 1, "align": "left",
+                                     "font_size": 9, "text_wrap": True}),
+            }
+
+        # ===== 1. Commandes =====
+        recap = d.get("recap_rows") or []
+        ws = wb.add_worksheet("Commandes")
+        writer.sheets["Commandes"] = ws
+        headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
+        for ci, h in enumerate(headers):
+            ws.write(0, ci, h, fmt_h)
+        for ri, r in enumerate(recap, start=1):
+            kind = r.get("kind")
+            if kind == "header":
+                f = fmt_total
+            elif kind == "inclineur":
+                f = fmt_inclineur
+            else:
+                f = wb.add_format({"border": 1})
+            ws.write(ri, 0, r.get("type", ""), f)
+            ws.write(ri, 1, r.get("reference", ""), f)
+            ws.write(ri, 2, r.get("designation", ""), f)
+            ws.write(ri, 3, r.get("quantite", "") if r.get("quantite", "") != "" else "", f)
+            ws.write(ri, 4, r.get("spare", "") if r.get("spare", "") != "" else "", f)
+            ws.write(ri, 5, r.get("total_plus_spare", "") if r.get("total_plus_spare", "") != "" else "", f)
+        ws.set_column(0, 0, 12)
+        ws.set_column(1, 1, 14)
+        ws.set_column(2, 2, 50)
+        ws.set_column(3, 5, 14)
+        if recap:
+            ws.autofilter(0, 0, len(recap), 5)
+            ws.freeze_panes(1, 0)
+
+        # ===== 2. Récap EEG par nuit =====
+        ws = wb.add_worksheet("Récap EEG par nuit")
+        writer.sheets["Récap EEG par nuit"] = ws
+        ws.merge_range(0, 0, 0, 5, "Récap EEG et rails par nuit", fmt_h)
+        cols2 = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES"]
+        widths2 = [10, 12, 28, 36, 12, 12]
+        for ci, (h, w) in enumerate(zip(cols2, widths2)):
+            ws.write(1, ci, h, fmt_lbl)
+            ws.set_column(ci, ci, w)
+        for i, n in enumerate(range(1, n_es + 1), start=0):
+            row = 2 + i
+            bucket = agg["es_per_nuit"].get(n, {})
+            p = es_palette.get(n, {})
+            ws.write(row, 0, f"Nuit {n}", p.get("center", fmt_cell))
+            d_iso = agg["dates"].get(str(n))
+            if d_iso:
+                try:
+                    ws.write_datetime(row, 1, datetime.strptime(d_iso, "%Y-%m-%d").date(),
+                                      p.get("date", fmt_date))
+                except Exception:
+                    ws.write_string(row, 1, d_iso, p.get("date", fmt_date))
+            else:
+                ws.write_blank(row, 1, None, p.get("date", fmt_date))
+            ws.write(row, 2, " / ".join(bucket.get("secteurs_rayons") or []),
+                     p.get("sr", fmt_cell))
+            ws.write(row, 3, ", ".join(str(a) for a in (bucket.get("allees") or [])),
+                     p.get("left", fmt_cell))
+            ws.write(row, 4, int(round(bucket.get("es") or 0)), p.get("right", fmt_num))
+            ws.write(row, 5, int(round(bucket.get("rails_es") or 0)),
+                     p.get("right", fmt_num))
+        # TOTAL
+        tot_row = 2 + n_es
+        ws.write(tot_row, 0, "TOTAL", fmt_total_lbl)
+        ws.write(tot_row, 1, f"{n_es} nuits", fmt_total_lbl)
+        ws.write(tot_row, 2, "", fmt_total_lbl)
+        n_allees_es = sum(len(b.get("allees") or []) for b in agg["es_per_nuit"].values())
+        ws.write(tot_row, 3, f"{n_allees_es} allée{'s' if n_allees_es != 1 else ''}",
+                 fmt_total_lbl)
+        ws.write(tot_row, 4, int(round(agg["totals_es"]["es"])), fmt_total_n)
+        ws.write(tot_row, 5, int(round(agg["totals_es"]["rails_es"])), fmt_total_n)
+        ws.freeze_panes(2, 0)
+
+        # ===== 3. Récap caméra par nuit =====
+        ws = wb.add_worksheet("Récap caméra par nuit")
+        writer.sheets["Récap caméra par nuit"] = ws
+        ws.merge_range(0, 0, 0, 4, "Récap caméras par nuit", fmt_h)
+        cols3 = ["Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]
+        widths3 = [10, 12, 28, 38, 14]
+        for ci, (h, w) in enumerate(zip(cols3, widths3)):
+            ws.write(1, ci, h, fmt_lbl)
+            ws.set_column(ci, ci, w)
+        cam_nights_sorted = sorted(agg["cam_per_nuit"].keys()) or list(range(cam_start, cam_start + n_cam))
+        for i, n in enumerate(cam_nights_sorted, start=0):
+            row = 2 + i
+            bucket = agg["cam_per_nuit"].get(n, {})
+            p = cam_palette.get(n, {})
+            ws.write(row, 0, f"Nuit {n}", p.get("center", fmt_cell))
+            d_iso = agg["dates"].get(str(n))
+            if d_iso:
+                try:
+                    ws.write_datetime(row, 1, datetime.strptime(d_iso, "%Y-%m-%d").date(),
+                                      p.get("date", fmt_date))
+                except Exception:
+                    ws.write_string(row, 1, d_iso, p.get("date", fmt_date))
+            else:
+                ws.write_blank(row, 1, None, p.get("date", fmt_date))
+            ws.write(row, 2, " / ".join(bucket.get("secteurs_rayons") or []),
+                     p.get("sr", fmt_cell))
+            ws.write(row, 3, ", ".join(str(a) for a in (bucket.get("allees") or [])),
+                     p.get("left", fmt_cell))
+            ws.write(row, 4, int(round(bucket.get("cam") or 0)), p.get("right", fmt_num))
+        tot_row = 2 + len(cam_nights_sorted)
+        ws.write(tot_row, 0, "TOTAL", fmt_total_lbl)
+        ws.write(tot_row, 1, f"{n_cam} nuits", fmt_total_lbl)
+        ws.write(tot_row, 2, "", fmt_total_lbl)
+        n_allees_cam = sum(len(b.get("allees") or []) for b in agg["cam_per_nuit"].values())
+        ws.write(tot_row, 3, f"{n_allees_cam} allée{'s' if n_allees_cam != 1 else ''}",
+                 fmt_total_lbl)
+        ws.write(tot_row, 4, int(round(agg["totals_cam"]["cam"])), fmt_total_n)
+        ws.freeze_panes(2, 0)
+
+        # ===== 4. Caméra par élément =====
+        ws = wb.add_worksheet("Caméra par élément")
+        writer.sheets["Caméra par élément"] = ws
+        ws.merge_range(0, 0, 0, 2, "Détail caméras par allée", fmt_h)
+        for ci, h in enumerate(["N° Allée", "Nb caméras", "Éléments concernés"]):
+            ws.write(1, ci, h, fmt_lbl)
+        ws.set_column(0, 0, 12)
+        ws.set_column(1, 1, 12)
+        ws.set_column(2, 2, 80)
+        # Aplatir : liste allées avec leurs éléments
+        seen: dict[str, list] = {}
+        for n in sorted(agg["cam_per_nuit"].keys()):
+            b = agg["cam_per_nuit"][n]
+            for lbl, elems in (b.get("cam_elems_by_allee") or {}).items():
+                if lbl not in seen:
+                    seen[lbl] = list(elems)
+        row = 2
+        fmt_text_wrap = wb.add_format({"border": 1, "align": "left", "text_wrap": True,
+                                       "valign": "top"})
+        fmt_lbl_b = wb.add_format({"border": 1, "align": "center", "bold": True})
+        for lbl, elems in seen.items():
+            ws.write(row, 0, str(lbl), fmt_lbl_b)
+            ws.write(row, 1, len(elems), fmt_num)
+            ws.write(row, 2, ", ".join(str(e) for e in elems), fmt_text_wrap)
+            row += 1
+        if seen:
+            ws.write(row, 0, "TOTAL", fmt_total_lbl)
+            ws.write(row, 1, sum(len(e) for e in seen.values()), fmt_total_n)
+            ws.write(row, 2, f"{len(seen)} allée(s) avec caméras", fmt_total_lbl)
+        ws.freeze_panes(2, 0)
+
+        # ===== 5. Récap complet (EEG + Cam par nuit, juxtaposé) =====
+        ws = wb.add_worksheet("Récap complet")
+        writer.sheets["Récap complet"] = ws
+        # En-têtes 2 lignes : bloc EEG | Nuit (blanc) | bloc Cam
+        # Cols : 0 Allées EEG | 1 EEG | 2 Rails ES | 3 SA | 4 Sec EEG |
+        #        5 Nuit (blanc) | 6 Date |
+        #        7 Sec Cam | 8 Allées Cam | 9 Caméras
+        ws.merge_range(0, 0, 0, 4, "Phasage étiquettes et rails", fmt_h_eeg)
+        ws.merge_range(0, 5, 0, 6, "Nuit", fmt_h)
+        ws.merge_range(0, 7, 0, 9, "Phasage caméras", fmt_h_cam)
+        headers5 = ["Allées", "ES", "Rails ES", "SA", "Secteur/Rayon EEG",
+                    "Nuit", "Date",
+                    "Secteur/Rayon Cam", "Allées", "Caméras"]
+        widths5 = [22, 10, 10, 10, 22, 8, 11, 22, 22, 12]
+        for ci, (h, w) in enumerate(zip(headers5, widths5)):
+            if ci in (5, 6):
+                ws.write(1, ci, h, fmt_lbl)
+            elif ci < 5:
+                ws.write(1, ci, h, fmt_h_eeg)
+            else:
+                ws.write(1, ci, h, fmt_h_cam)
+            ws.set_column(ci, ci, w)
+        # Données : 1 ligne par nuit ES (1..n_es) ; bloc Cam rempli si nuit
+        # correspondante existe dans cam_per_nuit
+        for i, n in enumerate(range(1, n_es + 1), start=0):
+            row = 2 + i
+            es = agg["es_per_nuit"].get(n, {})
+            cam = agg["cam_per_nuit"].get(n, {})
+            p_es = es_palette.get(n, {})
+            p_cam = cam_palette.get(n, p_es)
+            # Bloc EEG
+            ws.write(row, 0, ", ".join(str(a) for a in (es.get("allees") or [])),
+                     p_es.get("left", fmt_cell))
+            ws.write(row, 1, int(round(es.get("es") or 0)), p_es.get("right", fmt_num))
+            ws.write(row, 2, int(round(es.get("rails_es") or 0)), p_es.get("right", fmt_num))
+            ws.write(row, 3, int(round(es.get("sa") or 0)), p_es.get("right", fmt_num))
+            ws.write(row, 4, " / ".join(es.get("secteurs_rayons") or []),
+                     p_es.get("sr", fmt_cell))
+            # Nuit (BLANCHE — seule colonne sans fond)
+            ws.write(row, 5, f"{n}", wb.add_format({
+                "border": 1, "align": "center", "bold": True, "bg_color": "#FFFFFF"
+            }))
+            # Date (colorée — on prend la couleur de la nuit globale)
+            d_iso = agg["dates"].get(str(n))
+            if d_iso:
+                try:
+                    ws.write_datetime(row, 6, datetime.strptime(d_iso, "%Y-%m-%d").date(),
+                                      p_es.get("date", fmt_date))
+                except Exception:
+                    ws.write_string(row, 6, d_iso, p_es.get("date", fmt_date))
+            else:
+                ws.write_blank(row, 6, None, p_es.get("date", fmt_date))
+            # Bloc Cam
+            ws.write(row, 7, " / ".join(cam.get("secteurs_rayons") or []),
+                     p_cam.get("sr", fmt_cell) if cam else fmt_cell)
+            ws.write(row, 8, ", ".join(str(a) for a in (cam.get("allees") or [])),
+                     p_cam.get("left", fmt_cell) if cam else fmt_cell)
+            if cam.get("cam"):
+                ws.write(row, 9, int(round(cam.get("cam") or 0)),
+                         p_cam.get("right", fmt_num))
+            else:
+                ws.write_blank(row, 9, None, fmt_cell)
+
+        # Ligne TOTAL
+        tot_row = 2 + n_es
+        ws.write(tot_row, 0, "", fmt_total_lbl)
+        ws.write(tot_row, 1, int(round(agg["totals_es"]["es"])), fmt_total_n)
+        ws.write(tot_row, 2, int(round(agg["totals_es"]["rails_es"])), fmt_total_n)
+        ws.write(tot_row, 3, int(round(agg["totals_es"]["sa"])), fmt_total_n)
+        ws.write(tot_row, 4, "", fmt_total_lbl)
+        ws.write(tot_row, 5, f"{n_es} nuits", wb.add_format({
+            "border": 1, "align": "center", "bold": True, "bg_color": "#FFFFFF"
+        }))
+        ws.write(tot_row, 6, "", fmt_total_lbl)
+        ws.write(tot_row, 7, "", fmt_total_lbl)
+        ws.write(tot_row, 8, f"{n_cam} nuits cam", fmt_total_lbl)
+        ws.write(tot_row, 9, int(round(agg["totals_cam"]["cam"])), fmt_total_n)
+        ws.freeze_panes(2, 0)
+
+    output.seek(0)
+    filename = f"{Path(d['filename']).stem}_Carrefour.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
