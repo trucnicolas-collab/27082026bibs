@@ -127,8 +127,18 @@ async def persist_dataset(upload_id: str, data: dict, user_id: Optional[str] = N
         "surface_category": data.get("surface_category"),
         "dongles_quantity": data.get("dongles_quantity") or 0,
         "vt_start_date": data.get("vt_start_date") or "",
+        "vt_end_date": data.get("vt_end_date") or "",
         "store_name": data.get("store_name") or "",
+        "store_city": data.get("store_city") or "",
         "store_code": data.get("store_code") or "",
+        "store_address": data.get("store_address") or "",
+        "participants": data.get("participants") or "",
+        "responsable_magasin": data.get("responsable_magasin") or "",
+        "responsable_vusion": data.get("responsable_vusion") or "",
+        "prestataire_install": data.get("prestataire_install") or "",
+        "plan_prevention_signe": data.get("plan_prevention_signe") or "",
+        "doc_version": data.get("doc_version") or "",
+        "date_validation_carrefour": data.get("date_validation_carrefour") or "",
     }
     if user_id is not None:
         update_doc["user_id"] = user_id
@@ -197,12 +207,13 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
         payload["surface_category"] = doc["surface_category"]
     if "dongles_quantity" in doc:
         payload["dongles_quantity"] = doc["dongles_quantity"]
-    if "vt_start_date" in doc:
-        payload["vt_start_date"] = doc["vt_start_date"]
-    if "store_name" in doc:
-        payload["store_name"] = doc["store_name"]
-    if "store_code" in doc:
-        payload["store_code"] = doc["store_code"]
+    for fld in ("vt_start_date", "vt_end_date", "store_name", "store_city",
+                "store_code", "store_address", "participants",
+                "responsable_magasin", "responsable_vusion",
+                "prestataire_install", "plan_prevention_signe",
+                "doc_version", "date_validation_carrefour"):
+        if fld in doc:
+            payload[fld] = doc[fld]
     if "user_id" in doc:
         payload["user_id"] = doc["user_id"]
     DATASTORE[upload_id] = payload
@@ -657,8 +668,18 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
         "surface_category": d.get("surface_category"),
         "dongles_quantity": int(d.get("dongles_quantity") or 0),
         "vt_start_date": d.get("vt_start_date") or "",
+        "vt_end_date": d.get("vt_end_date") or "",
         "store_name": d.get("store_name") or "",
+        "store_city": d.get("store_city") or "",
         "store_code": d.get("store_code") or "",
+        "store_address": d.get("store_address") or "",
+        "participants": d.get("participants") or "",
+        "responsable_magasin": d.get("responsable_magasin") or "",
+        "responsable_vusion": d.get("responsable_vusion") or "",
+        "prestataire_install": d.get("prestataire_install") or "",
+        "plan_prevention_signe": d.get("plan_prevention_signe") or "",
+        "doc_version": d.get("doc_version") or "",
+        "date_validation_carrefour": d.get("date_validation_carrefour") or "",
         "has_autre": len(rows) > 0,
         "autre_count": len(rows),
         "data": {
@@ -830,30 +851,57 @@ async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_curre
 
 
 class StoreInfoUpdate(BaseModel):
-    vt_start_date: Optional[str] = None  # ISO "YYYY-MM-DD"
-    store_name: Optional[str] = None     # ex: "Carrefour Massy"
-    store_code: Optional[str] = None     # texte libre
+    # Identité magasin
+    store_name: Optional[str] = None              # ex: "Carrefour Massy"
+    store_city: Optional[str] = None              # ex: "Massy"
+    store_code: Optional[str] = None              # ex: "HA4CG"
+    store_address: Optional[str] = None           # adresse libre
+    # Visite technique
+    vt_start_date: Optional[str] = None           # ISO "YYYY-MM-DD"
+    vt_end_date: Optional[str] = None             # ISO "YYYY-MM-DD"
+    # Slide 6 — informations générales
+    participants: Optional[str] = None
+    responsable_magasin: Optional[str] = None
+    responsable_vusion: Optional[str] = None
+    prestataire_install: Optional[str] = None
+    plan_prevention_signe: Optional[str] = None   # "Oui" / "Non" / texte libre
+    doc_version: Optional[str] = None
+    date_validation_carrefour: Optional[str] = None  # ISO
+
+
+STORE_INFO_TEXT_FIELDS = {
+    "store_name": 150,
+    "store_city": 100,
+    "store_code": 50,
+    "store_address": 300,
+    "participants": 500,
+    "responsable_magasin": 200,
+    "responsable_vusion": 200,
+    "prestataire_install": 200,
+    "plan_prevention_signe": 50,
+    "doc_version": 50,
+}
+STORE_INFO_DATE_FIELDS = {"vt_start_date", "vt_end_date", "date_validation_carrefour"}
 
 
 @api_router.patch("/dataset/{upload_id}/store-info")
 async def update_store_info(upload_id: str, payload: StoreInfoUpdate,
                             current_user: dict = Depends(get_current_user)):
-    """Met à jour les méta-infos du magasin/VT.
-    - vt_start_date : 1er jour de la VT (la fin est calculée à +2 jours côté front/export)
-    - store_name    : nom du magasin (ex: "Carrefour Massy")
-    - store_code    : code magasin (texte libre)
-    """
+    """Met à jour les méta-infos du magasin/VT (utilisées dans l'export PPT)."""
     user_id = str(current_user["_id"])
-    update_fields = {}
-    if payload.vt_start_date is not None:
-        v = (payload.vt_start_date or "").strip()[:10]
-        if v and not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-            raise HTTPException(status_code=400, detail="Date VT invalide (YYYY-MM-DD attendu)")
-        update_fields["vt_start_date"] = v
-    if payload.store_name is not None:
-        update_fields["store_name"] = (payload.store_name or "").strip()[:150]
-    if payload.store_code is not None:
-        update_fields["store_code"] = (payload.store_code or "").strip()[:50]
+    update_fields: dict = {}
+    data = payload.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        if v is None:
+            continue
+        s = str(v).strip()
+        if k in STORE_INFO_DATE_FIELDS:
+            s = s[:10]
+            if s and not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+                raise HTTPException(status_code=400, detail=f"Date invalide pour {k} (YYYY-MM-DD attendu)")
+            update_fields[k] = s
+        elif k in STORE_INFO_TEXT_FIELDS:
+            update_fields[k] = s[:STORE_INFO_TEXT_FIELDS[k]]
     if not update_fields:
         raise HTTPException(status_code=400, detail="Aucune modification fournie")
     res = await db.datasets.update_one(
@@ -869,6 +917,7 @@ async def update_store_info(upload_id: str, payload: StoreInfoUpdate,
 
 
 
+@api_router.get("/dataset/{upload_id}/activity")
 async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne l'historique des modifications d'une session (max 200 entrées, plus récentes d'abord)."""
     # Vérifie propriété
@@ -3494,6 +3543,43 @@ async def export_excel(upload_id: str, sheet: str = "all", current_user: dict = 
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     return await _build_export(d, sheet)
+
+
+@api_router.get("/dataset/{upload_id}/export-pptx")
+async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Exporte le PowerPoint "CR VT et plan de phasage" pré-rempli avec
+    les infos magasin et le phasage actuel (textes, tableaux et screenshots
+    des récaps de phasage).
+    """
+    from pptx_export import generate_pptx
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    summary = compute_phasage_summary(d)
+    try:
+        pptx_bytes = generate_pptx(d, summary)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.exception("Erreur génération PPTX")
+        raise HTTPException(status_code=500, detail=f"Erreur génération PPTX: {e}")
+    await log_audit(upload_id, current_user, "pptx_exported",
+                    details={"nb_nuits_es": summary.get("phasage", {}).get("es", {}).get("nb_nuits"),
+                             "nb_nuits_cam": summary.get("phasage", {}).get("cam", {}).get("nb_nuits")})
+
+    # Nom de fichier suggéré
+    store_name = (d.get("store_name") or "magasin").replace("/", "-")
+    store_code = (d.get("store_code") or "").replace("/", "-")
+    base = f"CR_VT_Phasage_{store_name}"
+    if store_code:
+        base += f"_{store_code}"
+    filename = re.sub(r"[^\w\-\.]+", "_", base) + ".pptx"
+
+    return StreamingResponse(
+        io.BytesIO(pptx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 async def _build_export(d: dict, sheet: str = "all"):
