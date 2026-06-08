@@ -298,8 +298,12 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     qty_col = cols["quantite"]
 
     # Ordre fixe des types (ceux trouvés + autres)
+    # NOTE: les lignes "Flèche" du brut sont volontairement EXCLUES du recap
+    # car elles sont déjà comptabilisées comme +1 ES 1.5 (noir) chacune dans
+    # la ligne "ES 1.5 (noir)" (cf. bloc Bonus flèches ci-dessous).
     preferred_order = ["EEG", "Fixation", "Rail", "Caméra", "Camera"]
-    types_in_data = list(df[type_col].dropna().unique())
+    types_in_data = [t for t in df[type_col].dropna().unique()
+                     if not _is_fleche(t)]
     ordered_types = [t for t in preferred_order if t in types_in_data] + [
         t for t in types_in_data if t not in preferred_order
     ]
@@ -378,35 +382,26 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "total_plus_spare": inclineur_total + inclineur_spare,
             })
 
-    # ===== Bonus rails → ES 1.5 (sans spare) =====
-    # Règle : 1 rail (parmi RAILS_BONUS_ES15) = +1 EEG ES 1.5 de même couleur,
-    #         ajouté UNIQUEMENT à total_plus_spare (sans spare additionnel).
-    rail_bonus_by_color = {"noir": 0, "blanc": 0}
-    rails_df = df[df[type_col].astype(str).str.lower() == "rail"].copy()
-    if not rails_df.empty:
-        rails_df[qty_col] = pd.to_numeric(rails_df[qty_col], errors="coerce").fillna(0)
-        for _, rr in rails_df.iterrows():
-            d_low = _norm_desig(rr[desig_col])
-            if not d_low:
-                continue
-            q = float(rr[qty_col]) if rr[qty_col] else 0
-            if q <= 0:
-                continue
-            for pat, color in RAILS_BONUS_ES15:
-                if pat.lower() in d_low:
-                    rail_bonus_by_color[color] += int(q)
-                    break
+    # ===== Bonus flèches → ES 1.5 (noir) (sans spare) =====
+    # Règle : chaque ligne du brut marquée "flèche" (Type ou Désignation)
+    # ajoute +1 EEG ES 1.5 (noir) à total_plus_spare, sans spare additionnel.
+    fleche_total = 0
+    if not df.empty:
+        mask = df.apply(
+            lambda r: _is_fleche(r.get(type_col)) or _is_fleche(r.get(desig_col)),
+            axis=1,
+        )
+        fleche_df = df[mask]
+        if not fleche_df.empty:
+            fleche_total = int(pd.to_numeric(fleche_df[qty_col], errors="coerce").fillna(0).sum())
 
-    # Applique le bonus aux lignes ES 1.5 (noir) et ES 1.5 (blanc) du recap
-    for color, bonus in rail_bonus_by_color.items():
-        if bonus <= 0:
-            continue
-        target_label = f"es 1.5 ({color})"
+    # Applique le bonus à la ligne ES 1.5 (noir) du recap
+    if fleche_total > 0:
+        target_label = "es 1.5 (noir)"
         for r in rows:
             if r.get("kind") != "product":
                 continue
             desig_norm = _norm_desig(r.get("designation"))
-            # On strip un éventuel suffixe " — rajout de … rails" déjà présent
             base_desig = desig_norm.split(" — rajout de")[0]
             if base_desig == target_label:
                 try:
@@ -421,16 +416,12 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                     cur_s = float(r.get("spare") or 0)
                 except (ValueError, TypeError):
                     cur_s = 0
-                # Si total était 0/vide, on recalcule depuis qté + spare
                 if cur_total == 0 and (cur_q + cur_s) > 0:
                     cur_total = cur_q + cur_s
-                r["total_plus_spare"] = cur_total + bonus
-                # Met à jour la désignation pour signaler le bonus
+                r["total_plus_spare"] = cur_total + fleche_total
                 base_label = (r.get("designation") or "").split(" — rajout de")[0].strip()
-                r["designation"] = f"{base_label} — rajout de {bonus} rails"
-                # Mémorise pour rollback futur éventuel
-                r["_rail_bonus"] = bonus
-                r["_rail_bonus_color"] = color
+                r["designation"] = f"{base_label} — rajout de {fleche_total} flèche(s)"
+                r["_fleche_bonus"] = fleche_total
                 break
 
     # Ligne Dongle — éditable, pas de Spare ni Total+Spare
@@ -1386,6 +1377,23 @@ RAILS_BONUS_ES15 = [
 ]
 
 
+def _is_fleche(s: Any) -> bool:
+    """Détecte si une chaîne décrit une 'flèche' (accent/casse insensibles).
+    Une flèche dans le brut compte pour +1 ES 1.5 (noir) automatiquement,
+    et apparaît comme annotation 'dont flèches' dans le Phasage de pose.
+    """
+    if s is None:
+        return False
+    try:
+        if isinstance(s, float) and math.isnan(s):
+            return False
+    except (TypeError, ValueError):
+        pass
+    import unicodedata
+    norm = unicodedata.normalize("NFD", str(s)).encode("ascii", "ignore").decode("ascii").lower().strip()
+    return "fleche" in norm
+
+
 def _norm_desig(s: Any) -> str:
     if s is None:
         return ""
@@ -1474,7 +1482,8 @@ def compute_phasage_summary(d: dict) -> dict:
     by_allee: dict[str, dict] = {}
     totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "sa_15": 0.0, "sa_21": 0.0,
               "rails_es": 0.0, "cameras": 0.0,
-              "es_15_bonus_noir": 0.0, "es_15_bonus_blanc": 0.0,
+              "es_15_bonus_noir": 0.0, "es_15_bonus_blanc": 0.0,  # legacy (toujours 0 désormais)
+              "fleches": 0.0,
               "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS}}
 
     for r in raw_records:
@@ -1519,6 +1528,7 @@ def compute_phasage_summary(d: dict) -> dict:
             "camera_elems": [],
             "es_15_bonus_noir": 0.0,
             "es_15_bonus_blanc": 0.0,
+            "fleches": 0.0,
             "rails_es_by_desig": {p: 0.0 for p in RAILS_ES_PATTERNS},
         })
 
@@ -1569,14 +1579,11 @@ def compute_phasage_summary(d: dict) -> dict:
                         node["rails_es_by_desig"][pat] += qty
                         totals["rails_es_by_desig"][pat] += qty
                         break
-            # Bonus rails → ES 1.5 (RAILS_BONUS_ES15) — utilisé pour ajouter des EEG
-            # ES 1.5 supplémentaires dans le Phasage de pose, par couleur.
-            for pat, color in RAILS_BONUS_ES15:
-                if pat.lower() in d_low:
-                    key = "es_15_bonus_noir" if color == "noir" else "es_15_bonus_blanc"
-                    node[key] += qty
-                    totals[key] += qty
-                    break
+        # Détection flèche : Type OU Désignation contient "flèche".
+        # Chaque flèche = +1 EEG ES 1.5 (noir) à rajouter automatiquement.
+        elif _is_fleche(typ) or _is_fleche(desig):
+            node["fleches"] += qty
+            totals["fleches"] += qty
 
     # Tri strictement ascendant numérique des allées (demande utilisateur).
     # Tie-breakers : secteur puis rayon (pour ordonner les doublons).
@@ -1624,6 +1631,7 @@ def compute_phasage_summary(d: dict) -> dict:
         a["cameras"] = _r(a.get("cameras", 0))
         a["es_15_bonus_noir"] = _r(a.get("es_15_bonus_noir", 0))
         a["es_15_bonus_blanc"] = _r(a.get("es_15_bonus_blanc", 0))
+        a["fleches"] = _r(a.get("fleches", 0))
         # Tri smart numérique des n° éléments-caméras (ordre croissant) — on garde les doublons
         # car cela indique plusieurs caméras sur le même élément (à afficher en rouge)
         elems = a.get("camera_elems") or []
@@ -1642,6 +1650,7 @@ def compute_phasage_summary(d: dict) -> dict:
         "cameras": _r(totals.get("cameras", 0)),
         "es_15_bonus_noir": _r(totals.get("es_15_bonus_noir", 0)),
         "es_15_bonus_blanc": _r(totals.get("es_15_bonus_blanc", 0)),
+        "fleches": _r(totals.get("fleches", 0)),
         "rails_es_by_desig": {k: _r(v) for k, v in totals["rails_es_by_desig"].items()},
     }
 
