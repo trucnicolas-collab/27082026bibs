@@ -1,8 +1,39 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
-import { Plus, Trash2, Download } from "lucide-react";
+import { Trash2, Download } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Priorité de tri des secteurs dans la liste de sélection d'allée
+// (1 = en haut). Tout secteur inconnu va en bas (99).
+const SECTOR_PRIORITY = (() => {
+    const map = new Map();
+    map.set("pgc", 1);
+    map.set("pft", 2);
+    map.set("non-al", 3);
+    map.set("non al", 3);
+    map.set("nonal", 3);
+    map.set("caisse", 4);
+    map.set("caisses", 4);
+    return map;
+})();
+
+function sectorPriority(secteur) {
+    const s = String(secteur || "").trim().toLowerCase();
+    if (!s) return 98;
+    if (SECTOR_PRIORITY.has(s)) return SECTOR_PRIORITY.get(s);
+    // Préfixes plus larges
+    if (s.startsWith("pgc")) return 1;
+    if (s.startsWith("pft")) return 2;
+    if (s.startsWith("non")) return 3;
+    if (s.startsWith("caiss")) return 4;
+    return 99;
+}
+
+function alleeNumeric(allee) {
+    const m = String(allee || "").match(/-?\d+/);
+    return m ? parseInt(m[0], 10) : 999999;
+}
 
 function fmt(n) {
     if (n == null) return "";
@@ -149,10 +180,55 @@ export default function PhasageTab({ uploadId }) {
     // Liste triée des allées dispo + zones saisonnières en fin de liste
     const alleeOptions = useMemo(() => {
         if (!summary) return [];
-        const list = summary.allees.map((a) => String(a.uid || a.allee));
-        (summary.seasonal_zones || []).forEach((z) => list.push(z.id));
-        return list;
+        // On construit une liste d'options { uid, node } triée par :
+        // 1) priorité du secteur (PGC → PFT → Non-al → Caisse → autres)
+        // 2) rayon (alphabétique, locale FR)
+        // 3) n° d'allée (numérique croissant)
+        const items = [];
+        summary.allees.forEach((a) => {
+            const uid = String(a.uid || a.allee);
+            items.push({ uid, node: a });
+        });
+        (summary.seasonal_zones || []).forEach((z) => {
+            items.push({ uid: String(z.id), node: { ...z, is_seasonal: true, allee: z.id, secteur: "", rayon: "" } });
+        });
+        items.sort((A, B) => {
+            // Les zones saisonnières en dernier
+            if (A.node.is_seasonal !== B.node.is_seasonal) return A.node.is_seasonal ? 1 : -1;
+            const pa = sectorPriority(A.node.secteur);
+            const pb = sectorPriority(B.node.secteur);
+            if (pa !== pb) return pa - pb;
+            const ra = (A.node.rayon || "").toLowerCase();
+            const rb = (B.node.rayon || "").toLowerCase();
+            if (ra !== rb) return ra.localeCompare(rb, "fr");
+            const na = alleeNumeric(A.node.allee);
+            const nb = alleeNumeric(B.node.allee);
+            if (na !== nb) return na - nb;
+            // Tie-breaker (doublons sur même n°) : dup_index croissant
+            const da = A.node.dup_index || 0;
+            const db = B.node.dup_index || 0;
+            if (da !== db) return da - db;
+            return String(A.node.allee).localeCompare(String(B.node.allee), "fr", { numeric: true });
+        });
+        return items;
     }, [summary]);
+
+    // Format d'affichage d'une option : "PGC / Animalerie / Allée 4"
+    const formatAlleeLabel = useCallback((node) => {
+        if (!node) return "";
+        if (node.is_seasonal) {
+            return `🌶 ${node.label || node.id} (+${node.seasonal_eeg || 0} EEG)`;
+        }
+        const parts = [];
+        if (node.secteur) parts.push(node.secteur);
+        if (node.rayon) parts.push(node.rayon);
+        parts.push(`Allée ${node.allee}`);
+        let label = parts.join(" / ");
+        if (node.is_dup) {
+            label = `🟠 [DOUBLON ${node.dup_index}/${node.dup_total}] ` + label;
+        }
+        return label;
+    }, []);
 
     const seasonalZones = summary?.seasonal_zones || [];
 
@@ -160,8 +236,8 @@ export default function PhasageTab({ uploadId }) {
         setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
     }, []);
 
-    const addRow = useCallback(() => {
-        setRows((prev) => [...prev, { id: newRowId(), allee: "", nuit: null }]);
+    const addRow = useCallback((alleeUid = "") => {
+        setRows((prev) => [...prev, { id: newRowId(), allee: alleeUid, nuit: null }]);
     }, []);
 
     const deleteRow = useCallback((id) => {
@@ -433,16 +509,36 @@ export default function PhasageTab({ uploadId }) {
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
                     {/* ----- Tableau gauche ----- */}
                     <div data-testid="phasage-left-table">
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-sm font-semibold text-gray-800">Plan d'attribution par allée</h3>
-                            <button
-                                onClick={addRow}
-                                data-testid="phasage-add-row"
-                                className="h-7 px-2 text-xs font-medium bg-white border border-[#056839] text-[#056839] rounded hover:bg-emerald-50 flex items-center gap-1"
-                            >
-                                <Plus className="w-3.5 h-3.5" />
-                                Ajouter une allée
-                            </button>
+                        <div className="flex items-center justify-between mb-2 gap-3">
+                            <h3 className="text-sm font-semibold text-gray-800 flex-shrink-0">
+                                Plan d&apos;attribution par allée
+                            </h3>
+                            <div className="flex items-center gap-2 flex-1 max-w-md">
+                                <label className="text-xs text-gray-500 whitespace-nowrap">Ajouter :</label>
+                                <select
+                                    value=""
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (!v) return;
+                                        addRow(v);
+                                    }}
+                                    data-testid="phasage-add-allee-picker"
+                                    className="flex-1 h-7 px-2 text-xs border border-[#056839] bg-white text-[#056839] rounded font-medium hover:bg-emerald-50 focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                                >
+                                    <option value="">+ Choisir une allée à ajouter…</option>
+                                    {alleeOptions
+                                        .filter((opt) => !usedAllees.has(opt.uid))
+                                        .map((opt) => (
+                                            <option
+                                                key={opt.uid}
+                                                value={opt.uid}
+                                                style={opt.node.is_dup ? { color: "#C2410C", backgroundColor: "#FFF7ED", fontWeight: 600 } : {}}
+                                            >
+                                                {formatAlleeLabel(opt.node)}
+                                            </option>
+                                        ))}
+                                </select>
+                            </div>
                         </div>
                         <div className="border border-gray-200 rounded overflow-hidden">
                             <table className="w-full text-xs">
@@ -473,7 +569,7 @@ export default function PhasageTab({ uploadId }) {
                                     {rows.length === 0 && (
                                         <tr>
                                             <td colSpan={isMagasin2 ? 7 : 6} className="px-3 py-6 text-center text-gray-500 italic">
-                                                Cliquez sur « Ajouter une allée » pour commencer
+                                                Sélectionnez une allée dans la liste ci-dessus pour commencer
                                             </td>
                                         </tr>
                                     )}
@@ -485,8 +581,8 @@ export default function PhasageTab({ uploadId }) {
                                             borderLeft: `4px solid ${color.border}`,
                                         } : {};
                                         // Options de select : allées non utilisées + l'allée courante (pour pouvoir la changer)
-                                        const availableAllees = alleeOptions.filter((a) =>
-                                            !usedAllees.has(a) || a === String(r.allee)
+                                        const availableAllees = alleeOptions.filter((opt) =>
+                                            !usedAllees.has(opt.uid) || opt.uid === String(r.allee)
                                         );
                                         return (
                                             <tr
@@ -503,22 +599,15 @@ export default function PhasageTab({ uploadId }) {
                                                         className="w-full h-6 px-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none font-mono-data bg-white"
                                                     >
                                                         <option value="">Sélectionner…</option>
-                                                        {availableAllees.map((a) => {
-                                                            const node = alleeIndex[a];
-                                                            const isSeasonal = node?.is_seasonal;
-                                                            const isDup = node?.is_dup;
-                                                            // Préfixe visuel pour distinguer les doublons (même n° d'allée
-                                                            // dans des secteurs/rayons différents).
-                                                            const dupTag = isDup ? `🟠 [DOUBLON ${node.dup_index}/${node.dup_total}] ` : "";
-                                                            return (
-                                                                <option key={a} value={a} style={isDup ? { color: "#C2410C", backgroundColor: "#FFF7ED", fontWeight: 600 } : {}}>
-                                                                    {isSeasonal
-                                                                        ? `🌶 ${node.label} (+${node.seasonal_eeg} EEG)`
-                                                                        : `${dupTag}${node?.allee}${node?.secteur ? ` (${node.secteur}${node.rayon ? " · " + node.rayon : ""})` : ""}`
-                                                                    }
-                                                                </option>
-                                                            );
-                                                        })}
+                                                        {availableAllees.map((opt) => (
+                                                            <option
+                                                                key={opt.uid}
+                                                                value={opt.uid}
+                                                                style={opt.node.is_dup ? { color: "#C2410C", backgroundColor: "#FFF7ED", fontWeight: 600 } : {}}
+                                                            >
+                                                                {formatAlleeLabel(opt.node)}
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800"
