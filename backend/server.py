@@ -382,9 +382,61 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "total_plus_spare": inclineur_total + inclineur_spare,
             })
 
+    # ===== Bonus rails → ES 1.5 (sans spare) =====
+    # Règle : 1 rail (parmi RAILS_BONUS_ES15) = +1 EEG ES 1.5 de même couleur,
+    #         ajouté UNIQUEMENT à total_plus_spare (sans spare additionnel).
+    rail_bonus_by_color = {"noir": 0, "blanc": 0}
+    rails_df = df[df[type_col].astype(str).str.lower() == "rail"].copy()
+    if not rails_df.empty:
+        rails_df[qty_col] = pd.to_numeric(rails_df[qty_col], errors="coerce").fillna(0)
+        for _, rr in rails_df.iterrows():
+            d_low = _norm_desig(rr[desig_col])
+            if not d_low:
+                continue
+            q = float(rr[qty_col]) if rr[qty_col] else 0
+            if q <= 0:
+                continue
+            for pat, color in RAILS_BONUS_ES15:
+                if pat.lower() in d_low:
+                    rail_bonus_by_color[color] += int(q)
+                    break
+
+    # Applique le bonus aux lignes ES 1.5 (noir) et ES 1.5 (blanc) du recap
+    for color, bonus in rail_bonus_by_color.items():
+        if bonus <= 0:
+            continue
+        target_label = f"es 1.5 ({color})"
+        for r in rows:
+            if r.get("kind") != "product":
+                continue
+            desig_norm = _norm_desig(r.get("designation"))
+            base_desig = desig_norm.split(" — rajout de")[0]
+            if base_desig == target_label:
+                try:
+                    cur_total = float(r.get("total_plus_spare") or 0)
+                except (ValueError, TypeError):
+                    cur_total = 0
+                try:
+                    cur_q = float(r.get("quantite") or 0)
+                except (ValueError, TypeError):
+                    cur_q = 0
+                try:
+                    cur_s = float(r.get("spare") or 0)
+                except (ValueError, TypeError):
+                    cur_s = 0
+                if cur_total == 0 and (cur_q + cur_s) > 0:
+                    cur_total = cur_q + cur_s
+                r["total_plus_spare"] = cur_total + bonus
+                base_label = (r.get("designation") or "").split(" — rajout de")[0].strip()
+                r["designation"] = f"{base_label} — rajout de {bonus} rails"
+                r["_rail_bonus"] = bonus
+                r["_rail_bonus_color"] = color
+                break
+
     # ===== Bonus flèches → ES 1.5 (noir) (sans spare) =====
     # Règle : chaque ligne du brut marquée "flèche" (Type ou Désignation)
     # ajoute +1 EEG ES 1.5 (noir) à total_plus_spare, sans spare additionnel.
+    # S'applique APRÈS le bonus rails — l'annotation cumule les deux.
     fleche_total = 0
     if not df.empty:
         mask = df.apply(
@@ -419,8 +471,14 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 if cur_total == 0 and (cur_q + cur_s) > 0:
                     cur_total = cur_q + cur_s
                 r["total_plus_spare"] = cur_total + fleche_total
+                # On préserve une éventuelle annotation rails existante en
+                # ajoutant la mention flèches en plus.
                 base_label = (r.get("designation") or "").split(" — rajout de")[0].strip()
-                r["designation"] = f"{base_label} — rajout de {fleche_total} flèche(s)"
+                rails_existing = r.get("_rail_bonus") or 0
+                if rails_existing > 0:
+                    r["designation"] = f"{base_label} — rajout de {int(rails_existing)} rails + {fleche_total} flèche(s)"
+                else:
+                    r["designation"] = f"{base_label} — rajout de {fleche_total} flèche(s)"
                 r["_fleche_bonus"] = fleche_total
                 break
 
@@ -1579,6 +1637,14 @@ def compute_phasage_summary(d: dict) -> dict:
                         node["rails_es_by_desig"][pat] += qty
                         totals["rails_es_by_desig"][pat] += qty
                         break
+            # Bonus rails → ES 1.5 (RAILS_BONUS_ES15) — utilisé pour ajouter des EEG
+            # ES 1.5 supplémentaires dans le Phasage de pose, par couleur.
+            for pat, color in RAILS_BONUS_ES15:
+                if pat.lower() in d_low:
+                    key = "es_15_bonus_noir" if color == "noir" else "es_15_bonus_blanc"
+                    node[key] += qty
+                    totals[key] += qty
+                    break
         # Détection flèche : Type OU Désignation contient "flèche".
         # Chaque flèche = +1 EEG ES 1.5 (noir) à rajouter automatiquement.
         elif _is_fleche(typ) or _is_fleche(desig):

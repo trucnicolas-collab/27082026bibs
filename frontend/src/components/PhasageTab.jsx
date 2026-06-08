@@ -178,7 +178,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, fleches: 0, cameras: 0, allees: [], secteur_rayon: new Set() };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, cameras: 0, allees: [], secteur_rayon: new Set() };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -189,6 +189,8 @@ export default function PhasageTab({ uploadId }) {
             tot[r.nuit].sa_15 += node.sa_15 || 0;
             tot[r.nuit].sa_21 += node.sa_21 || 0;
             tot[r.nuit].rails_es += node.rails_es || 0;
+            // Bonus rails → ES 1.5 (par couleur, par allée)
+            tot[r.nuit].bonus = (tot[r.nuit].bonus || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0);
             // Flèches (= +1 ES 1.5 noir chacune) ajoutées par allée
             tot[r.nuit].fleches = (tot[r.nuit].fleches || 0) + (node.fleches || 0);
             if (node.is_seasonal) {
@@ -244,6 +246,7 @@ export default function PhasageTab({ uploadId }) {
             sa_15: values.reduce((a, x) => a + (x.sa_15 || 0), 0),
             sa_21: values.reduce((a, x) => a + (x.sa_21 || 0), 0),
             seasonal: values.reduce((a, x) => a + (x.seasonal || 0), 0),
+            bonus: values.reduce((a, x) => a + (x.bonus || 0), 0),
             fleches: values.reduce((a, x) => a + (x.fleches || 0), 0),
             cameras: values.reduce((a, x) => a + (x.cameras || 0), 0),
         };
@@ -270,14 +273,18 @@ export default function PhasageTab({ uploadId }) {
     //   dans le dropdown des allées (pas de répartition prorata automatique).
     const sa21Saisonnier = summary?.sa_21_saisonnier || 0;
     const totalESBrut = (totals.es_15 || 0) + (totals.es_21 || 0);
-    // Flèches → +1 ES 1.5 (noir) automatiquement (remplace l'ancien bonus rails)
+    // Bonus rails → ES 1.5
+    //  - Magasin 1 : ajouté automatiquement par allée dans l'EEG
+    //  - Magasin 2 : NON ajouté dans l'EEG du Phasage (mais bien gardé dans Commandes)
+    const totalES15Bonus = isMagasin2 ? 0 : ((totals.es_15_bonus_noir || 0) + (totals.es_15_bonus_blanc || 0));
+    // Flèches → +1 ES 1.5 (noir) automatiquement (s'applique aux 2 magasins)
     const totalFleches = totals.fleches || 0;
     // SA 1.5 (noir + blanc) — magasin 2 uniquement : compté dans EEG à installer
     const totalSA15 = isMagasin2 ? ((totals.sa_15 || 0)) : 0;
-    // EEG par nuit = ES brut + flèches + SA 1.5 (magasin 2) + saisonnier
-    const eegPerNight = (esBrutNuit, seasonalNuit, flechesNuit, sa15Nuit) =>
-        Math.round((esBrutNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0));
-    const totalEEG = totalESBrut + totalFleches + totalSA15 + sa21Saisonnier;
+    // EEG par nuit = ES brut + bonus rails (mag1) + flèches + SA 1.5 (mag2) + saisonnier
+    const eegPerNight = (esBrutNuit, seasonalNuit, bonusNuit, flechesNuit, sa15Nuit) =>
+        Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0));
+    const totalEEG = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Saisonnier;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
     return (
@@ -384,18 +391,27 @@ export default function PhasageTab({ uploadId }) {
                     <span
                         className="font-mono-data font-bold text-emerald-900"
                         data-testid="total-es"
-                        title={`ES (${fmt(totalESBrut)})${totalFleches > 0 ? ` + Flèches → ES 1.5 noir (${fmt(totalFleches)})` : ""}${totalSA15 > 0 ? ` + SA 1.5 (${fmt(totalSA15)})` : ""}${sa21Saisonnier > 0 ? ` + SA 2.1 saisonnier (${fmt(sa21Saisonnier)})` : ""}`}
+                        title={`ES (${fmt(totalESBrut)})${totalES15Bonus > 0 ? ` + Bonus rails→ES 1.5 (${fmt(totalES15Bonus)})` : ""}${totalFleches > 0 ? ` + Flèches → ES 1.5 noir (${fmt(totalFleches)})` : ""}${totalSA15 > 0 ? ` + SA 1.5 (${fmt(totalSA15)})` : ""}${sa21Saisonnier > 0 ? ` + SA 2.1 saisonnier (${fmt(sa21Saisonnier)})` : ""}`}
                     >
                         {fmt(totalEEG)}
                     </span>
                     <span className="text-gray-400 text-[10px] ml-1">
-                        {isMagasin2 ? "(ES + flèches + SA 1.5 + saison.)" : "(ES + flèches + saison.)"}
+                        {isMagasin2 ? "(ES + flèches + SA 1.5 + saison.)" : "(ES + bonus rails + flèches + saison.)"}
                     </span>
                 </div>
+                {totalES15Bonus > 0 && (
+                    <div className="px-3 py-1.5 bg-sky-50 border border-sky-200 rounded" title="ES 1.5 ajoutés automatiquement à partir des rails">
+                        <span className="text-gray-600">Bonus rails → ES 1.5 :</span>{" "}
+                        <span className="font-mono-data font-bold text-sky-900">+{fmt(totalES15Bonus)}</span>
+                        <span className="text-gray-400 text-[10px] ml-1">
+                            (noir {fmt(totals.es_15_bonus_noir || 0)} / blanc {fmt(totals.es_15_bonus_blanc || 0)})
+                        </span>
+                    </div>
+                )}
                 {totalFleches > 0 && (
-                    <div className="px-3 py-1.5 bg-sky-50 border border-sky-200 rounded" title="1 flèche dans l'export brut = +1 ES 1.5 (noir) ajouté automatiquement">
+                    <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded" title="1 flèche dans l'export brut = +1 ES 1.5 (noir) ajouté automatiquement">
                         <span className="text-gray-600">dont flèches :</span>{" "}
-                        <span className="font-mono-data font-bold text-sky-900" data-testid="total-fleches">+{fmt(totalFleches)}</span>
+                        <span className="font-mono-data font-bold text-amber-900" data-testid="total-fleches">+{fmt(totalFleches)}</span>
                         <span className="text-gray-400 text-[10px] ml-1">
                             ES 1.5 (noir)
                         </span>
@@ -451,7 +467,7 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold"
                                             title={isMagasin2
                                                 ? "EEG = ES 1.5 + ES 2.1 + SA 1.5 (à poser) + flèches"
-                                                : "EEG = ES 1.5 + ES 2.1 + flèches (1 flèche = 1 ES 1.5 noir)"}>
+                                                : "EEG = ES 1.5 + ES 2.1 + bonus rails→ES 1.5 + flèches"}>
                                             EEG
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
@@ -522,13 +538,13 @@ export default function PhasageTab({ uploadId }) {
                                                     title={node && !node.is_seasonal
                                                         ? (isMagasin2
                                                             ? `ES ${fmt((node.es_15 || 0) + (node.es_21 || 0))}${(node.sa_15 || 0) > 0 ? ` + SA 1.5 ${fmt(node.sa_15)}` : ""}${(node.fleches || 0) > 0 ? ` + ${fmt(node.fleches)} flèche(s)` : ""}`
-                                                            : `ES ${fmt((node.es_15 || 0) + (node.es_21 || 0))}${(node.fleches || 0) > 0 ? ` + ${fmt(node.fleches)} flèche(s)` : ""}`)
+                                                            : `ES ${fmt((node.es_15 || 0) + (node.es_21 || 0))}${((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0)) > 0 ? ` + bonus rails ${fmt((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0))}` : ""}${(node.fleches || 0) > 0 ? ` + ${fmt(node.fleches)} flèche(s)` : ""}`)
                                                         : undefined}>
                                                     {node ? fmt(node.is_seasonal
                                                         ? (node.seasonal_eeg || 0)
                                                         : (isMagasin2
                                                             ? ((node.es_15 || 0) + (node.es_21 || 0) + (node.sa_15 || 0) + (node.fleches || 0))
-                                                            : ((node.es_15 || 0) + (node.es_21 || 0) + (node.fleches || 0)))
+                                                            : ((node.es_15 || 0) + (node.es_21 || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0) + (node.fleches || 0)))
                                                     ) : ""}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
@@ -586,7 +602,7 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold"
                                             title={isMagasin2
                                                 ? "EEG = ES (1.5+2.1) + SA 1.5 + flèches + zones saisonnières affectées"
-                                                : "EEG = ES (1.5+2.1) affectés + flèches + zones saisonnières affectées"}>
+                                                : "EEG = ES (1.5+2.1) affectés + bonus rails→ES 1.5 + flèches + zones saisonnières affectées"}>
                                             EEG
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
@@ -601,9 +617,11 @@ export default function PhasageTab({ uploadId }) {
                                 </thead>
                                 <tbody>
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, fleches: 0, allees: [] };
+                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
                                         const color = nightColor(n, weeks);
+                                        // En magasin 2 : bonus rails NON inclus dans EEG nuit
+                                        const bonusForNight = isMagasin2 ? 0 : (t.bonus || 0);
                                         // Flèches comptées en ES 1.5 noir, magasin 1 et 2
                                         const flechesForNight = t.fleches || 0;
                                         const sa15ForNight = isMagasin2 ? (t.sa_15 || 0) : 0;
@@ -626,8 +644,8 @@ export default function PhasageTab({ uploadId }) {
                                                     {t.allees.length ? t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900"
-                                                    title={`ES brut (${fmt(Math.round(totalES))})${flechesForNight > 0 ? ` + Flèches (${fmt(flechesForNight)})` : ""}${sa15ForNight > 0 ? ` + SA 1.5 (${fmt(sa15ForNight)})` : ""}${t.seasonal > 0 ? ` + Zone saisonnier (${fmt(t.seasonal)})` : ""}`}>
-                                                    {fmt(eegPerNight(totalES, t.seasonal, flechesForNight, sa15ForNight))}
+                                                    title={`ES brut (${fmt(Math.round(totalES))})${bonusForNight > 0 ? ` + Bonus rails (${fmt(bonusForNight)})` : ""}${flechesForNight > 0 ? ` + Flèches (${fmt(flechesForNight)})` : ""}${sa15ForNight > 0 ? ` + SA 1.5 (${fmt(sa15ForNight)})` : ""}${t.seasonal > 0 ? ` + Zone saisonnier (${fmt(t.seasonal)})` : ""}`}>
+                                                    {fmt(eegPerNight(totalES, t.seasonal, bonusForNight, flechesForNight, sa15ForNight))}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
                                                 {isMagasin2 && (
@@ -650,7 +668,7 @@ export default function PhasageTab({ uploadId }) {
                                             {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : 0) + grandTotals.fleches + grandTotals.seasonal))}
+                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}
