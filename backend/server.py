@@ -1397,8 +1397,10 @@ def night_color_hex(nuit: int, weeks: list | None) -> str:
 STORE_MODE = os.environ.get("STORE_MODE", "magasin_1")
 
 # Patterns de rails qui DÉCLENCHENT le bonus "+1 EEG ES 1.5 par rail"
-# (selon liste utilisateur — 1187 EXCLU, 535 INCLUS)
+# (1187 inclus depuis le 08/02/2026)
 RAILS_BONUS_ES15 = [
+    ("1187 mm (noir)", "noir"),
+    ("1187 mm (blanc)", "blanc"),
     ("1240 mm (noir)", "noir"),
     ("1320 mm (blanc)", "blanc"),
     ("1320 mm (noir)", "noir"),
