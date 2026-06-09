@@ -920,45 +920,19 @@ async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_
 
 
 def _filter_autre_rows(d: dict) -> list[dict]:
-    """Retourne les lignes du fichier original dont Type == 'Fixation' (insensible
-    à la casse, accents tolérés) ET Référence commence par 'AUTRE' (toutes variantes :
-    AUTRE1, AUTRE3, AUTRE A, etc.).
+    """Retourne les lignes du fichier original dont la Référence contient 'AUTRE'
+    (insensible à la casse), peu importe le Type (Fixation, EEG, Rail, etc.).
+    Couvre les variantes AUTRE1, AUTRE3, AUTRE A, "Mat AUTRE", etc.
     """
     raw = d.get("raw_records") or []
     cols = d.get("detected_cols") or {}
-    type_col = cols.get("type")
     ref_col = cols.get("reference")
-    if not type_col or not ref_col:
+    if not ref_col:
         return []
     out = []
     for r in raw:
-        typ = str(r.get(type_col) or "").strip().lower()
-        if typ != "fixation":
-            continue
         ref = str(r.get(ref_col) or "").strip().upper()
-        if ref.startswith("AUTRE"):
-            out.append(r)
-    return out
-
-
-
-    """Retourne les lignes du fichier original dont Type == 'Fixation' (insensible
-    à la casse, accents tolérés) ET Référence commence par 'AUTRE' (toutes variantes :
-    AUTRE1, AUTRE3, AUTRE A, etc.).
-    """
-    raw = d.get("raw_records") or []
-    cols = d.get("detected_cols") or {}
-    type_col = cols.get("type")
-    ref_col = cols.get("reference")
-    if not type_col or not ref_col:
-        return []
-    out = []
-    for r in raw:
-        typ = str(r.get(type_col) or "").strip().lower()
-        if typ != "fixation":
-            continue
-        ref = str(r.get(ref_col) or "").strip().upper()
-        if ref.startswith("AUTRE"):
+        if "AUTRE" in ref:
             out.append(r)
     return out
 
