@@ -2716,6 +2716,29 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         if e["nuit"]:
             cam_by_nuit_local[e["nuit"]] = cam_by_nuit_local.get(e["nuit"], 0) + e["_cam"]
 
+    # Tri des assignations : d'abord par nuit (croissante, None à la fin),
+    # puis par numéro d'allée (tri naturel — "8" avant "10", "201-2" en suivant
+    # le numéro de base). Sans ce tri, le Plan d'attribution affiche les allées
+    # dans l'ordre où l'utilisateur les a ajoutées → des allées de Nuit 5
+    # peuvent apparaître après celles de Nuit 7 si elles ont été ajoutées
+    # tardivement.
+    def _allee_sort_key(label: str):
+        s = str(label or "")
+        # ZS toujours à la fin
+        if s.startswith("ZS"):
+            return (1, 10**9, s)
+        # Sépare en (numéro entier, suffixe texte) — "201-2" → (201, "-2")
+        import re as _re
+        m = _re.match(r"^(\d+)(.*)$", s)
+        if m:
+            return (0, int(m.group(1)), m.group(2))
+        return (0, 10**9, s)
+
+    existing.sort(key=lambda e: (
+        e["nuit"] if e["nuit"] is not None else 10**9,
+        _allee_sort_key(e["allee"]),
+    ))
+
     start_left = 6
     ws.merge_range(start_left, 0, start_left, 2, "Plan d'attribution par allée", fmt_title)
     for ci, h in enumerate(["N° Allée", "Caméras", "Nuit"]):
