@@ -404,3 +404,16 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
   - Bouton désactivé pendant le téléchargement (anti double-clic)
   - Toast "Génération de l'export RTR/Carrefour…" sur les deux boutons
   - État `exportingRTR` / `exportingCarrefour` géré dans `App.js` et propagé à `Header.jsx`
+
+## Bug fixes (11/06/2026 — soir) — Phasage caméras overlap + EEG/SA alignement Excel ↔ App
+- [x] **CRITIQUE — Overlap "Détail caméras par allée" sur "Plan d'attribution"** (Excel RTR → onglet Phasage caméras) :
+  - `detail_start` était calculé sur `nb_nuits` au lieu de `nb_rows_left` → la section Détail écrasait silencieusement les lignes 18+ du Plan d'attribution
+  - Résultat : les SUMIFS `=Caméras` retombaient à 0 pour les nuits dont les assignations étaient au-delà de la ligne 18 (typiquement nuits 7-10 sur cas réel)
+  - Correctif : `detail_start = first_data_row + nb_rows_left + 3`
+- [x] **Alignement Excel ↔ App pour EEG / SA dans "Phasage de pose"** (Excel RTR) :
+  - Suppression de la distribution prorata du SA 2.1 saisonnier dans la formule EEG par nuit (`=ROUND(SUMIFS+SUMIFS/SUM*$B$5,…)` → `=SUMIFS`). L'app n'incluait pas ce prorata → écart de +5 999 EEG. Désormais EEG par nuit identique entre app et Excel.
+  - Ajout de `z.sa_21` dans la colonne SA (D) du lookup pour les zones saisonnières → les nuits avec ZS affichent désormais leur SA dans Excel (Nuit 13 → 3 800 SA, Nuit 14 → 4 000 SA, alignés sur l'app).
+  - Total EEG (B4) ajusté pour ne plus inclure `sa_21_saisonnier` (sinon ≠ somme par nuit). Le SA 2.1 saisonnier reste affiché en ligne 5 à titre informatif.
+- [x] **Avertissements "Nombre stocké sous forme de texte"** : désactivés via `ws.ignore_errors({"number_stored_as_text": "A1:Z2000"})` sur les onglets Phasage de pose et Phasage caméras (les n° d'allée sont volontairement en texte pour supporter "201-2", "ZS1"…).
+- [x] **Helpers de fallback uid composite** : `_resolve_uid_label()` et `_resolve_idx_node()` étendus aux ndœuds `idx_allees_full` du Phasage de pose pour rattraper les assignations DB obsolètes (re-upload avec secteur/rayon différent).
+
