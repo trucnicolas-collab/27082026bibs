@@ -186,11 +186,17 @@ function MainApp() {
         [ensureRawLoaded]
     );
 
+    const [exportingRTR, setExportingRTR] = useState(false);
+    const [exportingCarrefour, setExportingCarrefour] = useState(false);
+
     const handleExport = useCallback(async () => {
-        if (!dataset?.upload_id) return;
+        if (!dataset?.upload_id || exportingRTR) return;
+        setExportingRTR(true);
         try {
+            toast.loading("Génération de l'export RTR…", { id: "rtr-export" });
             const res = await axios.get(`${API}/export/${dataset.upload_id}?sheet=all`, {
                 responseType: "blob",
+                timeout: 180000,
             });
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement("a");
@@ -200,14 +206,18 @@ function MainApp() {
             document.body.appendChild(link);
             link.click();
             link.remove();
-            toast.success("Export RTR téléchargé");
+            toast.success("Export RTR téléchargé", { id: "rtr-export" });
         } catch (err) {
-            toast.error(`Erreur d'export : ${err.message}`);
+            const msg = err.response?.data?.detail || err.message;
+            toast.error(`Erreur d'export : ${msg}`, { id: "rtr-export" });
+        } finally {
+            setExportingRTR(false);
         }
-    }, [dataset]);
+    }, [dataset, exportingRTR]);
 
     const handleExportCarrefour = useCallback(async () => {
-        if (!dataset?.upload_id) return;
+        if (!dataset?.upload_id || exportingCarrefour) return;
+        setExportingCarrefour(true);
         try {
             toast.loading("Génération de l'export Carrefour…", { id: "carrefour-export" });
             const res = await axios.get(`${API}/export-carrefour/${dataset.upload_id}`, {
@@ -226,8 +236,10 @@ function MainApp() {
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
             toast.error(`Erreur d'export Carrefour : ${msg}`, { id: "carrefour-export" });
+        } finally {
+            setExportingCarrefour(false);
         }
-    }, [dataset]);
+    }, [dataset, exportingCarrefour]);
 
     const handleReset = useCallback(() => {
         setDataset(null);
@@ -402,6 +414,8 @@ function MainApp() {
                         onSearchChange={setSearch}
                         onExport={handleExport}
                         onExportCarrefour={handleExportCarrefour}
+                        exportingRTR={exportingRTR}
+                        exportingCarrefour={exportingCarrefour}
                         onReset={handleReset}
                         onOpenSession={handleOpenSession}
                         onDeletedSession={handleDeletedSession}

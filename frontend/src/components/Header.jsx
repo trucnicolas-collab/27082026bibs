@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet, LogOut } from "lucide-react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2 } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 import ActivityPanel from "./ActivityPanel";
 
@@ -9,6 +9,8 @@ export default function Header({
     onSearchChange,
     onExport,            // RTR (full Excel)
     onExportCarrefour,   // 5-tabs Carrefour
+    exportingRTR = false,
+    exportingCarrefour = false,
     onReset,
     onOpenSession,
     onDeletedSession,
@@ -59,21 +61,23 @@ export default function Header({
                     <>
                         <button
                             onClick={onExport}
+                            disabled={exportingRTR}
                             data-testid="export-rtr-button"
-                            title="Exporter Excel — version complète pour le RTR"
-                            className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
+                            title={exportingRTR ? "Génération en cours…" : "Exporter Excel — version complète pour le RTR"}
+                            className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors font-medium shadow-sm"
                         >
-                            <Download className="w-4 h-4" />
-                            <span className="hidden sm:inline">Excel RTR</span>
+                            {exportingRTR ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                            <span className="hidden sm:inline">{exportingRTR ? "Génération…" : "Excel RTR"}</span>
                         </button>
                         <button
                             onClick={onExportCarrefour}
+                            disabled={exportingCarrefour}
                             data-testid="export-carrefour-button"
-                            title="Exporter Excel — version Carrefour (5 onglets)"
-                            className="h-8 px-3 bg-[#B91C1C] text-white text-sm rounded hover:bg-[#991B1B] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
+                            title={exportingCarrefour ? "Génération en cours…" : "Exporter Excel — version Carrefour (5 onglets)"}
+                            className="h-8 px-3 bg-[#B91C1C] text-white text-sm rounded hover:bg-[#991B1B] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors font-medium shadow-sm"
                         >
-                            <Download className="w-4 h-4" />
-                            <span className="hidden sm:inline">Excel Carrefour</span>
+                            {exportingCarrefour ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                            <span className="hidden sm:inline">{exportingCarrefour ? "Génération…" : "Excel Carrefour"}</span>
                         </button>
                         <button
                             onClick={onReset}

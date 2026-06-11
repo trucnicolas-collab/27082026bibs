@@ -1894,15 +1894,43 @@ def _allee_display_label(a: dict) -> str:
 
 def _build_uid_to_label(allees: list, seasonal_zones=None) -> dict:
     """Construit le mapping uid -> display_label utilisé pour convertir les
-    assignations stockées en DB (uid) vers les labels courts affichés dans Excel."""
+    assignations stockées en DB (uid) vers les labels courts affichés dans Excel.
+
+    Inclut un fallback "numéro de base" : si l'uid est de la forme
+    "{N}__{SECTEUR}__{RAYON}", on enregistre aussi le mapping `{N}__*` pour
+    rattraper les assignations historiques où le secteur/rayon a changé après
+    un re-upload du fichier (sinon les calculs caméras retombent à 0)."""
     mapping = {}
+    # Mapping principal uid → label exact
     for a in allees:
         uid = str(a.get("uid") or a.get("allee"))
         mapping[uid] = _allee_display_label(a)
+    # Fallback par numéro de base (priorité au mapping exact, donc setdefault)
+    base_to_labels: dict[str, list[str]] = {}
+    for a in allees:
+        base = str(a.get("allee") or "").strip()
+        if base:
+            base_to_labels.setdefault(base, []).append(_allee_display_label(a))
+    # Pour chaque uid composite absent, on tente un mapping via le préfixe.
+    # On n'écrase JAMAIS un mapping exact.
+    # On ne crée le fallback que si une seule label correspond (sinon ambigu).
+    for base, labels in base_to_labels.items():
+        if len(set(labels)) == 1:
+            mapping.setdefault(base, labels[0])  # uid simple "10"
     for z in (seasonal_zones or []):
         # uid = id ("ZS1"), label = id
         mapping[str(z.get("id"))] = str(z.get("id"))
     return mapping
+
+
+def _resolve_uid_label(uid: str, mapping: dict) -> str:
+    """Résout un uid (potentiellement composite "{N}__SECTEUR__RAYON") vers son
+    label affichable. Tente l'exact, puis le numéro de base avant le premier
+    "__". Retourne l'uid d'origine si rien ne matche."""
+    if uid in mapping:
+        return mapping[uid]
+    base = uid.split("__", 1)[0] if "__" in uid else uid
+    return mapping.get(base, uid)
 
 
 def _full_allee_index(summary: dict) -> dict:
@@ -1911,9 +1939,25 @@ def _full_allee_index(summary: dict) -> dict:
     les récap des exports Excel (RTR + Carrefour), causant leur disparition.
     Leur EEG (eeg=2000 par SZ par défaut) est comptabilisé via es_21 pour
     que les agrégations existantes les somment naturellement.
+
+    Fallback ajouté : on enregistre aussi un mapping `base allée → premier
+    nœud trouvé` pour rattraper les assignations stockées en DB avec un
+    secteur/rayon qui n'existe plus après re-upload (sinon `idx.get(uid)`
+    renvoie None et l'allée disparaît silencieusement des récaps).
     """
     idx = {str(a.get("uid") or a.get("allee")): a
            for a in (summary.get("allees") or [])}
+    # Fallback par numéro de base (n'écrase pas les uids exacts).
+    by_base: dict[str, list] = {}
+    for a in (summary.get("allees") or []):
+        base = str(a.get("allee") or "").strip()
+        if base:
+            by_base.setdefault(base, []).append(a)
+    for base, nodes in by_base.items():
+        # On n'ajoute le fallback que s'il n'existe pas déjà comme uid exact
+        # ET qu'il n'y a aucune ambiguïté (1 seule allée pour ce numéro).
+        if base not in idx and len(nodes) == 1:
+            idx[base] = nodes[0]
     for z in (summary.get("seasonal_zones") or []):
         sz_eeg = float(z.get("eeg") or 0)
         idx[str(z["id"])] = {
@@ -1930,6 +1974,17 @@ def _full_allee_index(summary: dict) -> dict:
             "seasonal_eeg": sz_eeg, "is_seasonal": True,
         }
     return idx
+
+
+def _resolve_idx_node(uid: str, idx: dict):
+    """Récupère le nœud allée depuis l'index avec fallback sur le numéro de
+    base avant le premier `__`. Retourne None si introuvable."""
+    node = idx.get(uid)
+    if node is not None:
+        return node
+    if "__" in uid:
+        return idx.get(uid.split("__", 1)[0])
+    return None
 
 
 def _format_sr_grouped(sr_pairs) -> str:
@@ -2190,7 +2245,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     existing = []
     for row in rows_assign:
         a_uid = str(row.get("allee") or "").strip()
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         n = row.get("nuit")
         existing.append({"allee": a_label, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
 
@@ -2270,7 +2325,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
     for row in rows_assign:
         a_uid = str(row.get("allee") or "").strip()
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         n = row.get("nuit")
         if a_label and n and 1 <= int(n) <= nb_nuits:
             night_allees_static[int(n)].append(a_label)
@@ -2619,16 +2674,40 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     ws.write(3, 0, "Total Caméras", fmt_lbl)
     ws.write_number(3, 1, totals.get("cameras", 0), fmt_num)
     ws.write(3, 2, "Moyenne / nuit :", fmt_lbl)
-    ws.write_formula(3, 3, "=IFERROR(ROUND(B4/B2,0),0)", fmt_num_calc)
+    _moyenne_cached = round((totals.get("cameras", 0) or 0) / nb_nuits) if nb_nuits else 0
+    ws.write_formula(3, 3, "=IFERROR(ROUND(B4/B2,0),0)", fmt_num_calc, _moyenne_cached)
 
     nuit_labels = [f"Nuit {start_at + i}" for i in range(nb_nuits)]
 
     existing = []
     for row in rows_assign:
         a_uid = str(row.get("allee") or "").strip()
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         n = row.get("nuit")
-        existing.append({"allee": a_label, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None)})
+        existing.append({"allee": a_label, "nuit": (int(n) if n and 1 <= int(n) <= nb_nuits else None), "uid": a_uid})
+
+    # Précalcul caméras par allée assignée (cache pour VLOOKUP)
+    # et caméras par nuit locale (cache pour SUMIFS). Sans cache, certains
+    # tableurs (LibreOffice, Google Sheets, Excel en mode "ouverture rapide")
+    # affichent 0 jusqu'à un recalcul manuel.
+    # Fallback : si l'uid composite stocké en DB ne matche plus (re-upload avec
+    # secteur/rayon différent), on retombe sur le numéro de base.
+    uid_to_cam = {str(a.get("uid") or a.get("allee")): float(a.get("cameras") or 0) for a in all_allees}
+    base_to_cam: dict[str, float] = {}
+    for a in all_allees:
+        base = str(a.get("allee") or "").strip()
+        if base:
+            base_to_cam[base] = base_to_cam.get(base, 0) + float(a.get("cameras") or 0)
+    label_to_cam = {_allee_display_label(a): float(a.get("cameras") or 0) for a in all_allees}
+    cam_by_nuit_local = {n: 0 for n in range(1, nb_nuits + 1)}
+    for e in existing:
+        c = uid_to_cam.get(e["uid"])
+        if c is None:
+            base_uid = e["uid"].split("__", 1)[0] if "__" in e["uid"] else e["uid"]
+            c = base_to_cam.get(base_uid, label_to_cam.get(e["allee"], 0))
+        e["_cam"] = c
+        if e["nuit"]:
+            cam_by_nuit_local[e["nuit"]] = cam_by_nuit_local.get(e["nuit"], 0) + e["_cam"]
 
     start_left = 6
     ws.merge_range(start_left, 0, start_left, 2, "Plan d'attribution par allée", fmt_title)
@@ -2653,7 +2732,8 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
             ws.write_string(rr, 0, existing[i]["allee"], fmt_cell)
         else:
             ws.write_blank(rr, 0, None, fmt_cell)
-        ws.write_formula(rr, 1, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},2,FALSE),"")', fmt_num_calc)
+        _cam_cached = existing[i]["_cam"] if i < len(existing) and existing[i]["allee"] else ""
+        ws.write_formula(rr, 1, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},2,FALSE),"")', fmt_num_calc, _cam_cached)
         ws.data_validation(rr, 2, rr, 2, {"validate": "list", "source": nuit_labels})
         if i < len(existing) and existing[i]["nuit"]:
             local_n = existing[i]["nuit"]
@@ -2670,13 +2750,20 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     # Map dates par nuit globale (start_at + n - 1) + Secteur/Rayon par nuit locale
     dates_map_cam = phasage_full.get("dates") or {}
     idx_allees_cam = {str(a.get("uid") or a["allee"]): a for a in all_allees}
+    # Fallback par numéro de base : si une assignation référence un uid composite
+    # obsolète (re-upload avec secteur/rayon différent), on retombe sur la 1ère
+    # allée correspondante avec caméras.
+    for a in all_allees:
+        base = str(a.get("allee") or "").strip()
+        if base and base not in idx_allees_cam:
+            idx_allees_cam[base] = a
     sr_by_nuit_cam: dict[int, list[str]] = {}
     for r2 in rows_assign:
         n2 = r2.get("nuit")
         a_uid = str(r2.get("allee") or "").strip()
         if not n2 or not a_uid:
             continue
-        node = idx_allees_cam.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx_allees_cam)
         if not node:
             continue
         sec = node.get("secteur") or ""
@@ -2694,7 +2781,7 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     night_allees_static: dict[int, list[str]] = {n: [] for n in range(1, nb_nuits + 1)}
     for row in rows_assign:
         a_uid = str(row.get("allee") or "").strip()
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         n = row.get("nuit")
         if a_label and n and 1 <= int(n) <= nb_nuits:
             night_allees_static[int(n)].append(a_label)
@@ -2721,17 +2808,21 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         ws.write_string(rrow, col_right + 2, _format_sr_grouped(sr_list_c), fmt_sr_cam)
         # Allées (col_right + 3)
         ws.write_string(rrow, col_right + 3, ", ".join(sorted(night_allees_static.get(n, []), key=_sak)), fmt_allees_neutral)
-        # Caméras (col_right + 4)
-        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({B_range},{C_range},"{nuit_label}")', fmt_num_neutral)
+        # Caméras (col_right + 4) — formule SUMIFS + valeur en cache pour
+        # garantir l'affichage immédiat (LibreOffice/Google Sheets/Excel rapide).
+        _cam_n_cached = int(round(cam_by_nuit_local.get(n, 0) or 0))
+        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({B_range},{C_range},"{nuit_label}")', fmt_num_neutral, _cam_n_cached)
 
     rrow_total = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
     ws.write_blank(rrow_total, col_right + 1, None, fmt_total_lbl)
     ws.write_blank(rrow_total, col_right + 2, None, fmt_total_lbl)
-    ws.write_formula(rrow_total, col_right + 3, f'=COUNTA({A_range})&" allées planifiées"', fmt_total_lbl)
+    _counta_cached = f'{sum(1 for e in existing if e["allee"])} allées planifiées'
+    ws.write_formula(rrow_total, col_right + 3, f'=COUNTA({A_range})&" allées planifiées"', fmt_total_lbl, _counta_cached)
+    _total_cached = int(round(sum(cam_by_nuit_local.values())))
     ws.write_formula(rrow_total, col_right + 4,
                      f"=SUM(${chr(ord('A')+col_right+4)}${excel_first}:${chr(ord('A')+col_right+4)}${first_data_row + nb_nuits})",
-                     fmt_total_row)
+                     fmt_total_row, _total_cached)
 
     for n in range(1, nb_nuits + 1):
         global_n = start_at + n - 1
@@ -2751,7 +2842,7 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     detail_rows = []  # list of (nuit, allee_label, [elems])
     for row in rows_assign:
         a_uid = str(row.get("allee") or "").strip()
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         n = row.get("nuit")
         if not a_label or not n: continue
         node = detail_idx.get(a_label)
@@ -2806,9 +2897,9 @@ def _build_consolidated_nuit_data(d, summary):
     for r in es_plan.get("rows") or []:
         n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
         if not n or not a_uid: continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node: continue
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         gn = int(n)
         dn = nuit_data.setdefault(gn, {"type": "ES", "allees": [], "es": 0, "cam": 0, "rails_es": 0})
         dn["allees"].append(a_label)
@@ -2817,9 +2908,9 @@ def _build_consolidated_nuit_data(d, summary):
     for r in cam_plan.get("rows") or []:
         n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
         if not n or not a_uid: continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node: continue
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         gn = start_at + int(n) - 1
         dn = nuit_data.setdefault(gn, {"type": "Caméras", "allees": [], "es": 0, "cam": 0, "rails_es": 0})
         if dn["es"] > 0:
@@ -2848,9 +2939,9 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     for r in es_plan.get("rows") or []:
         n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
         if not n or not a_uid: continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node: continue
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         gn = int(n)
         dn = per_nuit.setdefault(gn, {
             "es_allees": [], "es": 0, "rails_es": 0, "sa": 0,
@@ -2863,9 +2954,9 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     for r in cam_plan.get("rows") or []:
         n, a_uid = r.get("nuit"), str(r.get("allee") or "").strip()
         if not n or not a_uid: continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node: continue
-        a_label = uid_to_label.get(a_uid, a_uid)
+        a_label = _resolve_uid_label(a_uid, uid_to_label)
         gn = start_at + int(n) - 1
         dn = per_nuit.setdefault(gn, {
             "es_allees": [], "es": 0, "rails_es": 0, "sa": 0,
@@ -2891,7 +2982,7 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     for r2 in es_plan.get("rows") or []:
         n, a_uid = r2.get("nuit"), str(r2.get("allee") or "").strip()
         if not n or not a_uid: continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node: continue
         sec = node.get("secteur") or ""
         ray = node.get("rayon") or ""
@@ -2903,7 +2994,7 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     for r2 in cam_plan.get("rows") or []:
         n, a_uid = r2.get("nuit"), str(r2.get("allee") or "").strip()
         if not n or not a_uid: continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node: continue
         gn = start_at + int(n) - 1
         sec = node.get("secteur") or ""
@@ -3775,7 +3866,7 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
         n = r.get("nuit")
         if not n or not a_uid:
             continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node:
             continue
         gn = int(n)
@@ -3796,7 +3887,7 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
         n = r.get("nuit")
         if not n or not a_uid:
             continue
-        node = idx.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx)
         if not node:
             continue
         gn = cam_start_at + int(n) - 1

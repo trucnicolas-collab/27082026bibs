@@ -390,3 +390,17 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] Lazy-load des données brutes déclenché aussi sur l'onglet "Par Secteur"
 - [x] Détection automatique de la colonne G (Element / Élément / Gondole / N° élément, avec fallback positionnel)
 - [x] Tests backend mis à jour pour valider les nouveaux noms de feuilles
+
+
+## Bug fixes (11/06/2026) — Phasage caméras & UX export
+- [x] **Excel RTR / onglet "Phasage caméras"** : totaux caméras par nuit qui apparaissaient à 0
+  - Cause 1 : les formules `VLOOKUP` / `SUMIFS` étaient écrites sans valeur en cache → LibreOffice et certains modes d'ouverture Excel affichaient 0 jusqu'à un recalcul manuel
+  - Cause 2 : si la DB stocke un uid composite `{N}__{SECTEUR}__{RAYON}` qui n'existe plus après re-upload (secteur/rayon différent), le mapping `uid → label` échouait silencieusement → label brut affiché et VLOOKUP en échec
+  - Correctifs :
+    - Ajout d'une **valeur en cache** (`value=` sur `write_formula`) pour `B` (caméras VLOOKUP), `I` (total par nuit SUMIFS), `D4` (moyenne), `H{n}` (COUNTA), et la cellule TOTAL
+    - Ajout d'un **fallback par numéro de base** dans `_build_uid_to_label`, `_full_allee_index` et `idx_allees_cam` via les helpers `_resolve_uid_label` et `_resolve_idx_node`
+- [x] **Boutons d'export Excel RTR & Carrefour** :
+  - Spinner animé (`Loader2`) qui remplace l'icône Download pendant la génération
+  - Bouton désactivé pendant le téléchargement (anti double-clic)
+  - Toast "Génération de l'export RTR/Carrefour…" sur les deux boutons
+  - État `exportingRTR` / `exportingCarrefour` géré dans `App.js` et propagé à `Header.jsx`
