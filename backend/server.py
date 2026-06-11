@@ -1905,6 +1905,67 @@ def _build_uid_to_label(allees: list, seasonal_zones=None) -> dict:
     return mapping
 
 
+def _full_allee_index(summary: dict) -> dict:
+    """Index uid -> noeud allée. INCLUT les zones saisonnières (SZ) avec
+    secteur='Zone saisonnier'. Ces zones étaient précédemment ignorées dans
+    les récap des exports Excel (RTR + Carrefour), causant leur disparition.
+    Leur EEG (eeg=2000 par SZ par défaut) est comptabilisé via es_21 pour
+    que les agrégations existantes les somment naturellement.
+    """
+    idx = {str(a.get("uid") or a.get("allee")): a
+           for a in (summary.get("allees") or [])}
+    for z in (summary.get("seasonal_zones") or []):
+        sz_eeg = float(z.get("eeg") or 0)
+        idx[str(z["id"])] = {
+            "uid": z["id"], "allee": z["id"],
+            "es_15": 0, "es_21": sz_eeg,
+            "sa": float(z.get("sa_21") or 0), "sa_15": 0,
+            "sa_21": float(z.get("sa_21") or 0),
+            "rails_es": 0, "rails_es_by_desig": {},
+            "cameras": 0, "camera_elems": [],
+            "fleches": 0,
+            "es_15_bonus_noir": 0, "es_15_bonus_blanc": 0,
+            "secteur": "Zone saisonnier",
+            "rayon": z.get("label") or z["id"],
+            "seasonal_eeg": sz_eeg, "is_seasonal": True,
+        }
+    return idx
+
+
+def _format_sr_grouped(sr_pairs) -> str:
+    """Reçoit une liste de "Secteur:Rayon" et retourne une chaîne factorisée :
+       ["NAL:Bébé", "NAL:Homme", "PGC:Animalerie"]
+       -> "NAL : Bébé / Homme | PGC : Animalerie"
+    """
+    if not sr_pairs:
+        return ""
+    by_sec: dict = {}
+    order: list = []
+    for s in sr_pairs:
+        s = (s or "").strip()
+        if not s:
+            continue
+        if ":" in s:
+            sec, ray = s.split(":", 1)
+        else:
+            sec, ray = s, ""
+        sec = sec.strip()
+        ray = ray.strip()
+        if not sec:
+            continue
+        if sec not in by_sec:
+            by_sec[sec] = []
+            order.append(sec)
+        if ray and ray not in by_sec[sec]:
+            by_sec[sec].append(ray)
+    parts = []
+    for sec in order:
+        rays = by_sec[sec]
+        parts.append(f"{sec} : {' / '.join(rays)}" if rays else sec)
+    return " | ".join(parts)
+
+
+
 
 
 def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
@@ -2186,7 +2247,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # Map dates par nuit + Secteur/Rayon par nuit (déduplication)
     dates_map_es = phasage_full.get("dates") or {}
-    idx_allees_full = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
+    idx_allees_full = _full_allee_index(summary)
     sr_by_nuit_es: dict[int, list[str]] = {}
     for r2 in rows_assign:
         n2 = r2.get("nuit")
@@ -2269,7 +2330,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
             ws.write_blank(rrow, col_right + 1, None, fmt_date_neutral)
         # Secteur/Rayon (col_right + 2) — fond blanc
         sr_list = sr_by_nuit_es.get(n) or []
-        ws.write_string(rrow, col_right + 2, " / ".join(sr_list) if sr_list else "", fmt_sr_neutral)
+        ws.write_string(rrow, col_right + 2, _format_sr_grouped(sr_list), fmt_sr_neutral)
         # Colonne "Allées" : texte statique (calculé à l'export)
         allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
         allees_text = ", ".join(allees_sorted) if allees_sorted else ""
@@ -2367,7 +2428,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                         ws.write_blank(cur_row, col_right + 1, None, fmt_date_neutral)
                     # Secteur/Rayon
                     sr_list_w = sr_by_nuit_es.get(n) or []
-                    ws.write_string(cur_row, col_right + 2, " / ".join(sr_list_w) if sr_list_w else "", fmt_sr_neutral)
+                    ws.write_string(cur_row, col_right + 2, _format_sr_grouped(sr_list_w), fmt_sr_neutral)
                     # Allées
                     allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
                     ws.write_string(cur_row, col_right + 3,
@@ -2657,7 +2718,7 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
             ws.write_blank(rrow, col_right + 1, None, fmt_date_cam)
         # Secteur/Rayon (col_right + 2) — clé = nuit locale n
         sr_list_c = sr_by_nuit_cam.get(n) or []
-        ws.write_string(rrow, col_right + 2, " / ".join(sr_list_c) if sr_list_c else "", fmt_sr_cam)
+        ws.write_string(rrow, col_right + 2, _format_sr_grouped(sr_list_c), fmt_sr_cam)
         # Allées (col_right + 3)
         ws.write_string(rrow, col_right + 3, ", ".join(sorted(night_allees_static.get(n, []), key=_sak)), fmt_allees_neutral)
         # Caméras (col_right + 4)
@@ -2739,7 +2800,7 @@ def _build_consolidated_nuit_data(d, summary):
     cam_plan = phasage_full["cam"]
     start_at = int(cam_plan.get("start_at_nuit") or 5)
     # idx clé = uid (= ce qui est stocké en DB dans rows[].allee)
-    idx = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
+    idx = _full_allee_index(summary)
     uid_to_label = _build_uid_to_label(summary["allees"], summary.get("seasonal_zones"))
     nuit_data: dict[int, dict] = {}
     for r in es_plan.get("rows") or []:
@@ -2779,7 +2840,7 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     cam_plan = phasage_full["cam"]
     start_at = int(cam_plan.get("start_at_nuit") or 5)
     # idx clé = uid (ce qui est stocké en DB dans rows[].allee)
-    idx = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
+    idx = _full_allee_index(summary)
     uid_to_label = _build_uid_to_label(summary["allees"], summary.get("seasonal_zones"))
 
     # Construit pour chaque nuit globale les agrégats ES et Cam séparés
@@ -2921,7 +2982,7 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
                 ws.write_blank(r, c, None, fmt_num)
         # Secteur/Rayon EEG (col E)
         sr_list_es = sr_by_nuit_es.get(n) or []
-        ws.write_string(r, 4, " / ".join(sr_list_es) if sr_list_es else "", fmt_sr_cell)
+        ws.write_string(r, 4, _format_sr_grouped(sr_list_es), fmt_sr_cell)
         # Nuit (col F, BLANCHE par fmt_nuit)
         ws.write_number(r, 5, n, fmt_nuit)
         # Date (col G)
@@ -2936,7 +2997,7 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
             ws.write_blank(r, 6, None, fmt_date_cell)
         # Secteur/Rayon Cam (col H)
         sr_list_cam = sr_by_nuit_cam.get(n) or []
-        ws.write_string(r, 7, " / ".join(sr_list_cam) if sr_list_cam else "", fmt_sr_cell)
+        ws.write_string(r, 7, _format_sr_grouped(sr_list_cam), fmt_sr_cell)
         # Bloc Cam (cols I-J)
         if info["cam_allees"]:
             ws.write_string(r, 8, ", ".join(info["cam_allees"]), fmt_text)
@@ -3690,18 +3751,8 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
     cam_start_at = int(cam_plan.get("start_at_nuit") or 5)
     weeks_es = es_plan.get("weeks") or []
 
-    allees = summary.get("allees") or []
-    seasonal = summary.get("seasonal_zones") or []
-    idx: dict[str, dict] = {str(a.get("uid") or a.get("allee")): a for a in allees}
-    for z in seasonal:
-        idx[str(z.get("id"))] = {
-            "uid": str(z.get("id")), "allee": str(z.get("id")),
-            "es_15": 0, "es_21": 0, "sa": z.get("sa_21") or 0,
-            "sa_15": 0, "sa_21": z.get("sa_21") or 0,
-            "rails_es": 0, "cameras": 0, "camera_elems": [],
-            "secteur": "", "rayon": "",
-            "is_seasonal": True,
-        }
+    # Index complet (allées + zones saisonnières avec EEG comptabilisé en es_21)
+    idx = _full_allee_index(summary)
 
     def _lbl(a_uid: str, node: dict) -> str:
         if node.get("is_seasonal"):
@@ -3911,7 +3962,7 @@ async def _build_carrefour_export(d: dict):
                     ws.write_string(row, 1, d_iso, p.get("date", fmt_date))
             else:
                 ws.write_blank(row, 1, None, p.get("date", fmt_date))
-            ws.write(row, 2, " / ".join(bucket.get("secteurs_rayons") or []),
+            ws.write(row, 2, _format_sr_grouped(bucket.get("secteurs_rayons") or []),
                      p.get("sr", fmt_cell))
             ws.write(row, 3, ", ".join(str(a) for a in (bucket.get("allees") or [])),
                      p.get("left", fmt_cell))
@@ -3954,7 +4005,7 @@ async def _build_carrefour_export(d: dict):
                     ws.write_string(row, 1, d_iso, p.get("date", fmt_date))
             else:
                 ws.write_blank(row, 1, None, p.get("date", fmt_date))
-            ws.write(row, 2, " / ".join(bucket.get("secteurs_rayons") or []),
+            ws.write(row, 2, _format_sr_grouped(bucket.get("secteurs_rayons") or []),
                      p.get("sr", fmt_cell))
             ws.write(row, 3, ", ".join(str(a) for a in (bucket.get("allees") or [])),
                      p.get("left", fmt_cell))
@@ -4036,7 +4087,7 @@ async def _build_carrefour_export(d: dict):
             ws.write(row, 1, int(round(es.get("es") or 0)), p_es.get("right", fmt_num))
             ws.write(row, 2, int(round(es.get("rails_es") or 0)), p_es.get("right", fmt_num))
             ws.write(row, 3, int(round(es.get("sa") or 0)), p_es.get("right", fmt_num))
-            ws.write(row, 4, " / ".join(es.get("secteurs_rayons") or []),
+            ws.write(row, 4, _format_sr_grouped(es.get("secteurs_rayons") or []),
                      p_es.get("sr", fmt_cell))
             # Nuit (BLANCHE — seule colonne sans fond)
             ws.write(row, 5, f"{n}", wb.add_format({
@@ -4053,7 +4104,7 @@ async def _build_carrefour_export(d: dict):
             else:
                 ws.write_blank(row, 6, None, p_es.get("date", fmt_date))
             # Bloc Cam
-            ws.write(row, 7, " / ".join(cam.get("secteurs_rayons") or []),
+            ws.write(row, 7, _format_sr_grouped(cam.get("secteurs_rayons") or []),
                      p_cam.get("sr", fmt_cell) if cam else fmt_cell)
             ws.write(row, 8, ", ".join(str(a) for a in (cam.get("allees") or [])),
                      p_cam.get("left", fmt_cell) if cam else fmt_cell)

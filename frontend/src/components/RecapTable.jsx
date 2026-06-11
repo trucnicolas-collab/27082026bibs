@@ -297,7 +297,26 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                             placeholder="Qté"
                                             type="number"
                                             align="right"
-                                            onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: r.designation, quantite: v, spare: r.spare })}
+                                            onCommit={(v) => {
+                                                // Auto-recalcul du Spare quand la Quantité change.
+                                                // Règle générique : +5% arrondi sup. (cohérent avec backend).
+                                                // Sauf pour Dongle/Inclineur (pas de spare).
+                                                const qty = parseFloat(v);
+                                                let newSpare = r.spare;
+                                                const skipAutoSpare = r.kind === "dongle" || r.kind === "inclineur";
+                                                if (!skipAutoSpare && !isNaN(qty) && qty > 0) {
+                                                    newSpare = Math.ceil(qty * 0.05);
+                                                } else if (!skipAutoSpare && (v === "" || qty === 0)) {
+                                                    newSpare = "";
+                                                }
+                                                onUpdateRow(i, {
+                                                    type: r.type,
+                                                    reference: r.reference,
+                                                    designation: r.designation,
+                                                    quantite: v,
+                                                    spare: newSpare,
+                                                });
+                                            }}
                                         />
                                     </td>
                                     <td className="p-0 border-r border-gray-200 align-middle bg-emerald-50/40">
