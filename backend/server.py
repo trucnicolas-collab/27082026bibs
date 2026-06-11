@@ -2102,8 +2102,10 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         ws_data.write_string(rr, 0, str(z["id"]))
         ws_data.write_number(rr, 1, int(z.get("eeg") or 0))
         ws_data.write_number(rr, 2, 0)
-        # SA 2.1 (info) : 0 pour les zones (le saisonnier est déjà dans EEG, pas en double)
-        ws_data.write_number(rr, 3, 0)
+        # SA 2.1 (info) : on remonte z.sa_21 pour aligner le récap SA par nuit
+        # avec celui affiché dans l'application (sinon les nuits avec ZS
+        # apparaissent en moins-X SA dans l'export).
+        ws_data.write_number(rr, 3, int(z.get("sa_21") or 0))
         ws_data.write_number(rr, 4, 0)
     ws_data.hide()
 
@@ -2152,6 +2154,9 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
 
     # ----- En-tête supérieur -----
     ws.merge_range(0, 0, 0, 10, "Phasage de pose des étiquettes (EEG)", fmt_title)
+    # Désactive l'avertissement "Nombre stocké sous forme de texte" (les n°
+    # d'allée sont volontairement en texte pour supporter "201-2", "ZS1"…).
+    ws.ignore_errors({"number_stored_as_text": "A1:Z2000"})
     ws.write(1, 0, "Nb nuits :", fmt_lbl)
     ws.write_number(1, 1, nb_nuits, fmt_input)
     ws.write(1, 2, "Moyenne/nuit :", fmt_lbl)
@@ -2160,18 +2165,18 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.write(1, 4, "Total EEG / Nb nuits", fmt_italic)
 
     # ----- Totaux globaux du fichier (statiques) -----
-    # Total EEG selon le mode magasin :
-    #   - mag 1 : ES + bonus rails + SA 2.1 saisonnier
-    #   - mag 2 : ES + SA 1.5 + SA 2.1 saisonnier (bonus rails NON inclus)
+    # Total EEG = somme des EEG par nuit (alignée sur le récap droit + l'application).
+    # Le SA 2.1 saisonnier reste affiché en ligne 5 pour information mais
+    # n'est plus inclus dans ce total (sinon la somme ≠ TOTAL du récap).
     total_es_brut = (totals["es_15"] or 0) + (totals["es_21"] or 0)
     total_bonus = (totals.get("es_15_bonus_noir") or 0) + (totals.get("es_15_bonus_blanc") or 0)
     total_sa_15 = totals.get("sa_15") or 0
     total_sa_21 = totals.get("sa_21") or 0
     sa_21_saisonnier = int(summary.get("sa_21_saisonnier") or 0)
     if is_m2:
-        total_eeg = total_es_brut + total_sa_15 + sa_21_saisonnier
+        total_eeg = total_es_brut + total_sa_15
     else:
-        total_eeg = total_es_brut + total_bonus + sa_21_saisonnier
+        total_eeg = total_es_brut + total_bonus
     ws.write(3, 0, "Total EEG", fmt_lbl)
     ws.write_number(3, 1, total_eeg, fmt_num)
     ws.write(3, 2, "Total Rails ES", fmt_lbl)
@@ -2210,7 +2215,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                          "bg_color": "#FEF3C7", "font_color": "#92400E"})
     ws.write(4, 0, "SA 2.1 saisonnier", fmt_sa21_lbl)
     ws.write_number(4, 1, sa_21_saisonnier, fmt_sa21_num)
-    ws.write(4, 2, "(réparti au prorata des ES par nuit)", fmt_italic)
+    ws.write(4, 2, "(info — n'est pas inclus dans le total EEG ci-dessus)", fmt_italic)
     # Référence Excel B5 (1-based) qui contient le SA 2.1 saisonnier — utilisée par les formules EEG
     SA21_REF = "$B$5"
 
@@ -2309,7 +2314,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         a_uid = str(r2.get("allee") or "").strip()
         if not n2 or not a_uid:
             continue
-        node = idx_allees_full.get(a_uid)
+        node = _resolve_idx_node(a_uid, idx_allees_full)
         if not node:
             continue
         sec = node.get("secteur") or ""
@@ -2390,12 +2395,11 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
         allees_sorted = sorted(night_allees_static.get(n, []), key=_sort_allee_key)
         allees_text = ", ".join(allees_sorted) if allees_sorted else ""
         ws.write_string(rrow, col_right + 3, allees_text, fmt_allees_neutral)
-        # EEG par nuit :
-        if is_m2:
-            eeg_formula = f'=SUMIFS({B_range},{E_range},"{nuit_label}")'
-        else:
-            eeg_formula = (f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
-                           f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)')
+        # EEG par nuit : SUMIFS simple (aligné sur l'affichage de l'application).
+        # La distribution prorata du SA 2.1 saisonnier n'est PAS ajoutée
+        # car elle créait un écart entre la somme par nuit dans Excel et
+        # le total affiché dans l'app (capture utilisateur du 11/06/2026).
+        eeg_formula = f'=SUMIFS({B_range},{E_range},"{nuit_label}")'
         ws.write_formula(rrow, col_right + 4, eeg_formula, fmt_num_neutral)
         ws.write_formula(rrow, col_right + 5,
                          f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
@@ -2490,8 +2494,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
                                     ", ".join(allees_sorted) if allees_sorted else "",
                                     fmt_allees_neutral)
                     ws.write_formula(cur_row, col_right + 4,
-                                     f'=ROUND(SUMIFS({B_range},{E_range},"{nuit_label}")'
-                                     f'+IFERROR(SUMIFS({B_range},{E_range},"{nuit_label}")/SUM({B_range})*{SA21_REF},0),0)',
+                                     f'=SUMIFS({B_range},{E_range},"{nuit_label}")',
                                      fmt_num_neutral)
                     ws.write_formula(cur_row, col_right + 5,
                                      f'=SUMIFS({C_range},{E_range},"{nuit_label}")', fmt_num_neutral)
@@ -2666,6 +2669,10 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         cf_right[n] = workbook.add_format({"bg_color": color, "border": 1})
 
     ws.merge_range(0, 0, 0, 6, "Phasage de pose des caméras (noire & blanche)", fmt_title)
+    # Désactive l'avertissement "Nombre stocké sous forme de texte" sur tout
+    # l'onglet (les n° d'allée et d'éléments sont volontairement en texte pour
+    # supporter "201-2", "ZS1"… et garder la cohérence VLOOKUP).
+    ws.ignore_errors({"number_stored_as_text": "A1:Z2000"})
     ws.write(1, 0, "Nb nuits :", fmt_lbl)
     ws.write_number(1, 1, nb_nuits, fmt_input)
     ws.write(1, 2, "Démarrage :", fmt_lbl)
@@ -2852,7 +2859,10 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     detail_rows.sort(key=lambda x: (x[0], smart_order.get(x[1], 99999)))
 
     if detail_rows:
-        detail_start = first_data_row + nb_nuits + 3  # 2 lignes de blank après TOTAL récap
+        # Le Détail doit commencer APRÈS le LEFT plan d'attribution (sinon il
+        # écrase les lignes du LEFT à partir de la ligne ~18, ce qui fait que
+        # les SUMIFS du récap par nuit retombent à 0 pour les nuits suivantes).
+        detail_start = first_data_row + nb_rows_left + 3
         ws.merge_range(detail_start, 0, detail_start, 2, "Détail caméras par allée", fmt_title)
         ws.write(detail_start + 1, 0, "Allées", fmt_lbl)
         ws.merge_range(detail_start + 1, 1, detail_start + 1, 2, "N° Elements", fmt_lbl)
