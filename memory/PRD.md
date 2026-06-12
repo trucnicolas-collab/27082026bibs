@@ -417,3 +417,22 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Avertissements "Nombre stocké sous forme de texte"** : désactivés via `ws.ignore_errors({"number_stored_as_text": "A1:Z2000"})` sur les onglets Phasage de pose et Phasage caméras (les n° d'allée sont volontairement en texte pour supporter "201-2", "ZS1"…).
 - [x] **Helpers de fallback uid composite** : `_resolve_uid_label()` et `_resolve_idx_node()` étendus aux ndœuds `idx_allees_full` du Phasage de pose pour rattraper les assignations DB obsolètes (re-upload avec secteur/rayon différent).
 
+
+## Feature (12/06/2026) — Bloc VCare dans le tableau Commandes
+- [x] **Mapping VCare** (1 produit installé = 1 VCare correspondant) :
+  - 15024 / 17673 / 17724 → **17889** V:Care 7Y E300 1.5 BWRY
+  - 17869 / 16362 → **18052** V:Care Lite 7Y ES300 1.5 BWRY
+  - 15910 / 17740 → **17900** V:Care 7Y E300 2.1 BWRY
+  - 17870 → **17723** V:Care Lite 7Y ES300 2.1 BWRY
+  - 15912 / 17979 → **17940** V:Care 5Y E300 2.1 F BWRY
+  - 15551 → **17929** V:Care 5Y E300 4.2 BWRY
+  - 15550 → **17938** V:Care Lite 5Y E300 4.2 WP BWRY
+  - Tous les rails SAUF "SA" → **18183** V:Care 7Y ES Rail
+  - 11892 / 14218 → **16783** V:Care Lite 3Y Captana StoreEy
+- [x] **Quantité VCare** = somme des `total_plus_spare` des refs sources (= quantité posée + spare)
+- [x] **Spare VCare** : 5 % pour ES/SA/Rails, 2 % pour le VCare caméra (16783)
+- [x] **Placement** : bloc "TOTAL VCare" en fin de tableau, avant les 3 lignes vides
+- [x] **Auto-recalcul** à chaque édition d'une ligne Commandes (via `_refresh_vcare_block`) → réponse PATCH inclut désormais le récap complet (`res.data.rows`) pour synchronisation temps réel
+- [x] **Backfill automatique** : les sessions créées avant l'ajout du bloc VCare reçoivent le bloc à la volée lors de la lecture (`get_dataset`) et de l'export (RTR + Carrefour) — sans persistance, pour rester idempotent
+- Refs des fonctions clés : `VCARE_MAPPING`, `_build_vcare_rows()`, `_refresh_vcare_block()` dans `/app/backend/server.py`
+

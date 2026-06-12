@@ -286,6 +286,11 @@ function MainApp() {
             setDataset((d) => {
                 const next = { ...d, data: { ...d.data, recap: [...d.data.recap] } };
                 next.data.recap[index] = res.data.row;
+                // Si le backend renvoie un récap complet (suite au recalcul VCare),
+                // on le réutilise pour refléter le nouveau bloc VCare en temps réel.
+                if (Array.isArray(res.data.rows)) {
+                    next.data.recap = res.data.rows;
+                }
                 return next;
             });
         } catch (err) {

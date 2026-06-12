@@ -494,11 +494,110 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
         "total_plus_spare": "",
     })
 
+    # ===== Bloc VCare =====
+    # Règle utilisateur (11/06/2026) : 1 unité produit installée = 1 unité
+    # VCare correspondant. La quantité du VCare est calculée à partir de
+    # `total_plus_spare` (= quantité posée + spare) des produits sources.
+    # Spare VCare : 5 % pour ES/SA/Rails, 2 % pour le VCare caméra (16783).
+    _vcare_rows = _build_vcare_rows(rows, df, cols)
+    if _vcare_rows:
+        rows.extend(_vcare_rows)
+
     # 3 lignes vides
     for _ in range(3):
         rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": "", "total_plus_spare": ""})
 
     return rows
+
+
+# Mapping VCare : (refs sources, ref VCare, désignation VCare, taux de spare)
+VCARE_MAPPING = [
+    (["15024", "17673", "17724"], "17889", "V:Care 7Y E300 1.5 BWRY", 0.05),
+    (["17869", "16362"],           "18052", "V:Care Lite 7Y ES300 1.5 BWRY", 0.05),
+    (["15910", "17740"],           "17900", "V:Care 7Y E300 2.1 BWRY", 0.05),
+    (["17870"],                    "17723", "V:Care Lite 7Y ES300 2.1 BWRY", 0.05),
+    (["15912", "17979"],           "17940", "V:Care 5Y E300 2.1 F BWRY", 0.05),
+    (["15551"],                    "17929", "V:Care 5Y E300 4.2 BWRY", 0.05),
+    (["15550"],                    "17938", "V:Care Lite 5Y E300 4.2 WP BWRY", 0.05),
+    # ref spéciale "RAILS_ES" : tous les rails sauf ceux explicitement "SA"
+    (["__RAILS_ES__"],             "18183", "V:Care 7Y ES Rail", 0.05),
+    (["11892", "14218"],           "16783", "V:Care Lite 3Y Captana StoreEy", 0.02),
+]
+
+
+def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[dict]:
+    """Construit le bloc 'TOTAL VCare' à partir des lignes produit déjà
+    agrégées dans `rows`. Pour chaque mapping, somme `total_plus_spare` des
+    refs sources, applique le taux de spare configuré, et émet une ligne
+    VCare. Les VCare sans quantité (0) sont omis."""
+    # Index ref → total_plus_spare cumulé depuis les lignes produit
+    src_qty: dict[str, float] = {}
+    for r in rows:
+        if r.get("kind") != "product":
+            continue
+        ref = str(r.get("reference") or "").strip()
+        if not ref:
+            continue
+        try:
+            tps = float(r.get("total_plus_spare") or 0)
+        except (ValueError, TypeError):
+            try:
+                tps = float(r.get("quantite") or 0) + float(r.get("spare") or 0)
+            except (ValueError, TypeError):
+                tps = 0
+        src_qty[ref] = src_qty.get(ref, 0) + tps
+
+    # Calcul spécial pour "tous les rails ES" : somme des total_plus_spare des
+    # produits de type Rail dont la désignation ne commence PAS par "SA"
+    rails_es_qty = 0.0
+    for r in rows:
+        if r.get("kind") != "product":
+            continue
+        if str(r.get("type") or "").strip().lower() != "rail":
+            continue
+        desig = str(r.get("designation") or "").strip().lower()
+        # Exclut les rails "SA" explicites (commence par "sa " ou contient " sa ")
+        if desig.startswith("sa ") or " sa " in desig or desig.startswith("sa-") or desig.startswith("sa\u00a0"):
+            continue
+        try:
+            tps = float(r.get("total_plus_spare") or 0)
+        except (ValueError, TypeError):
+            tps = 0
+        rails_es_qty += tps
+
+    vcare_rows: list[dict] = []
+    pending: list[dict] = []
+    for sources, vcare_ref, vcare_desig, spare_rate in VCARE_MAPPING:
+        if sources == ["__RAILS_ES__"]:
+            qty = rails_es_qty
+        else:
+            qty = sum(src_qty.get(s, 0) for s in sources)
+        if qty <= 0:
+            continue
+        spare_val = math.ceil(qty * spare_rate)
+        pending.append({
+            "kind": "product",
+            "type": "VCare",
+            "reference": vcare_ref,
+            "designation": vcare_desig,
+            "quantite": float(qty),
+            "spare": spare_val,
+            "total_plus_spare": float(qty) + spare_val,
+        })
+
+    if pending:
+        total_qty = sum(p["quantite"] for p in pending)
+        vcare_rows.append({
+            "kind": "header",
+            "type": "VCare",
+            "reference": "",
+            "designation": "TOTAL VCare",
+            "quantite": total_qty,
+            "spare": "",
+            "total_plus_spare": "",
+        })
+        vcare_rows.extend(pending)
+    return vcare_rows
 
 
 def build_par_secteur(df: pd.DataFrame, cols: dict) -> list[dict]:
@@ -709,6 +808,12 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = _filter_autre_rows(d)
+    # Auto-backfill : si une session a été créée avant l'ajout du bloc VCare,
+    # on l'ajoute à la volée pour qu'elle apparaisse dans le tableau Commandes.
+    recap_rows = d["recap_rows"]
+    has_vcare = any(r.get("type") == "VCare" for r in recap_rows)
+    if not has_vcare:
+        recap_rows = _refresh_vcare_block(recap_rows)
     return {
         "upload_id": upload_id,
         "filename": d["filename"],
@@ -732,7 +837,7 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
         "has_autre": len(rows) > 0,
         "autre_count": len(rows),
         "data": {
-            "recap": d["recap_rows"],
+            "recap": recap_rows,
             "secteur": d["secteur_rows"],
             "comment_table": d.get("comment_table") or {
                 "columns": ["Colonne 1", "Colonne 2", "Colonne 3", "Colonne 4", "Colonne 5"],
@@ -986,6 +1091,30 @@ def _parse_quantite(v):
         return v  # on garde le texte tel quel si non numérique
 
 
+def _refresh_vcare_block(rows: list[dict]) -> list[dict]:
+    """Reconstruit le bloc 'TOTAL VCare' à partir des lignes produit courantes.
+    Retire l'ancien bloc VCare (s'il existe) et le ré-insère avant les lignes
+    vides finales. Utilisé après chaque édition d'une ligne du récap pour que
+    les VCare restent synchronisés avec les quantités."""
+    # 1) Retire le bloc VCare existant
+    cleaned = [r for r in rows if not (
+        r.get("type") == "VCare" and r.get("kind") in ("header", "product")
+    )]
+    # 2) Recalcule à partir des lignes courantes
+    new_vcare = _build_vcare_rows(cleaned, pd.DataFrame(), {})
+    if not new_vcare:
+        return cleaned
+    # 3) Insère avant la queue de lignes vides
+    # Trouve l'index de la première ligne 'empty' consécutive en fin
+    insert_at = len(cleaned)
+    for i in range(len(cleaned) - 1, -1, -1):
+        if cleaned[i].get("kind") == "empty":
+            insert_at = i
+        else:
+            break
+    return cleaned[:insert_at] + new_vcare + cleaned[insert_at:]
+
+
 @api_router.patch("/dataset/{upload_id}/recap-row/{index}")
 async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, current_user: dict = Depends(get_current_user)):
     """Met à jour une ligne du récapitulatif. Toutes les lignes sont éditables
@@ -1041,12 +1170,15 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, 
     # Pour les autres lignes (product, manual, empty), on bascule entre empty/manual
     if not is_dongle and not is_inclineur:
         row["kind"] = "empty" if is_empty else "manual"
+    # Recalcule le bloc VCare (1 VCare = 1 unité produit, basé sur total_plus_spare).
+    # Cf. règle utilisateur 11/06/2026.
+    rows = _refresh_vcare_block(rows)
     # Re-persister
     try:
         await persist_recap_rows(upload_id, rows)
     except Exception as e:
         logger.warning(f"Mongo persist recap failed: {e}")
-    return {"row": row, "index": index}
+    return {"row": row, "index": index, "rows": rows}
 
 
 @api_router.post("/dataset/{upload_id}/recap-row")
@@ -3751,6 +3883,10 @@ async def _build_export(d: dict, sheet: str = "all"):
 
         if sheet in ("all", "recap"):
             recap = d["recap_rows"]
+            # Auto-backfill VCare pour les sessions créées avant l'ajout du
+            # bloc (sinon l'export RTR ne les contient pas).
+            if not any(r.get("type") == "VCare" for r in recap):
+                recap = _refresh_vcare_block(recap)
             ws = workbook.add_worksheet("Commandes")
             writer.sheets["Commandes"] = ws
             headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
@@ -4036,6 +4172,9 @@ async def _build_carrefour_export(d: dict):
 
         # ===== 1. Commandes =====
         recap = d.get("recap_rows") or []
+        # Auto-backfill VCare pour les sessions créées avant l'ajout du bloc.
+        if not any(r.get("type") == "VCare" for r in recap):
+            recap = _refresh_vcare_block(recap)
         ws = wb.add_worksheet("Commandes")
         writer.sheets["Commandes"] = ws
         headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
