@@ -1402,6 +1402,9 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
             support_target["total_plus_spare"] = base_ts if base_ts > 0 else ""
             support_target["designation"] = base_ds
 
+    # Recalcule le bloc VCare après le changement de surface (ajoute/retire
+    # les 6000 SA → VCare doit suivre).
+    rows = _refresh_vcare_block(rows)
     # Persister recap + surface_category
     try:
         await persist_recap_rows(upload_id, rows)
@@ -1425,6 +1428,8 @@ async def delete_recap_row(upload_id: str, index: int, current_user: dict = Depe
         raise HTTPException(status_code=400, detail="Les en-têtes de section ne sont pas supprimables")
     deleted = dict(rows[index])
     rows.pop(index)
+    # Recalcule VCare (la suppression d'une source modifie les totaux VCare).
+    rows = _refresh_vcare_block(rows)
     try:
         await persist_recap_rows(upload_id, rows)
     except Exception as e:
@@ -1432,7 +1437,7 @@ async def delete_recap_row(upload_id: str, index: int, current_user: dict = Depe
     await log_audit(upload_id, current_user, "recap_row_deleted",
                     target=str(deleted.get("designation", "") or deleted.get("reference", "")),
                     details={"index": index})
-    return {"ok": True, "remaining": len(rows), "deleted_index": index}
+    return {"ok": True, "remaining": len(rows), "deleted_index": index, "rows": rows}
 
 
 class CommentTableUpdate(BaseModel):
