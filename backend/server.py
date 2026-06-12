@@ -510,28 +510,30 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     return rows
 
 
-# Mapping VCare : (refs sources, ref VCare, désignation VCare, taux de spare)
+# Mapping VCare : (refs sources, ref VCare, désignation VCare)
+# Règle simple (12/06/2026) : 1 unité VCare = 1 unité produit posée (avec son
+# spare déjà appliqué). On somme le `total_plus_spare` des refs sources et on
+# le reporte DIRECTEMENT dans le `total_plus_spare` du VCare. Pas de spare
+# ajouté côté VCare (sinon on aurait du spare en double).
 VCARE_MAPPING = [
-    (["15024", "17673", "17724"], "17889", "V:Care 7Y E300 1.5 BWRY", 0.05),
-    (["17869", "16362"],           "18052", "V:Care Lite 7Y ES300 1.5 BWRY", 0.05),
-    (["15910", "17740"],           "17900", "V:Care 7Y E300 2.1 BWRY", 0.05),
-    (["17870"],                    "17723", "V:Care Lite 7Y ES300 2.1 BWRY", 0.05),
-    (["15912", "17979"],           "17940", "V:Care 5Y E300 2.1 F BWRY", 0.05),
-    (["15551"],                    "17929", "V:Care 5Y E300 4.2 BWRY", 0.05),
-    (["15550"],                    "17938", "V:Care Lite 5Y E300 4.2 WP BWRY", 0.05),
-    # ref spéciale "RAILS_ES" : tous les rails sauf ceux explicitement "SA"
-    (["__RAILS_ES__"],             "18183", "V:Care 7Y ES Rail", 0.05),
-    (["11892", "14218"],           "16783", "V:Care Lite 3Y Captana StoreEy", 0.02),
+    (["15024", "17673", "17724"], "17889", "V:Care 7Y E300 1.5 BWRY"),
+    (["17869", "16362"],           "18052", "V:Care Lite 7Y ES300 1.5 BWRY"),
+    (["15910", "17740"],           "17900", "V:Care 7Y E300 2.1 BWRY"),
+    (["17870"],                    "17723", "V:Care Lite 7Y ES300 2.1 BWRY"),
+    (["15912", "17979"],           "17940", "V:Care 5Y E300 2.1 F BWRY"),
+    (["15551"],                    "17929", "V:Care 5Y E300 4.2 BWRY"),
+    (["15550"],                    "17938", "V:Care Lite 5Y E300 4.2 WP BWRY"),
+    (["__RAILS_ES__"],             "18183", "V:Care 7Y ES Rail"),
+    (["11892", "14218"],           "16783", "V:Care Lite 3Y Captana StoreEy"),
 ]
 
 
 def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[dict]:
-    """Construit le bloc 'TOTAL VCare' à partir des lignes produit déjà
-    agrégées dans `rows`. Pour chaque mapping, somme `quantite` (SANS le spare
-    source — sinon le VCare aurait du spare en double) des refs sources,
-    puis applique le taux de spare configuré pour le VCare lui-même."""
-    # Index ref → quantite cumulée depuis les lignes produit (HORS spare)
-    src_qty: dict[str, float] = {}
+    """Construit le bloc 'TOTAL VCare'. Règle simple : le VCare reçoit la somme
+    du `total_plus_spare` des refs sources (= quantité posée + spare). Aucun
+    spare additionnel n'est calculé côté VCare."""
+    # Index ref → total_plus_spare cumulé depuis les lignes produit
+    src_tps: dict[str, float] = {}
     for r in rows:
         if r.get("kind") != "product":
             continue
@@ -539,14 +541,17 @@ def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[di
         if not ref:
             continue
         try:
-            q = float(r.get("quantite") or 0)
+            tps = float(r.get("total_plus_spare") or 0)
         except (ValueError, TypeError):
-            q = 0
-        src_qty[ref] = src_qty.get(ref, 0) + q
+            try:
+                tps = float(r.get("quantite") or 0) + float(r.get("spare") or 0)
+            except (ValueError, TypeError):
+                tps = 0
+        src_tps[ref] = src_tps.get(ref, 0) + tps
 
-    # Calcul spécial pour "tous les rails ES" : somme des `quantite` (hors spare)
-    # des produits de type Rail dont la désignation ne commence PAS par "SA".
-    rails_es_qty = 0.0
+    # Cas spécial "tous les rails ES" : somme des total_plus_spare des produits
+    # de type Rail dont la désignation ne commence PAS par "SA".
+    rails_es_tps = 0.0
     for r in rows:
         if r.get("kind") != "product":
             continue
@@ -556,44 +561,42 @@ def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[di
         if desig.startswith("sa ") or " sa " in desig or desig.startswith("sa-") or desig.startswith("sa\u00a0"):
             continue
         try:
-            q = float(r.get("quantite") or 0)
+            tps = float(r.get("total_plus_spare") or 0)
         except (ValueError, TypeError):
-            q = 0
-        rails_es_qty += q
+            tps = 0
+        rails_es_tps += tps
 
-    vcare_rows: list[dict] = []
     pending: list[dict] = []
-    for sources, vcare_ref, vcare_desig, spare_rate in VCARE_MAPPING:
+    for sources, vcare_ref, vcare_desig in VCARE_MAPPING:
         if sources == ["__RAILS_ES__"]:
-            qty = rails_es_qty
+            tps = rails_es_tps
         else:
-            qty = sum(src_qty.get(s, 0) for s in sources)
-        if qty <= 0:
+            tps = sum(src_tps.get(s, 0) for s in sources)
+        if tps <= 0:
             continue
-        spare_val = math.ceil(qty * spare_rate)
+        # Quantité = total_plus_spare des sources. Spare = vide. Total+Spare = idem.
         pending.append({
             "kind": "product",
             "type": "VCare",
             "reference": vcare_ref,
             "designation": vcare_desig,
-            "quantite": float(qty),
-            "spare": spare_val,
-            "total_plus_spare": float(qty) + spare_val,
+            "quantite": float(tps),
+            "spare": "",
+            "total_plus_spare": float(tps),
         })
 
-    if pending:
-        total_qty = sum(p["quantite"] for p in pending)
-        vcare_rows.append({
-            "kind": "header",
-            "type": "VCare",
-            "reference": "",
-            "designation": "TOTAL VCare",
-            "quantite": total_qty,
-            "spare": "",
-            "total_plus_spare": "",
-        })
-        vcare_rows.extend(pending)
-    return vcare_rows
+    if not pending:
+        return []
+    total_qty = sum(p["quantite"] for p in pending)
+    return [{
+        "kind": "header",
+        "type": "VCare",
+        "reference": "",
+        "designation": "TOTAL VCare",
+        "quantite": total_qty,
+        "spare": "",
+        "total_plus_spare": total_qty,
+    }] + pending
 
 
 def build_par_secteur(df: pd.DataFrame, cols: dict) -> list[dict]:
