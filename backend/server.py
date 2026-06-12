@@ -527,10 +527,10 @@ VCARE_MAPPING = [
 
 def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[dict]:
     """Construit le bloc 'TOTAL VCare' à partir des lignes produit déjà
-    agrégées dans `rows`. Pour chaque mapping, somme `total_plus_spare` des
-    refs sources, applique le taux de spare configuré, et émet une ligne
-    VCare. Les VCare sans quantité (0) sont omis."""
-    # Index ref → total_plus_spare cumulé depuis les lignes produit
+    agrégées dans `rows`. Pour chaque mapping, somme `quantite` (SANS le spare
+    source — sinon le VCare aurait du spare en double) des refs sources,
+    puis applique le taux de spare configuré pour le VCare lui-même."""
+    # Index ref → quantite cumulée depuis les lignes produit (HORS spare)
     src_qty: dict[str, float] = {}
     for r in rows:
         if r.get("kind") != "product":
@@ -539,16 +539,13 @@ def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[di
         if not ref:
             continue
         try:
-            tps = float(r.get("total_plus_spare") or 0)
+            q = float(r.get("quantite") or 0)
         except (ValueError, TypeError):
-            try:
-                tps = float(r.get("quantite") or 0) + float(r.get("spare") or 0)
-            except (ValueError, TypeError):
-                tps = 0
-        src_qty[ref] = src_qty.get(ref, 0) + tps
+            q = 0
+        src_qty[ref] = src_qty.get(ref, 0) + q
 
-    # Calcul spécial pour "tous les rails ES" : somme des total_plus_spare des
-    # produits de type Rail dont la désignation ne commence PAS par "SA"
+    # Calcul spécial pour "tous les rails ES" : somme des `quantite` (hors spare)
+    # des produits de type Rail dont la désignation ne commence PAS par "SA".
     rails_es_qty = 0.0
     for r in rows:
         if r.get("kind") != "product":
@@ -556,14 +553,13 @@ def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[di
         if str(r.get("type") or "").strip().lower() != "rail":
             continue
         desig = str(r.get("designation") or "").strip().lower()
-        # Exclut les rails "SA" explicites (commence par "sa " ou contient " sa ")
         if desig.startswith("sa ") or " sa " in desig or desig.startswith("sa-") or desig.startswith("sa\u00a0"):
             continue
         try:
-            tps = float(r.get("total_plus_spare") or 0)
+            q = float(r.get("quantite") or 0)
         except (ValueError, TypeError):
-            tps = 0
-        rails_es_qty += tps
+            q = 0
+        rails_es_qty += q
 
     vcare_rows: list[dict] = []
     pending: list[dict] = []
