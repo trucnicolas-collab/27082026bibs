@@ -529,60 +529,66 @@ VCARE_MAPPING = [
 
 
 def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[dict]:
-    """Construit le bloc 'TOTAL VCare'. Règle simple : le VCare reçoit la somme
-    du `total_plus_spare` des refs sources (= quantité posée + spare). Aucun
-    spare additionnel n'est calculé côté VCare."""
-    # Index ref → total_plus_spare cumulé depuis les lignes produit
-    src_tps: dict[str, float] = {}
+    """Construit le bloc 'TOTAL VCare'. Règle (12/06/2026) :
+    valeur source = `total_plus_spare` MOINS le rajout 'sans spare' (saisonnier
+    non installé, identifié par la mention '— rajout de X … sans spare' dans
+    la désignation). Le bonus rails (mention 'rajout de X rails') est INCLU
+    car ce sont de vraies poses. Le résultat est reporté directement dans le
+    `total_plus_spare` du VCare, sans recalcul de spare."""
+    import re as _re
+    _re_no_spare = _re.compile(r"rajout\s+de\s+(\d+)[^—]*sans\s+spare", _re.IGNORECASE)
+
+    def _vcare_src_value(r: dict) -> float:
+        try:
+            tps = float(r.get("total_plus_spare") or 0)
+        except (ValueError, TypeError):
+            tps = 0
+        m = _re_no_spare.search(str(r.get("designation") or ""))
+        if m:
+            tps -= int(m.group(1))
+        return max(tps, 0)
+
+    # Index ref → contribution VCare cumulée
+    # On inclut 'manual' (lignes éditées par l'utilisateur — restent des
+    # produits valides) en plus de 'product' et 'surface_added'.
+    src_val: dict[str, float] = {}
     for r in rows:
-        if r.get("kind") != "product":
+        if r.get("kind") not in ("product", "surface_added", "manual"):
             continue
         ref = str(r.get("reference") or "").strip()
         if not ref:
             continue
-        try:
-            tps = float(r.get("total_plus_spare") or 0)
-        except (ValueError, TypeError):
-            try:
-                tps = float(r.get("quantite") or 0) + float(r.get("spare") or 0)
-            except (ValueError, TypeError):
-                tps = 0
-        src_tps[ref] = src_tps.get(ref, 0) + tps
+        src_val[ref] = src_val.get(ref, 0) + _vcare_src_value(r)
 
-    # Cas spécial "tous les rails ES" : somme des total_plus_spare des produits
-    # de type Rail dont la désignation ne commence PAS par "SA".
-    rails_es_tps = 0.0
+    # Cas spécial "tous les rails ES" : type=Rail, désignation ne commençant
+    # pas par "SA". On utilise la même règle (exclure les rajouts sans spare).
+    rails_es_val = 0.0
     for r in rows:
-        if r.get("kind") != "product":
+        if r.get("kind") not in ("product", "manual"):
             continue
         if str(r.get("type") or "").strip().lower() != "rail":
             continue
         desig = str(r.get("designation") or "").strip().lower()
         if desig.startswith("sa ") or " sa " in desig or desig.startswith("sa-") or desig.startswith("sa\u00a0"):
             continue
-        try:
-            tps = float(r.get("total_plus_spare") or 0)
-        except (ValueError, TypeError):
-            tps = 0
-        rails_es_tps += tps
+        rails_es_val += _vcare_src_value(r)
 
     pending: list[dict] = []
     for sources, vcare_ref, vcare_desig in VCARE_MAPPING:
         if sources == ["__RAILS_ES__"]:
-            tps = rails_es_tps
+            val = rails_es_val
         else:
-            tps = sum(src_tps.get(s, 0) for s in sources)
-        if tps <= 0:
+            val = sum(src_val.get(s, 0) for s in sources)
+        if val <= 0:
             continue
-        # Quantité = total_plus_spare des sources. Spare = vide. Total+Spare = idem.
         pending.append({
             "kind": "product",
             "type": "VCare",
             "reference": vcare_ref,
             "designation": vcare_desig,
-            "quantite": float(tps),
+            "quantite": float(val),
             "spare": "",
-            "total_plus_spare": float(tps),
+            "total_plus_spare": float(val),
         })
 
     if not pending:
