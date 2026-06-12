@@ -799,12 +799,11 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = _filter_autre_rows(d)
-    # Auto-backfill : si une session a été créée avant l'ajout du bloc VCare,
-    # on l'ajoute à la volée pour qu'elle apparaisse dans le tableau Commandes.
-    recap_rows = d["recap_rows"]
-    has_vcare = any(r.get("type") == "VCare" for r in recap_rows)
-    if not has_vcare:
-        recap_rows = _refresh_vcare_block(recap_rows)
+    # On TOUJOURS recalcule le bloc VCare à la lecture pour que les
+    # changements de règle (mapping, taux, formule) prennent effet
+    # immédiatement sur les sessions existantes — sans nécessiter
+    # une ré-édition manuelle ni de re-upload.
+    recap_rows = _refresh_vcare_block(d["recap_rows"])
     return {
         "upload_id": upload_id,
         "filename": d["filename"],
@@ -3873,11 +3872,9 @@ async def _build_export(d: dict, sheet: str = "all"):
                 ws_raw.freeze_panes(1, 0)
 
         if sheet in ("all", "recap"):
-            recap = d["recap_rows"]
-            # Auto-backfill VCare pour les sessions créées avant l'ajout du
-            # bloc (sinon l'export RTR ne les contient pas).
-            if not any(r.get("type") == "VCare" for r in recap):
-                recap = _refresh_vcare_block(recap)
+            # On recalcule TOUJOURS le bloc VCare pour appliquer les
+            # règles VCare courantes sur les sessions existantes.
+            recap = _refresh_vcare_block(d["recap_rows"])
             ws = workbook.add_worksheet("Commandes")
             writer.sheets["Commandes"] = ws
             headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
@@ -4162,10 +4159,9 @@ async def _build_carrefour_export(d: dict):
             }
 
         # ===== 1. Commandes =====
-        recap = d.get("recap_rows") or []
-        # Auto-backfill VCare pour les sessions créées avant l'ajout du bloc.
-        if not any(r.get("type") == "VCare" for r in recap):
-            recap = _refresh_vcare_block(recap)
+        # On recalcule TOUJOURS le bloc VCare pour appliquer les règles
+        # courantes (les VCare persistés peuvent être obsolètes).
+        recap = _refresh_vcare_block(d.get("recap_rows") or [])
         ws = wb.add_worksheet("Commandes")
         writer.sheets["Commandes"] = ws
         headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
