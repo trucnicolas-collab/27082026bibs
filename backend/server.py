@@ -515,6 +515,7 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
 # spare déjà appliqué). On somme le `total_plus_spare` des refs sources et on
 # le reporte DIRECTEMENT dans le `total_plus_spare` du VCare. Pas de spare
 # ajouté côté VCare (sinon on aurait du spare en double).
+# Le rajout saisonnier "sans spare" (présent dans la désignation) est exclu.
 VCARE_MAPPING = [
     (["15024", "17673", "17724"], "17889", "V:Care 7Y E300 1.5 BWRY"),
     (["17869", "16362"],           "18052", "V:Care Lite 7Y ES300 1.5 BWRY"),
@@ -523,7 +524,12 @@ VCARE_MAPPING = [
     (["15912", "17979"],           "17940", "V:Care 5Y E300 2.1 F BWRY"),
     (["15551"],                    "17929", "V:Care 5Y E300 4.2 BWRY"),
     (["15550"],                    "17938", "V:Care Lite 5Y E300 4.2 WP BWRY"),
-    (["__RAILS_ES__"],             "18183", "V:Care 7Y ES Rail"),
+    # Rails ES — liste exacte fournie par l'utilisateur (12/06/2026) :
+    # 16957=1187mm noir, 15507=1240mm noir, 14745=1320mm noir, 13585=535mm noir,
+    # 18173=650mm noir, 17285=908mm noir, 15395=990mm blanc, 15506=990mm noir,
+    # 17868=1320mm blanc.
+    (["16957", "15507", "14745", "13585", "18173", "17285", "15395", "15506", "17868"],
+                                   "18183", "V:Care 7Y ES Rail"),
     (["11892", "14218"],           "16783", "V:Care Lite 3Y Captana StoreEy"),
 ]
 
@@ -560,25 +566,9 @@ def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[di
             continue
         src_val[ref] = src_val.get(ref, 0) + _vcare_src_value(r)
 
-    # Cas spécial "tous les rails ES" : type=Rail, désignation ne commençant
-    # pas par "SA". On utilise la même règle (exclure les rajouts sans spare).
-    rails_es_val = 0.0
-    for r in rows:
-        if r.get("kind") not in ("product", "manual"):
-            continue
-        if str(r.get("type") or "").strip().lower() != "rail":
-            continue
-        desig = str(r.get("designation") or "").strip().lower()
-        if desig.startswith("sa ") or " sa " in desig or desig.startswith("sa-") or desig.startswith("sa\u00a0"):
-            continue
-        rails_es_val += _vcare_src_value(r)
-
     pending: list[dict] = []
     for sources, vcare_ref, vcare_desig in VCARE_MAPPING:
-        if sources == ["__RAILS_ES__"]:
-            val = rails_es_val
-        else:
-            val = sum(src_val.get(s, 0) for s in sources)
+        val = sum(src_val.get(s, 0) for s in sources)
         if val <= 0:
             continue
         pending.append({

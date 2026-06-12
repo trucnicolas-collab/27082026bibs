@@ -427,7 +427,7 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
   - 15912 / 17979 → **17940** V:Care 5Y E300 2.1 F BWRY
   - 15551 → **17929** V:Care 5Y E300 4.2 BWRY
   - 15550 → **17938** V:Care Lite 5Y E300 4.2 WP BWRY
-  - Tous les rails SAUF "SA" → **18183** V:Care 7Y ES Rail
+  - **Tous les rails ES** (liste exacte fournie 12/06/2026 : 16957, 15507, 14745, 13585, 18173, 17285, 15395, 15506, 17868) → **18183** V:Care 7Y ES Rail
   - 11892 / 14218 → **16783** V:Care Lite 3Y Captana StoreEy
 - [x] **Quantité VCare** (règle simplifiée 12/06/2026) : on prend directement la somme du `total_plus_spare` des refs sources (= quantité posée + spare déjà appliqué) et on la reporte dans le `Total + Spare` du VCare. **Pas de spare ajouté** côté VCare (sinon double comptage). Colonne Spare des VCare vide.
 - [x] **Spare VCare** : 5 % pour ES/SA/Rails, 2 % pour le VCare caméra (16783)
