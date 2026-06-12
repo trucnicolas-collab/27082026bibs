@@ -535,23 +535,19 @@ VCARE_MAPPING = [
 
 
 def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[dict]:
-    """Construit le bloc 'TOTAL VCare'. Règle (12/06/2026) :
-    valeur source = `total_plus_spare` MOINS le rajout 'sans spare' (saisonnier
-    non installé, identifié par la mention '— rajout de X … sans spare' dans
-    la désignation). Le bonus rails (mention 'rajout de X rails') est INCLU
-    car ce sont de vraies poses. Le résultat est reporté directement dans le
-    `total_plus_spare` du VCare, sans recalcul de spare."""
-    import re as _re
-    _re_no_spare = _re.compile(r"rajout\s+de\s+(\d+)[^—]*sans\s+spare", _re.IGNORECASE)
-
+    """Construit le bloc 'TOTAL VCare'. Règle simple (12/06/2026 — option b
+    utilisateur) : la quantité VCare = somme du `Total + Spare` des refs
+    sources, sans soustraction. Le rajout saisonnier "sans spare" et les
+    bonus rails sont INCLUS (= VCare couvre exactement ce qui est affiché
+    en Total dans la ligne source)."""
     def _vcare_src_value(r: dict) -> float:
         try:
             tps = float(r.get("total_plus_spare") or 0)
         except (ValueError, TypeError):
-            tps = 0
-        m = _re_no_spare.search(str(r.get("designation") or ""))
-        if m:
-            tps -= int(m.group(1))
+            try:
+                tps = float(r.get("quantite") or 0) + float(r.get("spare") or 0)
+            except (ValueError, TypeError):
+                tps = 0
         return max(tps, 0)
 
     # Index ref → contribution VCare cumulée
