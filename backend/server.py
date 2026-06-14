@@ -2872,38 +2872,14 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     ))
 
     start_left = 6
-    ws.merge_range(start_left, 0, start_left, 2, "Plan d'attribution par allée", fmt_title)
-    for ci, h in enumerate(["N° Allée", "Caméras", "Nuit"]):
-        ws.write(start_left + 1, ci, h, fmt_lbl)
-
+    # Plan d'attribution par allée — RETIRÉ sur demande utilisateur (12/06/2026).
+    # On ne garde que le récap par nuit (colonnes A..E) + Détail caméras
+    # par allée. Les valeurs Caméras du récap sont écrites en statique
+    # (précalculées dans cam_by_nuit_local).
     first_data_row = start_left + 2
-    nb_rows_left = max(n_allees, len(rows_assign), 20)
-    allee_source = f"=_Phasage_cam_data!$A$2:$A${n_allees + 1}"
-    excel_first = first_data_row + 1
-    excel_last = first_data_row + nb_rows_left
-    A_range = f"$A${excel_first}:$A${excel_last}"
-    B_range = f"$B${excel_first}:$B${excel_last}"
-    C_range = f"$C${excel_first}:$C${excel_last}"
-    vlookup_range = f"_Phasage_cam_data!$A$2:$B${n_allees + 1}"
+    nb_rows_left = 0  # plus de plan d'attribution
 
-    for i in range(nb_rows_left):
-        rr = first_data_row + i
-        excel_row = rr + 1
-        ws.data_validation(rr, 0, rr, 0, {"validate": "list", "source": allee_source})
-        if i < len(existing) and existing[i]["allee"]:
-            ws.write_string(rr, 0, existing[i]["allee"], fmt_cell)
-        else:
-            ws.write_blank(rr, 0, None, fmt_cell)
-        _cam_cached = existing[i]["_cam"] if i < len(existing) and existing[i]["allee"] else ""
-        ws.write_formula(rr, 1, f'=IFERROR(VLOOKUP(A{excel_row},{vlookup_range},2,FALSE),"")', fmt_num_calc, _cam_cached)
-        ws.data_validation(rr, 2, rr, 2, {"validate": "list", "source": nuit_labels})
-        if i < len(existing) and existing[i]["nuit"]:
-            local_n = existing[i]["nuit"]
-            ws.write_string(rr, 2, f"Nuit {start_at + local_n - 1}", fmt_cell_neutral)
-        else:
-            ws.write_blank(rr, 2, None, fmt_cell_neutral)
-
-    col_right = 4
+    col_right = 0
     NB_RIGHT_COLS_CAM = 5  # Nuit | Date | Secteur/Rayon | Allées | Caméras
     ws.merge_range(start_left, col_right, start_left, col_right + NB_RIGHT_COLS_CAM - 1, "Récap par nuit", fmt_title)
     for ci, h in enumerate(["Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]):
@@ -2970,34 +2946,29 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
         ws.write_string(rrow, col_right + 2, _format_sr_grouped(sr_list_c), fmt_sr_cam)
         # Allées (col_right + 3)
         ws.write_string(rrow, col_right + 3, ", ".join(sorted(night_allees_static.get(n, []), key=_sak)), fmt_allees_neutral)
-        # Caméras (col_right + 4) — formule SUMIFS + valeur en cache pour
-        # garantir l'affichage immédiat (LibreOffice/Google Sheets/Excel rapide).
+        # Caméras (col_right + 4) — valeur statique (LEFT supprimé,
+        # plus de SUMIFS à appliquer).
         _cam_n_cached = int(round(cam_by_nuit_local.get(n, 0) or 0))
-        ws.write_formula(rrow, col_right + 4, f'=SUMIFS({B_range},{C_range},"{nuit_label}")', fmt_num_neutral, _cam_n_cached)
+        ws.write_number(rrow, col_right + 4, _cam_n_cached, fmt_num_neutral)
 
     rrow_total = first_data_row + nb_nuits
     ws.write(rrow_total, col_right + 0, "TOTAL", fmt_total_lbl)
     ws.write_blank(rrow_total, col_right + 1, None, fmt_total_lbl)
     ws.write_blank(rrow_total, col_right + 2, None, fmt_total_lbl)
-    _counta_cached = f'{sum(1 for e in existing if e["allee"])} allées planifiées'
-    ws.write_formula(rrow_total, col_right + 3, f'=COUNTA({A_range})&" allées planifiées"', fmt_total_lbl, _counta_cached)
+    _allees_planifiees = sum(1 for e in existing if e["allee"])
+    ws.write_string(rrow_total, col_right + 3, f"{_allees_planifiees} allées planifiées", fmt_total_lbl)
     _total_cached = int(round(sum(cam_by_nuit_local.values())))
-    ws.write_formula(rrow_total, col_right + 4,
-                     f"=SUM(${chr(ord('A')+col_right+4)}${excel_first}:${chr(ord('A')+col_right+4)}${first_data_row + nb_nuits})",
-                     fmt_total_row, _total_cached)
+    ws.write_number(rrow_total, col_right + 4, _total_cached, fmt_total_row)
 
     for n in range(1, nb_nuits + 1):
         global_n = start_at + n - 1
         nuit_label = f"Nuit {global_n}"
-        ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 2,
-            {"type": "formula", "criteria": f'=$C{first_data_row + 1}="{nuit_label}"', "format": cf_left[n]})
         nuit_col = chr(ord('A') + col_right)
-        # Toutes les colonnes du récap droit colorées (Nuit, Date, SR, Allées, Caméras)
+        # CF sur le récap droit uniquement (Nuit, Date, SR, Allées, Caméras)
         ws.conditional_format(first_data_row, col_right, first_data_row + nb_nuits - 1, col_right + NB_RIGHT_COLS_CAM - 1,
             {"type": "formula", "criteria": f'=${nuit_col}{first_data_row + 1}="{nuit_label}"', "format": cf_right[n]})
     fmt_dup = workbook.add_format({"bg_color": "#FEE2E2", "font_color": "#991B1B", "border": 1, "bold": True})
-    ws.conditional_format(first_data_row, 0, first_data_row + nb_rows_left - 1, 0,
-        {"type": "duplicate", "format": fmt_dup})
+    # CF doublons sur LEFT supprimée (plus de plan d'attribution).
 
     # --- Bloc détail par allée : Allée | N° Elements (couleur par nuit identique au récap) ---
     detail_idx = {_allee_display_label(a): a for a in all_allees}
@@ -3014,10 +2985,9 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     detail_rows.sort(key=lambda x: (x[0], smart_order.get(x[1], 99999)))
 
     if detail_rows:
-        # Le Détail doit commencer APRÈS le LEFT plan d'attribution (sinon il
-        # écrase les lignes du LEFT à partir de la ligne ~18, ce qui fait que
-        # les SUMIFS du récap par nuit retombent à 0 pour les nuits suivantes).
-        detail_start = first_data_row + nb_rows_left + 3
+        # Le Détail commence après le récap par nuit + TOTAL + une ligne vide.
+        # (Le LEFT "Plan d'attribution" a été retiré donc nb_rows_left = 0.)
+        detail_start = first_data_row + nb_nuits + 3
         ws.merge_range(detail_start, 0, detail_start, 2, "Détail caméras par allée", fmt_title)
         ws.write(detail_start + 1, 0, "Allées", fmt_lbl)
         ws.merge_range(detail_start + 1, 1, detail_start + 1, 2, "N° Elements", fmt_lbl)
@@ -3462,6 +3432,92 @@ def _write_code_couleur_sheet(workbook, writer, d):
                     f = workbook.add_format(base_fmt)
                     ws.write_number(row, i + 1, int(t["sa"]), f)
             ws.set_row(row, 22)
+
+    # ---- Tableaux PAR SEMAINE (ajout 12/06/2026) ----
+    # Pour chaque semaine définie dans weeks_list, on génère un sous-tableau
+    # identique au global mais limité aux nuits de cette semaine. Si aucune
+    # semaine n'est définie (weeks_list vide), on saute cette section.
+    if weeks_list and len(weeks_list) > 0:
+        # Calcule la dernière ligne utilisée par les blocs globaux
+        nb_global_chunks = (total + cols_per_row - 1) // cols_per_row
+        cur_row = ROW_HEADER_OFFSET + nb_global_chunks * BLOCK_HEIGHT + 2
+
+        # Sépare les nuits par semaine selon la liste weeks_list (= nb nuits / sem)
+        nuit_cursor = 1
+        for wi, w in enumerate(weeks_list):
+            ww = int(w or 0)
+            if ww <= 0:
+                continue
+            week_nights = list(range(nuit_cursor, nuit_cursor + ww))
+            nuit_cursor += ww
+            # Garde uniquement les nuits réellement présentes (1..nb_es)
+            week_nights = [n for n in week_nights if n in totals_by_nuit or n in all_nights]
+            if not week_nights:
+                continue
+
+            # Titre de la semaine
+            week_end_col = min(cols_per_row, len(week_nights))
+            ws.merge_range(cur_row, 0, cur_row, week_end_col,
+                           f"Semaine {wi + 1} — Nuits {week_nights[0]} à {week_nights[-1]}",
+                           fmt_title)
+            ws.set_row(cur_row, 26)
+            cur_row += 1
+            ws.merge_range(cur_row, 0, cur_row, week_end_col,
+                           f"{len(week_nights)} nuit(s) · couleurs par position dans la semaine",
+                           fmt_sub)
+            cur_row += 2  # espace
+
+            # Pour les semaines longues (>16 nuits), on chunke aussi
+            for chunk_start in range(0, len(week_nights), cols_per_row):
+                chunk = week_nights[chunk_start:chunk_start + cols_per_row]
+                base_row = cur_row
+                ws.write(base_row, 0, "", fmt_lbl_left)
+                for i, n in enumerate(chunk):
+                    color = night_color_hex(n, weeks_list)
+                    fmt_h = workbook.add_format({
+                        "bg_color": color, "border": 1, "align": "center", "valign": "vcenter",
+                        "font_size": 12, "bold": True, "font_color": "#111827",
+                    })
+                    ws.write(base_row, i + 1, f"Nuit {n}", fmt_h)
+                ws.set_row(base_row, 24)
+                for li, (label, italic) in enumerate(LABELS):
+                    row = base_row + 1 + li
+                    ws.write(row, 0, label, fmt_lbl_left_italic if italic else fmt_lbl_left)
+                    for i, n in enumerate(chunk):
+                        color = night_color_hex(n, weeks_list)
+                        base_fmt = {"bg_color": color, "border": 1, "align": "center",
+                                    "valign": "vcenter", "font_size": 11}
+                        if italic:
+                            base_fmt["italic"] = True
+                            base_fmt["font_color"] = "#6B7280"
+                        t = totals_by_nuit.get(n, {"eeg": 0, "cam": 0, "sa": 0})
+                        if label == "Date":
+                            date_iso = dates_map.get(str(n))
+                            if date_iso:
+                                try:
+                                    from datetime import datetime as _dt
+                                    dval = _dt.strptime(date_iso, "%Y-%m-%d").date()
+                                    f = workbook.add_format({**base_fmt, "num_format": "dd/mm/yyyy"})
+                                    ws.write_datetime(row, i + 1, dval, f)
+                                except Exception:
+                                    f = workbook.add_format(base_fmt)
+                                    ws.write(row, i + 1, date_iso, f)
+                            else:
+                                f = workbook.add_format(base_fmt)
+                                ws.write(row, i + 1, "", f)
+                        elif label == "EEG":
+                            f = workbook.add_format({**base_fmt, "bold": True})
+                            ws.write_number(row, i + 1, int(t["eeg"]), f)
+                        elif label == "Caméra":
+                            f = workbook.add_format(base_fmt)
+                            ws.write_number(row, i + 1, int(t["cam"]), f)
+                        else:
+                            f = workbook.add_format(base_fmt)
+                            ws.write_number(row, i + 1, int(t["sa"]), f)
+                    ws.set_row(row, 22)
+                cur_row = base_row + BLOCK_HEIGHT
+            cur_row += 2  # espace entre semaines
+
     # Free the unused fmt_date_iso (silence linter)
     _ = fmt_date_iso
 
