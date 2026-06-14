@@ -189,7 +189,6 @@ export default function PhasageCamTab({ uploadId }) {
                     <span className="font-mono-data font-bold">{fmt(moyenne)}</span>
                     <span className="opacity-80">caméras</span>
                 </div>
-                <span className="ml-2 text-[11px] italic text-gray-500">Indicatif ~300 / nuit</span>
                 <button
                     onClick={handleExport}
                     data-testid="phasagecam-export"

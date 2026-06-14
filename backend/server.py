@@ -2810,7 +2810,6 @@ def _write_phasage_cam_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tota
     ws.write_number(1, 1, nb_nuits, fmt_input)
     ws.write(1, 2, "Démarrage :", fmt_lbl)
     ws.write_number(1, 3, start_at, fmt_input)
-    ws.write(1, 4, "Info : ~300 caméras / nuit", fmt_italic)
     ws.write(3, 0, "Total Caméras", fmt_lbl)
     ws.write_number(3, 1, totals.get("cameras", 0), fmt_num)
     ws.write(3, 2, "Moyenne / nuit :", fmt_lbl)
