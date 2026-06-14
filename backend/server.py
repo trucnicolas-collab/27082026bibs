@@ -2210,16 +2210,19 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     for i, a in enumerate(all_allees, start=1):
         es_brut = (a["es_15"] or 0) + (a["es_21"] or 0)
         bonus = (a.get("es_15_bonus_noir") or 0) + (a.get("es_15_bonus_blanc") or 0)
+        fleches = a.get("fleches") or 0
         sa_15_val = a.get("sa_15") or 0
         sa_21_val = a.get("sa_21") or 0
         ws_data.write_string(i, 0, _allee_display_label(a))
         if is_m2:
-            ws_data.write_number(i, 1, es_brut + sa_15_val)
+            # Magasin 2 : EEG = ES + SA 1.5 + flèches (aligné app)
+            ws_data.write_number(i, 1, es_brut + sa_15_val + fleches)
             ws_data.write_number(i, 2, a["rails_es"] or 0)
             ws_data.write_number(i, 3, sa_21_val)
             ws_data.write_number(i, 4, sa_15_val)
         else:
-            ws_data.write_number(i, 1, es_brut + bonus)
+            # Magasin 1 : EEG = ES + bonus rails + flèches (aligné app)
+            ws_data.write_number(i, 1, es_brut + bonus + fleches)
             ws_data.write_number(i, 2, a["rails_es"] or 0)
             ws_data.write_number(i, 3, a.get("sa") or 0)
             ws_data.write_number(i, 4, bonus)
@@ -2297,13 +2300,16 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     # n'est plus inclus dans ce total (sinon la somme ≠ TOTAL du récap).
     total_es_brut = (totals["es_15"] or 0) + (totals["es_21"] or 0)
     total_bonus = (totals.get("es_15_bonus_noir") or 0) + (totals.get("es_15_bonus_blanc") or 0)
+    total_fleches = totals.get("fleches") or 0
     total_sa_15 = totals.get("sa_15") or 0
     total_sa_21 = totals.get("sa_21") or 0
     sa_21_saisonnier = int(summary.get("sa_21_saisonnier") or 0)
     if is_m2:
-        total_eeg = total_es_brut + total_sa_15
+        # Magasin 2 : ES + SA 1.5 + flèches
+        total_eeg = total_es_brut + total_sa_15 + total_fleches
     else:
-        total_eeg = total_es_brut + total_bonus
+        # Magasin 1 : ES + bonus rails + flèches
+        total_eeg = total_es_brut + total_bonus + total_fleches
     ws.write(3, 0, "Total EEG", fmt_lbl)
     ws.write_number(3, 1, total_eeg, fmt_num)
     ws.write(3, 2, "Total Rails ES", fmt_lbl)
@@ -3108,7 +3114,13 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
             "cam_allees": [], "cam": 0,
         })
         dn["es_allees"].append(a_label)
+        # EEG par nuit = ES (1.5 + 2.1) + bonus rails (sur ES 1.5) + flèches.
+        # Aligné sur l'affichage du frontend PhasageTab (magasin_1). Pour
+        # les zones saisonnières, `es_21` contient déjà `z.eeg` via
+        # `_full_allee_index` → naturellement inclus.
         dn["es"] += (node.get("es_15") or 0) + (node.get("es_21") or 0)
+        dn["es"] += (node.get("es_15_bonus_noir") or 0) + (node.get("es_15_bonus_blanc") or 0)
+        dn["es"] += node.get("fleches") or 0
         dn["rails_es"] += node.get("rails_es") or 0
         dn["sa"] += node.get("sa") or 0
     for r in cam_plan.get("rows") or []:
@@ -4036,7 +4048,11 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
             "allees": [], "es": 0, "rails_es": 0, "sa": 0, "secteurs_rayons": [],
         })
         b["allees"].append(_lbl(a_uid, node))
+        # EEG par nuit = ES (1.5+2.1) + bonus rails (sur ES 1.5) + flèches.
+        # Aligné sur l'affichage frontend du Phasage de pose (magasin_1).
         b["es"] += float(node.get("es_15") or 0) + float(node.get("es_21") or 0)
+        b["es"] += float(node.get("es_15_bonus_noir") or 0) + float(node.get("es_15_bonus_blanc") or 0)
+        b["es"] += float(node.get("fleches") or 0)
         b["rails_es"] += float(node.get("rails_es") or 0)
         b["sa"] += float(node.get("sa") or 0)
         sr = _sr_key(node)
