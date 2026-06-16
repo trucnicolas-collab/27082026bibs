@@ -188,6 +188,7 @@ function MainApp() {
 
     const [exportingRTR, setExportingRTR] = useState(false);
     const [exportingCarrefour, setExportingCarrefour] = useState(false);
+    const [exportingPPTX, setExportingPPTX] = useState(false);
 
     const handleExport = useCallback(async () => {
         if (!dataset?.upload_id || exportingRTR) return;
@@ -240,6 +241,32 @@ function MainApp() {
             setExportingCarrefour(false);
         }
     }, [dataset, exportingCarrefour]);
+
+    const handleExportPPTX = useCallback(async () => {
+        if (!dataset?.upload_id || exportingPPTX) return;
+        setExportingPPTX(true);
+        try {
+            toast.loading("Génération du PowerPoint…", { id: "pptx-export" });
+            const res = await axios.get(`${API}/export-pptx/${dataset.upload_id}`, {
+                responseType: "blob",
+                timeout: 240000,
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement("a");
+            link.href = url;
+            const base = dataset.filename.replace(/\.xlsx?$/i, "");
+            link.setAttribute("download", `${base}_CR_VT.pptx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast.success("PowerPoint téléchargé", { id: "pptx-export" });
+        } catch (err) {
+            const msg = err.response?.data?.detail || err.message;
+            toast.error(`Erreur export PowerPoint : ${msg}`, { id: "pptx-export" });
+        } finally {
+            setExportingPPTX(false);
+        }
+    }, [dataset, exportingPPTX]);
 
     const handleReset = useCallback(() => {
         setDataset(null);
@@ -419,8 +446,10 @@ function MainApp() {
                         onSearchChange={setSearch}
                         onExport={handleExport}
                         onExportCarrefour={handleExportCarrefour}
+                        onExportPPTX={handleExportPPTX}
                         exportingRTR={exportingRTR}
                         exportingCarrefour={exportingCarrefour}
+                        exportingPPTX={exportingPPTX}
                         onReset={handleReset}
                         onOpenSession={handleOpenSession}
                         onDeletedSession={handleDeletedSession}

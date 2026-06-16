@@ -1,0 +1,564 @@
+"""Export PowerPoint — remplit le template `cr_vt_template.pptx` avec les
+données d'une session. Les slides 1-7, 9, 10 ne sont pas modifiées.
+
+Slides remplies :
+- 8  : Tableau Commandes (split en 2 tables, 24×6 et 25×6)
+- 11 : Tableau date global (5 × N nuits)
+- 12 : Phasage EEG/Rails complet (N+2 × 8) — étend dynamiquement
+- 13-16 : Phasage par semaine S1..S4 (2 tables chacune)
+- 17 : Tableau date caméras (4 × N nuits cam)
+- 18 : Phasage caméras (N+2 × 5)
+- 19 : Détail caméras par allée (split en 2 tables, étend dynamiquement)
+- 20 : Phasage full consolidé (N+3 × 10)
+
+Style : couleurs par position de la nuit dans la semaine (cf. night_color_hex).
+"""
+from __future__ import annotations
+import copy
+from datetime import datetime
+from pathlib import Path
+from io import BytesIO
+
+from pptx import Presentation
+from pptx.util import Pt, Emu
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from lxml import etree
+
+TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
+
+# Palette par position dans la semaine (alignée Excel)
+WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
+WHITE = "#FFFFFF"
+HEADER_BG = "#1F2937"
+SUBHEADER_BG = "#F3F4F6"
+
+
+def _pos_in_week(nuit: int, weeks: list | None) -> int:
+    if not nuit:
+        return 0
+    if not weeks:
+        return int(nuit)
+    remaining = int(nuit)
+    for w in weeks:
+        ww = int(w or 0)
+        if remaining <= ww:
+            return remaining
+        remaining -= ww
+    return remaining
+
+
+def _color_for_night(n: int, weeks: list | None) -> str:
+    if not n:
+        return WHITE
+    pos = _pos_in_week(n, weeks)
+    if not pos:
+        return WHITE
+    return WEEK_COLORS_HEX[(pos - 1) % len(WEEK_COLORS_HEX)]
+
+
+def _set_cell_text(cell, value, *, bold=False, align="center", size=None, color=None):
+    """Remplace le contenu d'une cellule en préservant approximativement le
+    style. On garde le premier paragraphe + run existants si présents."""
+    tf = cell.text_frame
+    # Conserve les paragraphes/runs existants pour garder police/style si on
+    # peut, sinon on rebuilde.
+    if tf.paragraphs:
+        p = tf.paragraphs[0]
+        # Nettoie tous les autres paragraphes
+        for extra_p in tf.paragraphs[1:]:
+            extra_p._p.getparent().remove(extra_p._p)
+        # Garde le 1er run si possible
+        if p.runs:
+            r = p.runs[0]
+            # Supprime runs additionnels
+            for extra_r in p.runs[1:]:
+                extra_r._r.getparent().remove(extra_r._r)
+            r.text = str(value) if value is not None else ""
+        else:
+            r = p.add_run()
+            r.text = str(value) if value is not None else ""
+        if bold:
+            r.font.bold = True
+        if size:
+            r.font.size = Pt(size)
+        if color:
+            r.font.color.rgb = RGBColor.from_string(color.lstrip("#"))
+        if align == "center":
+            p.alignment = PP_ALIGN.CENTER
+        elif align == "left":
+            p.alignment = PP_ALIGN.LEFT
+        elif align == "right":
+            p.alignment = PP_ALIGN.RIGHT
+
+
+def _set_cell_fill(cell, hex_color: str):
+    """Définit la couleur de fond d'une cellule via XML direct (python-pptx
+    n'expose pas table_cell.fill correctement pour les TableCells)."""
+    if not hex_color or hex_color == WHITE:
+        return
+    tc = cell._tc
+    tcPr = tc.find('.//{http://schemas.openxmlformats.org/drawingml/2006/main}tcPr')
+    if tcPr is None:
+        tcPr = etree.SubElement(tc, '{http://schemas.openxmlformats.org/drawingml/2006/main}tcPr')
+    # Supprime les fills existants
+    for child in list(tcPr):
+        tag = etree.QName(child).localname
+        if tag in ("solidFill", "noFill", "gradFill", "blipFill", "pattFill"):
+            tcPr.remove(child)
+    nsmap = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+    fill = etree.SubElement(tcPr, '{http://schemas.openxmlformats.org/drawingml/2006/main}solidFill')
+    srgb = etree.SubElement(fill, '{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr')
+    srgb.set("val", hex_color.lstrip("#").upper())
+    _ = nsmap
+
+
+def _clone_last_row(table):
+    """Duplique la dernière ligne du tableau et l'insère à la fin.
+    Permet d'étendre dynamiquement une table sans casser le style."""
+    tbl = table._tbl
+    rows = tbl.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}tr')
+    if not rows:
+        return None
+    last = rows[-1]
+    new = copy.deepcopy(last)
+    # Vide le texte des cellules de la nouvelle ligne
+    for tc in new.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}tc'):
+        for p in tc.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}txBody/{http://schemas.openxmlformats.org/drawingml/2006/main}p'):
+            for r in p.findall('{http://schemas.openxmlformats.org/drawingml/2006/main}r'):
+                t = r.find('{http://schemas.openxmlformats.org/drawingml/2006/main}t')
+                if t is not None:
+                    t.text = ""
+    last.addnext(new)
+
+
+def _ensure_table_size(table, n_rows: int):
+    """Étend une table jusqu'à n_rows en clonant la dernière ligne."""
+    while len(table.rows) < n_rows:
+        _clone_last_row(table)
+
+
+def _fmt_date(iso: str | None) -> str:
+    if not iso:
+        return ""
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        return iso
+
+
+def _get_tables(slide):
+    return [sh for sh in slide.shapes if sh.has_table]
+
+
+# ===================================================================
+# Slide 8 — Commandes (split en 2 tables 24×6 et 25×6)
+# ===================================================================
+def _fill_slide_8(slide, recap_rows: list):
+    tables = _get_tables(slide)
+    if len(tables) < 2:
+        return
+    t1, t2 = tables[0].table, tables[1].table
+    # Filtre : on garde tout (header + product + manual + dongle + surface_added + VCare)
+    rows = [r for r in recap_rows if r.get("kind") != "empty"]
+    cap1 = len(t1.rows)
+    cap2 = len(t2.rows)
+    # Étend si nécessaire pour tout caser
+    needed = len(rows)
+    if needed > cap1 + cap2:
+        _ensure_table_size(t2, needed - cap1)
+        cap2 = len(t2.rows)
+    # Remplit table 1
+    for i in range(min(cap1, len(rows))):
+        r = rows[i]
+        _write_recap_row(t1, i, r)
+    # Remplit table 2 (suite)
+    rest = rows[cap1:]
+    for i in range(min(cap2, len(rest))):
+        _write_recap_row(t2, i, rest[i])
+    # Vide les lignes restantes
+    for i in range(len(rows), cap1):
+        _clear_row(t1, i)
+    for i in range(len(rest), cap2):
+        _clear_row(t2, i)
+
+
+def _write_recap_row(table, row_idx, r):
+    is_header = r.get("kind") == "header"
+    bold = is_header
+    # Cellules : Type / Référence / Désignation / Quantité / Spare / Total+Spare
+    _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), bold=bold, align="left", size=10)
+    _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), bold=bold, align="center", size=10)
+    _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), bold=bold, align="left", size=10)
+    _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), bold=bold, align="right", size=10)
+    _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), bold=bold, align="right", size=10)
+    _set_cell_text(table.cell(row_idx, 5), _num(r.get("total_plus_spare")), bold=bold, align="right", size=10)
+    if is_header:
+        for c in range(6):
+            _set_cell_fill(table.cell(row_idx, c), "#FEF3C7")
+
+
+def _clear_row(table, row_idx):
+    for c in range(len(table.columns)):
+        _set_cell_text(table.cell(row_idx, c), "", size=10)
+
+
+def _num(v):
+    if v is None or v == "":
+        return ""
+    try:
+        f = float(v)
+        return f"{int(f)}" if f.is_integer() else f"{f:.2f}"
+    except (ValueError, TypeError):
+        return str(v)
+
+
+# ===================================================================
+# Slide 11 — Tableau date global (5 × N nuits)
+# Lignes : [_, Date, EEG, Caméra, SA]   Colonnes : [label, Nuit 1, ..., Nuit N]
+# ===================================================================
+def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int]):
+    tables = _get_tables(slide)
+    if not tables:
+        return
+    t = tables[0].table
+    # cols template = 1 + max_nights. On étend si besoin.
+    needed_cols = 1 + len(all_nights)
+    cur_cols = len(t.columns)
+    if needed_cols > cur_cols:
+        # Pas de clone de colonne facile dans python-pptx — on tronque à cur_cols-1
+        all_nights = all_nights[: cur_cols - 1]
+
+    # Row 0 : header (Nuit X)
+    _set_cell_text(t.cell(0, 0), "", bold=True, size=10)
+    for i, n in enumerate(all_nights):
+        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=10)
+        _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
+    # Vide les colonnes restantes
+    for i in range(len(all_nights) + 1, cur_cols):
+        _set_cell_text(t.cell(0, i), "", size=10)
+
+    labels = ["Date", "EEG", "Caméra", "SA"]
+    for li, lab in enumerate(labels):
+        r = li + 1
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=10)
+        for i, n in enumerate(all_nights):
+            tot = totals_by_nuit.get(n, {})
+            if lab == "Date":
+                val = _fmt_date(dates_map.get(str(n)))
+            elif lab == "EEG":
+                val = _num(tot.get("eeg", 0))
+            elif lab == "Caméra":
+                val = _num(tot.get("cam", 0))
+            else:
+                val = _num(tot.get("sa", 0))
+            _set_cell_text(t.cell(r, i + 1), val, size=10,
+                           bold=(lab == "EEG"),
+                           align="center")
+            _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+
+
+# ===================================================================
+# Slide 12 — Phasage EEG/Rails complet (N+2 × 8) — étend
+# ===================================================================
+def _fill_slide_12(slide, nuit_es_data, weeks):
+    tables = _get_tables(slide)
+    if not tables:
+        return
+    t = tables[0].table
+    # Layout : Row 0 = "Récap par nuit" (title), Row 1 = headers, Row 2+ = data
+    nights_sorted = sorted(nuit_es_data.keys())
+    n_nights = len(nights_sorted)
+    needed_rows = 2 + n_nights
+    _ensure_table_size(t, needed_rows)
+    # Header
+    _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=12)
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
+    for ci, h in enumerate(headers):
+        _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=10)
+    # Data rows
+    for i, n in enumerate(nights_sorted):
+        r = i + 2
+        d = nuit_es_data[n]
+        _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=10)
+        _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date")), size=10)
+        _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=9)
+        _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=9)
+        _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=10)
+        _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=10)
+        _set_cell_text(t.cell(r, 6), _num(d.get("sa", 0)), size=10)
+        _set_cell_text(t.cell(r, 7), _num(d.get("cam", 0) or ""), size=10)
+        # Couleur de la ligne
+        color = _color_for_night(n, weeks)
+        for ci in range(8):
+            _set_cell_fill(t.cell(r, ci), color)
+
+
+# ===================================================================
+# Slides 13-16 — Par semaine (2 tables : phasage 7×8 + tableau date 5×5)
+# ===================================================================
+def _fill_slide_week(slide, week_index: int, week_nights: list[int],
+                     nuit_es_data, totals_by_nuit, dates_map, weeks):
+    tables = _get_tables(slide)
+    if len(tables) < 2:
+        return
+    # Identifie laquelle est la grande (8 cols) vs la petite (5 cols)
+    t_phasage = None
+    t_date = None
+    for sh in tables:
+        if len(sh.table.columns) == 8:
+            t_phasage = sh.table
+        elif len(sh.table.columns) <= 7:
+            t_date = sh.table
+    if t_phasage is None or t_date is None:
+        return
+
+    # === Phasage EEG/Rails (7×8) ===
+    _ensure_table_size(t_phasage, 2 + len(week_nights))
+    _set_cell_text(t_phasage.cell(0, 0),
+                   f"Semaine {week_index} (Nuits {week_nights[0]} → {week_nights[-1]})",
+                   bold=True, align="center", size=12)
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
+    for ci, h in enumerate(headers):
+        _set_cell_text(t_phasage.cell(1, ci), h, bold=True, align="center", size=10)
+    for i, n in enumerate(week_nights):
+        r = i + 2
+        d = nuit_es_data.get(n, {})
+        _set_cell_text(t_phasage.cell(r, 0), f"Nuit {n}", bold=True, size=10)
+        _set_cell_text(t_phasage.cell(r, 1), _fmt_date(d.get("date") or dates_map.get(str(n))), size=10)
+        _set_cell_text(t_phasage.cell(r, 2), d.get("sr", ""), align="left", size=9)
+        _set_cell_text(t_phasage.cell(r, 3), d.get("allees_str", ""), align="left", size=9)
+        _set_cell_text(t_phasage.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=10)
+        _set_cell_text(t_phasage.cell(r, 5), _num(d.get("rails_es", 0)), size=10)
+        _set_cell_text(t_phasage.cell(r, 6), _num(d.get("sa", 0)), size=10)
+        _set_cell_text(t_phasage.cell(r, 7), _num(d.get("cam", 0) or ""), size=10)
+        color = _color_for_night(n, weeks)
+        for ci in range(8):
+            _set_cell_fill(t_phasage.cell(r, ci), color)
+    # Vide les lignes restantes
+    for r in range(2 + len(week_nights), len(t_phasage.rows)):
+        for ci in range(8):
+            _set_cell_text(t_phasage.cell(r, ci), "", size=10)
+
+    # === Tableau date (5 × N) ===
+    cur_cols = len(t_date.columns)
+    nights_in_date = week_nights[: cur_cols - 1]
+    _set_cell_text(t_date.cell(0, 0), "", size=10)
+    for i, n in enumerate(nights_in_date):
+        _set_cell_text(t_date.cell(0, i + 1), f"Nuit {n}", bold=True, size=10)
+        _set_cell_fill(t_date.cell(0, i + 1), _color_for_night(n, weeks))
+    # Vide colonnes restantes
+    for i in range(len(nights_in_date) + 1, cur_cols):
+        _set_cell_text(t_date.cell(0, i), "", size=10)
+    labels = ["Date", "EEG", "Caméra", "SA"]
+    for li, lab in enumerate(labels):
+        r = li + 1
+        _set_cell_text(t_date.cell(r, 0), lab, bold=True, align="left", size=10)
+        for i, n in enumerate(nights_in_date):
+            tot = totals_by_nuit.get(n, {})
+            if lab == "Date":
+                val = _fmt_date(dates_map.get(str(n)))
+            elif lab == "EEG":
+                val = _num(tot.get("eeg", 0))
+            elif lab == "Caméra":
+                val = _num(tot.get("cam", 0))
+            else:
+                val = _num(tot.get("sa", 0))
+            _set_cell_text(t_date.cell(r, i + 1), val,
+                           bold=(lab == "EEG"), size=10)
+            _set_cell_fill(t_date.cell(r, i + 1), _color_for_night(n, weeks))
+        for i in range(len(nights_in_date) + 1, cur_cols):
+            _set_cell_text(t_date.cell(r, i), "", size=10)
+
+
+# ===================================================================
+# Slide 17 — Tableau date caméras (4 × N)
+# ===================================================================
+def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], weeks):
+    tables = _get_tables(slide)
+    if not tables:
+        return
+    t = tables[0].table
+    cur_cols = len(t.columns)
+    nights = cam_nights[: cur_cols - 1]
+    _set_cell_text(t.cell(0, 0), "", size=10)
+    for i, n in enumerate(nights):
+        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, size=10)
+        _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
+    labels = ["Date", "EEG", "Caméra"]
+    for li, lab in enumerate(labels):
+        r = li + 1
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=10)
+        for i, n in enumerate(nights):
+            tot = totals_by_nuit.get(n, {})
+            if lab == "Date":
+                val = _fmt_date(dates_map.get(str(n)))
+            elif lab == "EEG":
+                val = _num(tot.get("eeg", 0))
+            else:
+                val = _num(tot.get("cam", 0))
+            _set_cell_text(t.cell(r, i + 1), val,
+                           bold=(lab == "EEG"), size=10)
+            _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+
+
+# ===================================================================
+# Slide 18 — Phasage caméras (N+2 × 5)
+# ===================================================================
+def _fill_slide_18(slide, nuit_cam_data, weeks):
+    tables = _get_tables(slide)
+    if not tables:
+        return
+    t = tables[0].table
+    nights = sorted(nuit_cam_data.keys())
+    needed = 2 + len(nights)
+    _ensure_table_size(t, needed)
+    _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=12)
+    for ci, h in enumerate(["Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]):
+        _set_cell_text(t.cell(1, ci), h, bold=True, size=10)
+    for i, n in enumerate(nights):
+        r = i + 2
+        d = nuit_cam_data[n]
+        _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=10)
+        _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date")), size=10)
+        _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=9)
+        _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=9)
+        _set_cell_text(t.cell(r, 4), _num(d.get("cam", 0)), bold=True, size=10)
+        color = _color_for_night(n, weeks)
+        for ci in range(5):
+            _set_cell_fill(t.cell(r, ci), color)
+
+
+# ===================================================================
+# Slide 19 — Détail caméras par allée (split en 2 tables 27×2)
+# ===================================================================
+def _fill_slide_19(slide, detail_rows: list[tuple[str, str]]):
+    tables = _get_tables(slide)
+    if len(tables) < 2:
+        return
+    t1, t2 = tables[0].table, tables[1].table
+    # t1 row 0 = title, row 1 = header. Data depuis row 2.
+    # t2 commence direct en data.
+    DATA_OFFSET_T1 = 2
+    cap1 = len(t1.rows) - DATA_OFFSET_T1
+    cap2 = len(t2.rows)
+    needed = len(detail_rows)
+    if needed > cap1 + cap2:
+        _ensure_table_size(t2, needed - cap1)
+        cap2 = len(t2.rows)
+    _set_cell_text(t1.cell(0, 0), "Détail caméras par allée", bold=True, align="center", size=12)
+    _set_cell_text(t1.cell(1, 0), "Allées", bold=True, size=10)
+    _set_cell_text(t1.cell(1, 1), "N° Elements", bold=True, size=10)
+    for i in range(min(cap1, needed)):
+        allee, elems = detail_rows[i]
+        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 0), allee, bold=True, size=10)
+        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 1), elems, align="left", size=9)
+    rest = detail_rows[cap1:]
+    for i in range(min(cap2, len(rest))):
+        allee, elems = rest[i]
+        _set_cell_text(t2.cell(i, 0), allee, bold=True, size=10)
+        _set_cell_text(t2.cell(i, 1), elems, align="left", size=9)
+    # Vide les cellules non utilisées
+    for i in range(max(0, needed - cap1), cap2):
+        _set_cell_text(t2.cell(i, 0), "", size=10)
+        _set_cell_text(t2.cell(i, 1), "", size=10)
+
+
+# ===================================================================
+# Slide 20 — Phasage full consolidé (N+3 × 10)
+# ===================================================================
+def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
+    tables = _get_tables(slide)
+    if not tables:
+        return
+    t = tables[0].table
+    all_n = sorted(set(nuit_es_data.keys()) | set(nuit_cam_data.keys()))
+    _ensure_table_size(t, 3 + len(all_n))
+    # Row 0 : titre, Row 1 : super-headers (Phasage étiquettes & rails | Nuit | Phasage caméras)
+    _set_cell_text(t.cell(0, 0), "Phasage full — Planning consolidé EEG + Caméras",
+                   bold=True, align="center", size=12)
+    _set_cell_text(t.cell(1, 0), "Phasage étiquettes et rails", bold=True, align="center", size=10)
+    _set_cell_text(t.cell(1, 5), "Nuit", bold=True, align="center", size=10)
+    _set_cell_text(t.cell(1, 7), "Phasage caméras", bold=True, align="center", size=10)
+    # Row 2 : sub-headers
+    subs = ["Allées", "ES", "Rails ES", "SA", "Secteur/Rayon",
+            "Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]
+    for ci, s in enumerate(subs):
+        _set_cell_text(t.cell(2, ci), s, bold=True, size=9)
+    # Data
+    for i, n in enumerate(all_n):
+        r = i + 3
+        es = nuit_es_data.get(n, {})
+        cam = nuit_cam_data.get(n, {})
+        _set_cell_text(t.cell(r, 0), es.get("allees_str", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 1), _num(es.get("eeg", "")), size=9)
+        _set_cell_text(t.cell(r, 2), _num(es.get("rails_es", "")), size=9)
+        _set_cell_text(t.cell(r, 3), _num(es.get("sa", "")), size=9)
+        _set_cell_text(t.cell(r, 4), es.get("sr", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 5), str(n), bold=True, size=10)
+        _set_cell_text(t.cell(r, 6), _fmt_date(dates_map.get(str(n))), size=9)
+        _set_cell_text(t.cell(r, 7), cam.get("sr", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 8), cam.get("allees_str", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 9), _num(cam.get("cam", "")), size=9)
+        color = _color_for_night(n, weeks)
+        for ci in range(10):
+            _set_cell_fill(t.cell(r, ci), color)
+
+
+# ===================================================================
+# Public entry point
+# ===================================================================
+def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None = None,
+               detail_cam_rows: list[tuple[str, str]] | None = None) -> bytes:
+    """Génère le PowerPoint complet à partir des données.
+
+    aggregate_fn(d) → dict avec clés : nuit_es (n -> {date, sr, allees_str, eeg, rails_es, sa, cam}),
+    nuit_cam, dates_map, weeks, totals_by_nuit (n -> {eeg, cam, sa}), all_nights, cam_nights.
+    """
+    if not TEMPLATE_PATH.exists():
+        raise FileNotFoundError(f"Template PowerPoint introuvable : {TEMPLATE_PATH}")
+    agg = aggregate_fn(d)
+    prs = Presentation(str(TEMPLATE_PATH))
+    slides = prs.slides
+    # Slide 8 (index 7)
+    if len(slides) >= 8:
+        _fill_slide_8(slides[7], recap_rows)
+    # Slide 11
+    if len(slides) >= 11:
+        _fill_slide_11(slides[10], agg["totals_by_nuit"], agg["dates_map"],
+                       agg["weeks"], agg["all_nights"])
+    # Slide 12
+    if len(slides) >= 12:
+        _fill_slide_12(slides[11], agg["nuit_es"], agg["weeks"])
+    # Slides 13-16 (semaines S1..S4)
+    weeks_list = agg["weeks"] or []
+    cursor = 1
+    for wi, w in enumerate(weeks_list[:4]):
+        ww = int(w or 0)
+        if ww <= 0:
+            continue
+        week_nights = list(range(cursor, cursor + ww))
+        cursor += ww
+        slide_idx = 12 + wi  # slide 13 = index 12
+        if slide_idx < len(slides):
+            _fill_slide_week(slides[slide_idx], wi + 1, week_nights,
+                             agg["nuit_es"], agg["totals_by_nuit"],
+                             agg["dates_map"], weeks_list)
+    # Slide 17 — Tableau date caméras
+    if len(slides) >= 17 and agg["cam_nights"]:
+        _fill_slide_17(slides[16], agg["totals_by_nuit"], agg["dates_map"],
+                       agg["cam_nights"], weeks_list)
+    # Slide 18 — Phasage caméras
+    if len(slides) >= 18:
+        _fill_slide_18(slides[17], agg["nuit_cam"], weeks_list)
+    # Slide 19 — Détail caméras par allée
+    if len(slides) >= 19 and detail_cam_rows:
+        _fill_slide_19(slides[18], detail_cam_rows)
+    # Slide 20 — Phasage full
+    if len(slides) >= 20:
+        _fill_slide_20(slides[19], agg["nuit_es"], agg["nuit_cam"],
+                       agg["dates_map"], weeks_list)
+    # Sauvegarde en bytes
+    buf = BytesIO()
+    prs.save(buf)
+    return buf.getvalue()

@@ -6,7 +6,7 @@ Reçoit un fichier Excel, le traite et génère :
 - Onglet "Par Secteur/Allée" : comptage EEG (ES/SA), Rails, Caméras
 """
 from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from starlette.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -4039,6 +4039,92 @@ async def export_carrefour(upload_id: str, current_user: dict = Depends(get_curr
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     await log_audit(upload_id, current_user, "carrefour_export_downloaded")
     return await _build_carrefour_export(d)
+
+
+@api_router.get("/export-pptx/{upload_id}")
+async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Export PowerPoint complet à partir du template `cr_vt_template.pptx`.
+    Remplit les slides 8, 11-20 avec les données de la session. Les slides
+    1-7, 9 et 10 restent inchangées."""
+    from pathlib import Path
+    import pptx_export
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+
+    def _adapter(doc):
+        """Convertit `_aggregate_phasage_for_export` au format attendu par pptx_export."""
+        a = _aggregate_phasage_for_export(doc)
+        summary = compute_phasage_summary(doc)
+        # Format nuit_es : flatten allees + sr en chaînes
+        nuit_es = {}
+        for n, b in (a.get("es_per_nuit") or {}).items():
+            nuit_es[int(n)] = {
+                "date": (a.get("dates") or {}).get(str(n)),
+                "sr": " | ".join(b.get("secteurs_rayons") or []),
+                "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
+                "eeg": b.get("es", 0),
+                "rails_es": b.get("rails_es", 0),
+                "sa": b.get("sa", 0),
+                "cam": (a.get("cam_per_nuit") or {}).get(int(n), {}).get("cam", 0),
+            }
+        nuit_cam = {}
+        for n, b in (a.get("cam_per_nuit") or {}).items():
+            nuit_cam[int(n)] = {
+                "date": (a.get("dates") or {}).get(str(n)),
+                "sr": " | ".join(b.get("secteurs_rayons") or []),
+                "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
+                "cam": b.get("cam", 0),
+            }
+        # totals_by_nuit pour Tableau date
+        totals_by_nuit = {}
+        for n in set(nuit_es.keys()) | set(nuit_cam.keys()):
+            totals_by_nuit[n] = {
+                "eeg": nuit_es.get(n, {}).get("eeg", 0),
+                "cam": nuit_cam.get(n, {}).get("cam", 0),
+                "sa":  nuit_es.get(n, {}).get("sa",  0),
+            }
+        all_nights = sorted(set(nuit_es.keys()) | set(nuit_cam.keys()))
+        cam_nights = sorted(nuit_cam.keys())
+        return {
+            "nuit_es": nuit_es,
+            "nuit_cam": nuit_cam,
+            "totals_by_nuit": totals_by_nuit,
+            "dates_map": a.get("dates") or {},
+            "weeks": a.get("weeks_es") or [],
+            "all_nights": all_nights,
+            "cam_nights": cam_nights,
+        }
+
+    # Détail caméras par allée
+    summary = compute_phasage_summary(d)
+    detail_rows: list[tuple[str, str]] = []
+    for a in summary.get("allees", []):
+        elems = a.get("camera_elems") or []
+        if elems:
+            label = _allee_display_label(a)
+            detail_rows.append((label, ", ".join(str(e) for e in elems)))
+    detail_rows.sort(key=lambda x: (0, int(x[0]) if x[0].isdigit() else 999, x[0]))
+
+    # Recap rows à jour (avec VCare recalculé)
+    recap = _refresh_vcare_block(d.get("recap_rows") or [])
+
+    try:
+        data = pptx_export.build_pptx(d, aggregate_fn=_adapter, recap_rows=recap,
+                                       summary=summary, detail_cam_rows=detail_rows)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.exception("PPTX export failed")
+        raise HTTPException(status_code=500, detail=f"Erreur PowerPoint : {e}")
+
+    await log_audit(upload_id, current_user, "pptx_export_downloaded")
+    base = Path(d["filename"]).stem
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{base}_CR_VT.pptx"'},
+    )
 
 
 def _aggregate_phasage_for_export(d: dict) -> dict:

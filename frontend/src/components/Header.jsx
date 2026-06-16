@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2 } from "lucide-react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 import ActivityPanel from "./ActivityPanel";
 
@@ -9,8 +9,10 @@ export default function Header({
     onSearchChange,
     onExport,            // RTR (full Excel)
     onExportCarrefour,   // 5-tabs Carrefour
+    onExportPPTX,        // PowerPoint CR VT
     exportingRTR = false,
     exportingCarrefour = false,
+    exportingPPTX = false,
     onReset,
     onOpenSession,
     onDeletedSession,
@@ -78,6 +80,16 @@ export default function Header({
                         >
                             {exportingCarrefour ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                             <span className="hidden sm:inline">{exportingCarrefour ? "Génération…" : "Excel Carrefour"}</span>
+                        </button>
+                        <button
+                            onClick={onExportPPTX}
+                            disabled={exportingPPTX}
+                            data-testid="export-pptx-button"
+                            title={exportingPPTX ? "Génération en cours…" : "Exporter PowerPoint — CR VT et plan de phasage"}
+                            className="h-8 px-3 bg-[#7C3AED] text-white text-sm rounded hover:bg-[#6D28D9] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors font-medium shadow-sm"
+                        >
+                            {exportingPPTX ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
+                            <span className="hidden sm:inline">{exportingPPTX ? "Génération…" : "PowerPoint"}</span>
                         </button>
                         <button
                             onClick={onReset}
