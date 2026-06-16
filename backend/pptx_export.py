@@ -23,6 +23,7 @@ from pptx import Presentation
 from pptx.util import Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
+from pptx.oxml.ns import qn
 from lxml import etree
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
@@ -266,32 +267,35 @@ def _fill_slide_12(slide, nuit_es_data, weeks):
     if not tables:
         return
     t = tables[0].table
-    # Layout : Row 0 = "Récap par nuit" (title), Row 1 = headers, Row 2+ = data
     nights_sorted = sorted(nuit_es_data.keys())
     n_nights = len(nights_sorted)
     needed_rows = 2 + n_nights
     _ensure_table_size(t, needed_rows)
-    # Header
-    _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=12)
+    _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=11)
     headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
     for ci, h in enumerate(headers):
-        _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=10)
-    # Data rows
+        _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=9)
     for i, n in enumerate(nights_sorted):
         r = i + 2
         d = nuit_es_data[n]
-        _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=10)
-        _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date")), size=10)
-        _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=9)
-        _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=9)
-        _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=10)
-        _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=10)
-        _set_cell_text(t.cell(r, 6), _num(d.get("sa", 0)), size=10)
-        _set_cell_text(t.cell(r, 7), _num(d.get("cam", 0) or ""), size=10)
-        # Couleur de la ligne
+        _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=9)
+        _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date")), size=9)
+        _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
+        _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
+        _set_cell_text(t.cell(r, 6), _num(d.get("sa", 0)), size=9)
+        _set_cell_text(t.cell(r, 7), _num(d.get("cam", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
         for ci in range(8):
             _set_cell_fill(t.cell(r, ci), color)
+    # Supprime les lignes vides finales (au-delà de needed_rows)
+    while len(t.rows) > needed_rows:
+        last_tr = t._tbl.findall(qn('a:tr'))[-1]
+        last_tr.getparent().remove(last_tr)
+    # Hauteurs compactes
+    for tr in t._tbl.findall(qn('a:tr')):
+        tr.set('h', '280000')
 
 
 # ===================================================================
@@ -314,31 +318,36 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         return
 
     # === Phasage EEG/Rails (7×8) ===
-    _ensure_table_size(t_phasage, 2 + len(week_nights))
+    n_data = len(week_nights)
+    needed = 2 + n_data
+    _ensure_table_size(t_phasage, needed)
+    # Le template a déjà un titre fusionné en row 0 — on n'écrase PAS le fond
+    # foncé existant, on écrit juste un titre clair. Si c'était une bandeau noire
+    # involontaire, l'utilisateur peut la supprimer manuellement du template.
     _set_cell_text(t_phasage.cell(0, 0),
                    f"Semaine {week_index} (Nuits {week_nights[0]} → {week_nights[-1]})",
-                   bold=True, align="center", size=12)
+                   bold=True, align="center", size=11)
     headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
     for ci, h in enumerate(headers):
-        _set_cell_text(t_phasage.cell(1, ci), h, bold=True, align="center", size=10)
+        _set_cell_text(t_phasage.cell(1, ci), h, bold=True, align="center", size=9)
     for i, n in enumerate(week_nights):
         r = i + 2
         d = nuit_es_data.get(n, {})
-        _set_cell_text(t_phasage.cell(r, 0), f"Nuit {n}", bold=True, size=10)
-        _set_cell_text(t_phasage.cell(r, 1), _fmt_date(d.get("date") or dates_map.get(str(n))), size=10)
-        _set_cell_text(t_phasage.cell(r, 2), d.get("sr", ""), align="left", size=9)
-        _set_cell_text(t_phasage.cell(r, 3), d.get("allees_str", ""), align="left", size=9)
-        _set_cell_text(t_phasage.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=10)
-        _set_cell_text(t_phasage.cell(r, 5), _num(d.get("rails_es", 0)), size=10)
-        _set_cell_text(t_phasage.cell(r, 6), _num(d.get("sa", 0)), size=10)
-        _set_cell_text(t_phasage.cell(r, 7), _num(d.get("cam", 0) or ""), size=10)
+        _set_cell_text(t_phasage.cell(r, 0), f"Nuit {n}", bold=True, size=9)
+        _set_cell_text(t_phasage.cell(r, 1), _fmt_date(d.get("date") or dates_map.get(str(n))), size=9)
+        _set_cell_text(t_phasage.cell(r, 2), d.get("sr", ""), align="left", size=8)
+        _set_cell_text(t_phasage.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
+        _set_cell_text(t_phasage.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
+        _set_cell_text(t_phasage.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
+        _set_cell_text(t_phasage.cell(r, 6), _num(d.get("sa", 0)), size=9)
+        _set_cell_text(t_phasage.cell(r, 7), _num(d.get("cam", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
         for ci in range(8):
             _set_cell_fill(t_phasage.cell(r, ci), color)
-    # Vide les lignes restantes
-    for r in range(2 + len(week_nights), len(t_phasage.rows)):
-        for ci in range(8):
-            _set_cell_text(t_phasage.cell(r, ci), "", size=10)
+    # Supprime les lignes vides finales (au-delà de 2 + n_data)
+    while len(t_phasage.rows) > needed:
+        last_tr = t_phasage._tbl.findall(qn('a:tr'))[-1]
+        last_tr.getparent().remove(last_tr)
 
     # === Tableau date (5 × N) ===
     cur_cols = len(t_date.columns)
@@ -474,35 +483,37 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
     t = tables[0].table
     all_n = sorted(set(nuit_es_data.keys()) | set(nuit_cam_data.keys()))
     _ensure_table_size(t, 3 + len(all_n))
-    # Row 0 : titre, Row 1 : super-headers (Phasage étiquettes & rails | Nuit | Phasage caméras)
     _set_cell_text(t.cell(0, 0), "Phasage full — Planning consolidé EEG + Caméras",
-                   bold=True, align="center", size=12)
-    _set_cell_text(t.cell(1, 0), "Phasage étiquettes et rails", bold=True, align="center", size=10)
-    _set_cell_text(t.cell(1, 5), "Nuit", bold=True, align="center", size=10)
-    _set_cell_text(t.cell(1, 7), "Phasage caméras", bold=True, align="center", size=10)
-    # Row 2 : sub-headers
+                   bold=True, align="center", size=11)
+    _set_cell_text(t.cell(1, 0), "Phasage étiquettes et rails", bold=True, align="center", size=9)
+    _set_cell_text(t.cell(1, 5), "Nuit", bold=True, align="center", size=9)
+    _set_cell_text(t.cell(1, 7), "Phasage caméras", bold=True, align="center", size=9)
     subs = ["Allées", "ES", "Rails ES", "SA", "Secteur/Rayon",
             "Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]
     for ci, s in enumerate(subs):
-        _set_cell_text(t.cell(2, ci), s, bold=True, size=9)
-    # Data
+        _set_cell_text(t.cell(2, ci), s, bold=True, size=8)
+    # Data — police plus compacte pour faire tenir toutes les nuits dans la slide
     for i, n in enumerate(all_n):
         r = i + 3
         es = nuit_es_data.get(n, {})
         cam = nuit_cam_data.get(n, {})
-        _set_cell_text(t.cell(r, 0), es.get("allees_str", ""), align="left", size=8)
-        _set_cell_text(t.cell(r, 1), _num(es.get("eeg", "")), size=9)
-        _set_cell_text(t.cell(r, 2), _num(es.get("rails_es", "")), size=9)
-        _set_cell_text(t.cell(r, 3), _num(es.get("sa", "")), size=9)
-        _set_cell_text(t.cell(r, 4), es.get("sr", ""), align="left", size=8)
-        _set_cell_text(t.cell(r, 5), str(n), bold=True, size=10)
-        _set_cell_text(t.cell(r, 6), _fmt_date(dates_map.get(str(n))), size=9)
-        _set_cell_text(t.cell(r, 7), cam.get("sr", ""), align="left", size=8)
-        _set_cell_text(t.cell(r, 8), cam.get("allees_str", ""), align="left", size=8)
-        _set_cell_text(t.cell(r, 9), _num(cam.get("cam", "")), size=9)
+        _set_cell_text(t.cell(r, 0), es.get("allees_str", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 1), _num(es.get("eeg", "")), size=8)
+        _set_cell_text(t.cell(r, 2), _num(es.get("rails_es", "")), size=8)
+        _set_cell_text(t.cell(r, 3), _num(es.get("sa", "")), size=8)
+        _set_cell_text(t.cell(r, 4), es.get("sr", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 5), str(n), bold=True, size=9)
+        _set_cell_text(t.cell(r, 6), _fmt_date(dates_map.get(str(n))), size=8)
+        _set_cell_text(t.cell(r, 7), cam.get("sr", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 8), cam.get("allees_str", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 9), _num(cam.get("cam", "")), size=8)
         color = _color_for_night(n, weeks)
         for ci in range(10):
             _set_cell_fill(t.cell(r, ci), color)
+    # Force des hauteurs de ligne réduites pour faire tenir tout dans la slide
+    # (cy en EMU : 240000 ≈ 0.25 inch ≈ ligne compacte)
+    for tr in t._tbl.findall(qn('a:tr')):
+        tr.set('h', '240000')
 
 
 # ===================================================================
