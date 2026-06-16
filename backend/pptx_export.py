@@ -546,18 +546,22 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
         _fill_slide_12(slides[12], agg["nuit_es"], agg["weeks"])
     # Slides 14-17 (ex-13-16) = semaines S1..S4
     weeks_list = agg["weeks"] or []
+    # Indices des slides semaine dans le template (0-based)
+    WEEK_SLIDE_INDICES = [13, 14, 15, 16]  # S1, S2, S3, S4
     cursor = 1
+    used_week_slides = set()
     for wi, w in enumerate(weeks_list[:4]):
         ww = int(w or 0)
         if ww <= 0:
             continue
         week_nights = list(range(cursor, cursor + ww))
         cursor += ww
-        slide_idx = 13 + wi  # slide 14 = index 13
+        slide_idx = WEEK_SLIDE_INDICES[wi]
         if slide_idx < len(slides):
             _fill_slide_week(slides[slide_idx], wi + 1, week_nights,
                              agg["nuit_es"], agg["totals_by_nuit"],
                              agg["dates_map"], weeks_list)
+            used_week_slides.add(slide_idx)
     # Slide 18 (index 17) = Tableau date caméras
     if len(slides) >= 18 and agg["cam_nights"]:
         _fill_slide_17(slides[17], agg["totals_by_nuit"], agg["dates_map"],
@@ -572,7 +576,30 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     if len(slides) >= 21:
         _fill_slide_20(slides[20], agg["nuit_es"], agg["nuit_cam"],
                        agg["dates_map"], weeks_list)
+    # Suppression des slides semaines non utilisées (en ordre décroissant pour
+    # préserver les indices). Si magasin = 3 semaines → slide S4 supprimée.
+    # Si 2 semaines → S3 et S4 supprimées. Etc.
+    unused = sorted([idx for idx in WEEK_SLIDE_INDICES if idx not in used_week_slides], reverse=True)
+    for idx in unused:
+        if idx < len(slides):
+            _delete_slide(prs, idx)
     # Sauvegarde en bytes
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
+
+
+def _delete_slide(prs, slide_idx: int):
+    """Supprime la slide à l'index donné du PowerPoint en nettoyant aussi
+    sa référence et sa relation dans la présentation."""
+    xml_slides = prs.slides._sldIdLst
+    slides_list = list(xml_slides)
+    if slide_idx >= len(slides_list):
+        return
+    slide_id_elem = slides_list[slide_idx]
+    rId = slide_id_elem.get(qn('r:id'))
+    # Supprime de la liste sldIdLst
+    xml_slides.remove(slide_id_elem)
+    # Drop la relation pour que python-pptx oublie la slide
+    if rId:
+        prs.part.drop_rel(rId)

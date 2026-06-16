@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
+import { toast } from "sonner";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -12,6 +13,30 @@ function fmt(n) {
 
 function newRowId() {
     return `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// === Suggestion automatique nb_nuits + semaines (16/06/2026) ===
+// Règle métier : poser 4500-5000 EEG par nuit. Nuits autorisées = 10/12/14/16.
+const ALLOWED_ES_NIGHTS = [10, 12, 14, 16];
+const ES_TARGET_PER_NIGHT = 4750;
+function suggestEsConfig(totalEEG) {
+    if (!totalEEG || totalEEG <= 0) return { nb_nuits: 12, weeks: [4, 4, 4] };
+    const ideal = totalEEG / ES_TARGET_PER_NIGHT;
+    let best = ALLOWED_ES_NIGHTS[0];
+    let bestDelta = Math.abs(ideal - best);
+    for (const v of ALLOWED_ES_NIGHTS) {
+        const delta = Math.abs(ideal - v);
+        if (delta < bestDelta) { best = v; bestDelta = delta; }
+    }
+    if (ideal > 16) best = 16; // très gros magasin
+    const full = Math.floor(best / 4);
+    const rest = best % 4;
+    const weeks = Array(full).fill(4);
+    if (rest > 0) weeks.push(rest);
+    return { nb_nuits: best, weeks };
+}
+function isStandardEsNightCount(n) {
+    return ALLOWED_ES_NIGHTS.includes(Number(n));
 }
 
 // Palette FIXE : 1 couleur par "position dans la semaine" (1..4), récurrente d'une
@@ -87,9 +112,22 @@ export default function PhasageTab({ uploadId }) {
                 if (!mounted) return;
                 setSummary(res.data);
                 const ph = res.data.phasage || {};
-                const p = ph.es || { nb_nuits: 3, rows: [] };
-                setNbNuits(p.nb_nuits || 3);
-                setWeeks(Array.isArray(p.weeks) ? p.weeks : []);
+                const p = ph.es || { nb_nuits: 0, rows: [], weeks: null };
+                const hasPersistedConfig = (p.nb_nuits && p.nb_nuits >= 4)
+                    || (Array.isArray(p.rows) && p.rows.length > 0);
+                if (hasPersistedConfig) {
+                    setNbNuits(p.nb_nuits || 3);
+                    setWeeks(Array.isArray(p.weeks) ? p.weeks : []);
+                } else {
+                    // Première ouverture : on suggère nb_nuits + semaines basé sur EEG total
+                    const t = res.data.totals || {};
+                    const totalEEG = (t.es_15 || 0) + (t.es_21 || 0)
+                        + (t.es_15_bonus_noir || 0) + (t.es_15_bonus_blanc || 0)
+                        + (t.fleches || 0);
+                    const sugg = suggestEsConfig(totalEEG);
+                    setNbNuits(sugg.nb_nuits);
+                    setWeeks(sugg.weeks);
+                }
                 setDates(ph.dates || {});
                 setRows((p.rows || []).map((r) => ({
                     id: r.id || newRowId(),
@@ -173,6 +211,18 @@ export default function PhasageTab({ uploadId }) {
         const v = Math.max(1, Math.min(30, Number(n) || 1));
         setNbNuits(v);
         setRows((prev) => prev.map((r) => r.nuit && r.nuit > v ? { ...r, nuit: null } : r));
+        // Alerte non bloquante si valeur non standard (11/13/15) ou hors fourchette
+        if (v >= 10 && v <= 16 && !isStandardEsNightCount(v)) {
+            toast.warning(`⚠️ ${v} nuits non standard. Les valeurs recommandées sont 10, 12, 14 ou 16 nuits (~4500-5000 EEG/nuit).`, {
+                id: "es-night-warning",
+                duration: 5000,
+            });
+        } else if (v < 10 || v > 16) {
+            toast.warning(`⚠️ ${v} nuits hors fourchette recommandée (10 à 16 nuits). Vérifiez la charge par nuit.`, {
+                id: "es-night-warning",
+                duration: 5000,
+            });
+        }
     }, []);
 
     // Agrégation par nuit

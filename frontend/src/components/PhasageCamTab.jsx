@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
+import { toast } from "sonner";
+
+// === Suggestion automatique nb_nuits caméras (16/06/2026) ===
+// Règle métier : ~150 caméras par nuit. Pas de contrainte 10/12/14/16 ici
+// (le phasage caméra est indépendant et plus court typiquement).
+const CAM_TARGET_PER_NIGHT = 150;
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -44,8 +50,17 @@ export default function PhasageCamTab({ uploadId }) {
                 if (!mounted) return;
                 setSummary(res.data);
                 const ph = res.data.phasage || {};
-                const c = ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 };
-                setNbNuits(c.nb_nuits || 3);
+                const c = ph.cam || { nb_nuits: 0, rows: [], start_at_nuit: 5 };
+                const hasPersisted = (c.nb_nuits && c.nb_nuits >= 2)
+                    || (Array.isArray(c.rows) && c.rows.length > 0);
+                if (hasPersisted) {
+                    setNbNuits(c.nb_nuits || 3);
+                } else {
+                    // Suggestion auto : ~150 caméras / nuit
+                    const totalCam = (res.data.totals || {}).cameras || 0;
+                    const sugg = Math.max(1, Math.round(totalCam / CAM_TARGET_PER_NIGHT));
+                    setNbNuits(sugg);
+                }
                 setStartAt(c.start_at_nuit || 5);
                 setDates(ph.dates || {});
                 setRows((c.rows || []).map((r) => ({
@@ -112,7 +127,18 @@ export default function PhasageCamTab({ uploadId }) {
         const v = Math.max(1, Math.min(30, Number(n) || 1));
         setNbNuits(v);
         setRows((prev) => prev.map((r) => r.nuit && r.nuit > v ? { ...r, nuit: null } : r));
-    }, []);
+        // Alerte non bloquante si charge cible (~150 cam/nuit) trop éloignée
+        const totalCam = (summary?.totals || {}).cameras || 0;
+        if (v > 0 && totalCam > 0) {
+            const perNight = totalCam / v;
+            if (perNight > CAM_TARGET_PER_NIGHT * 1.5 || perNight < CAM_TARGET_PER_NIGHT * 0.5) {
+                toast.warning(
+                    `⚠️ ${Math.round(perNight)} caméras/nuit avec ${v} nuits (cible recommandée : ~${CAM_TARGET_PER_NIGHT}/nuit).`,
+                    { id: "cam-night-warning", duration: 5000 }
+                );
+            }
+        }
+    }, [summary]);
 
     const nightTotals = useMemo(() => {
         const tot = {};
