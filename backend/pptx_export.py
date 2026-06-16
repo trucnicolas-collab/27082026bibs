@@ -520,17 +520,20 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     agg = aggregate_fn(d)
     prs = Presentation(str(TEMPLATE_PATH))
     slides = prs.slides
-    # Slide 8 (index 7)
-    if len(slides) >= 8:
-        _fill_slide_8(slides[7], recap_rows)
-    # Slide 11
-    if len(slides) >= 11:
-        _fill_slide_11(slides[10], agg["totals_by_nuit"], agg["dates_map"],
-                       agg["weeks"], agg["all_nights"])
-    # Slide 12
+    # NOTE (16/06/2026) : insertion de la slide "Accès et logistique" en
+    # position 7 → toutes les slides à remplir sont décalées de +1.
+    # Slide 9 (ex-8) = Commandes / 12 (ex-11) = Tableau date global / etc.
+    # Slide 9 (index 8)
+    if len(slides) >= 9:
+        _fill_slide_8(slides[8], recap_rows)
+    # Slide 12 (index 11)
     if len(slides) >= 12:
-        _fill_slide_12(slides[11], agg["nuit_es"], agg["weeks"])
-    # Slides 13-16 (semaines S1..S4)
+        _fill_slide_11(slides[11], agg["totals_by_nuit"], agg["dates_map"],
+                       agg["weeks"], agg["all_nights"])
+    # Slide 13 (index 12)
+    if len(slides) >= 13:
+        _fill_slide_12(slides[12], agg["nuit_es"], agg["weeks"])
+    # Slides 14-17 (ex-13-16) = semaines S1..S4
     weeks_list = agg["weeks"] or []
     cursor = 1
     for wi, w in enumerate(weeks_list[:4]):
@@ -539,24 +542,24 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
             continue
         week_nights = list(range(cursor, cursor + ww))
         cursor += ww
-        slide_idx = 12 + wi  # slide 13 = index 12
+        slide_idx = 13 + wi  # slide 14 = index 13
         if slide_idx < len(slides):
             _fill_slide_week(slides[slide_idx], wi + 1, week_nights,
                              agg["nuit_es"], agg["totals_by_nuit"],
                              agg["dates_map"], weeks_list)
-    # Slide 17 — Tableau date caméras
-    if len(slides) >= 17 and agg["cam_nights"]:
-        _fill_slide_17(slides[16], agg["totals_by_nuit"], agg["dates_map"],
+    # Slide 18 (index 17) = Tableau date caméras
+    if len(slides) >= 18 and agg["cam_nights"]:
+        _fill_slide_17(slides[17], agg["totals_by_nuit"], agg["dates_map"],
                        agg["cam_nights"], weeks_list)
-    # Slide 18 — Phasage caméras
-    if len(slides) >= 18:
-        _fill_slide_18(slides[17], agg["nuit_cam"], weeks_list)
-    # Slide 19 — Détail caméras par allée
-    if len(slides) >= 19 and detail_cam_rows:
-        _fill_slide_19(slides[18], detail_cam_rows)
-    # Slide 20 — Phasage full
-    if len(slides) >= 20:
-        _fill_slide_20(slides[19], agg["nuit_es"], agg["nuit_cam"],
+    # Slide 19 (index 18) = Phasage caméras
+    if len(slides) >= 19:
+        _fill_slide_18(slides[18], agg["nuit_cam"], weeks_list)
+    # Slide 20 (index 19) = Détail caméras par allée
+    if len(slides) >= 20 and detail_cam_rows:
+        _fill_slide_19(slides[19], detail_cam_rows)
+    # Slide 21 (index 20) = Phasage full consolidé
+    if len(slides) >= 21:
+        _fill_slide_20(slides[20], agg["nuit_es"], agg["nuit_cam"],
                        agg["dates_map"], weeks_list)
     # Sauvegarde en bytes
     buf = BytesIO()
