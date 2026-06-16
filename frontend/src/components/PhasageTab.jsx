@@ -16,19 +16,23 @@ function newRowId() {
 }
 
 // === Suggestion automatique nb_nuits + semaines (16/06/2026) ===
-// Règle métier : poser 4500-5000 EEG par nuit. Nuits autorisées = 10/12/14/16.
+// Règle métier : MAX 4 900 EEG par nuit. Nuits autorisées = 10/12/14/16.
+// On prend la plus petite valeur qui respecte la limite.
 const ALLOWED_ES_NIGHTS = [10, 12, 14, 16];
-const ES_TARGET_PER_NIGHT = 4750;
+const ES_MAX_PER_NIGHT = 4900;
 function suggestEsConfig(totalEEG) {
     if (!totalEEG || totalEEG <= 0) return { nb_nuits: 12, weeks: [4, 4, 4] };
-    const ideal = totalEEG / ES_TARGET_PER_NIGHT;
-    let best = ALLOWED_ES_NIGHTS[0];
-    let bestDelta = Math.abs(ideal - best);
+    // Cherche le plus petit nb dans ALLOWED tel que totalEEG / nb <= MAX
+    let best = null;
     for (const v of ALLOWED_ES_NIGHTS) {
-        const delta = Math.abs(ideal - v);
-        if (delta < bestDelta) { best = v; bestDelta = delta; }
+        if (totalEEG / v <= ES_MAX_PER_NIGHT) {
+            best = v;
+            break;
+        }
     }
-    if (ideal > 16) best = 16; // très gros magasin
+    // Aucune valeur ne respecte la limite (très gros magasin) → on garde 16
+    if (best === null) best = 16;
+    // Répartition en semaines de 4 nuits + reste
     const full = Math.floor(best / 4);
     const rest = best % 4;
     const weeks = Array(full).fill(4);
