@@ -160,8 +160,11 @@ def _fill_slide_8(slide, recap_rows: list):
     if len(tables) < 2:
         return
     t1, t2 = tables[0].table, tables[1].table
-    # Filtre : on garde tout (header + product + manual + dongle + surface_added + VCare)
-    rows = [r for r in recap_rows if r.get("kind") != "empty"]
+    # Filtre : on EXCLUT les lignes VCare (demande utilisateur 16/06/2026 — le
+    # bloc VCare ne doit pas apparaître dans le tableau Commandes du PowerPoint)
+    # On exclut aussi les lignes vides.
+    rows = [r for r in recap_rows
+            if r.get("kind") != "empty" and r.get("type") != "VCare"]
     cap1 = len(t1.rows)
     cap2 = len(t2.rows)
     # Étend si nécessaire pour tout caser
