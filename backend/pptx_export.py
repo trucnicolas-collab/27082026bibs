@@ -537,11 +537,10 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     # NOTE (16/06/2026) : insertion de la slide "Accès et logistique" en
     # position 7 → toutes les slides à remplir sont décalées de +1.
     # Slide 9 (ex-8) = Commandes / 12 (ex-11) = Tableau date global / etc.
-    # Fix slide 7 (Accès et logistique) — PowerPoint n'applique pas
-    # systématiquement le fond du layout `TITLE - Control - Performance`.
-    # On force donc le fond bleu foncé 0D2126 + couleur blanche du texte footer.
-    if len(slides) >= 7:
-        _force_slide_7_dark_theme(slides[6])
+    # NOTE (17/06/2026) : la slide 7 a été re-liée au layout
+    # `CONTENT 1 Column - Color` (FDF6E3) directement dans le template,
+    # pour matcher exactement le rendu PPTX fourni par l'utilisateur
+    # (fond crème, titre noir, pas de formes dorées).
     # Slide 9 (index 8)
     if len(slides) >= 9:
         _fill_slide_8(slides[8], recap_rows)
@@ -595,51 +594,6 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
-
-
-def _force_slide_7_dark_theme(slide):
-    """Force le fond dark teal (0D2126) + texte blanc sur la slide 7
-    "Accès et logistique". Sans ça, PowerPoint affiche un fond crème
-    parce qu'il n'applique pas le layout `TITLE - Control - Performance`
-    après l'insertion manuelle de la slide.
-
-    PowerPoint interprète `<a:solidFill/>` vide comme du noir → on force
-    explicitement les couleurs pour le titre + le texte hors-tableau.
-    """
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-    # Fond explicite sur la slide
-    slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = RGBColor(0x0D, 0x21, 0x26)
-    WHITE_RGB = RGBColor(0xFF, 0xFF, 0xFF)
-    DARK_BG_HEX = "0D2126"
-    for sh in slide.shapes:
-        # Ne pas toucher aux tableaux (ils ont leurs propres couleurs)
-        if sh.has_table:
-            continue
-        if sh.shape_type == MSO_SHAPE_TYPE.PICTURE:
-            continue
-        if not sh.has_text_frame:
-            continue
-        # Identifier les placeholders : on saute le numéro de slide
-        ph_type = None
-        try:
-            ph_type = sh.placeholder_format.type if sh.is_placeholder else None
-        except Exception:
-            ph_type = None
-        # PP_PLACEHOLDER.SLIDE_NUMBER = 13
-        if ph_type is not None and int(ph_type) == 13:
-            continue
-        for para in sh.text_frame.paragraphs:
-            for run in para.runs:
-                # Détermine la couleur courante (peut lever si solidFill vide)
-                try:
-                    cur = run.font.color.rgb
-                    cur_str = str(cur).upper() if cur else None
-                except Exception:
-                    cur_str = None
-                # Force blanc si pas de couleur définie OU si proche du fond
-                if cur_str is None or cur_str == DARK_BG_HEX:
-                    run.font.color.rgb = WHITE_RGB
 
 
 def _delete_slide(prs, slide_idx: int):
