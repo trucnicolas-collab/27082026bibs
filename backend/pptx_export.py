@@ -601,25 +601,45 @@ def _force_slide_7_dark_theme(slide):
     """Force le fond dark teal (0D2126) + texte blanc sur la slide 7
     "Accès et logistique". Sans ça, PowerPoint affiche un fond crème
     parce qu'il n'applique pas le layout `TITLE - Control - Performance`
-    après l'insertion manuelle de la slide."""
+    après l'insertion manuelle de la slide.
+
+    PowerPoint interprète `<a:solidFill/>` vide comme du noir → on force
+    explicitement les couleurs pour le titre + le texte hors-tableau.
+    """
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
     # Fond explicite sur la slide
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = RGBColor(0x0D, 0x21, 0x26)
-    # Force la couleur blanche pour tous les runs du footer
-    # (le footer "*Le magasin doit fournir..." a une couleur fixée à 0D2126
-    # qui devient invisible sur fond 0D2126).
+    WHITE_RGB = RGBColor(0xFF, 0xFF, 0xFF)
+    DARK_BG_HEX = "0D2126"
     for sh in slide.shapes:
+        # Ne pas toucher aux tableaux (ils ont leurs propres couleurs)
+        if sh.has_table:
+            continue
+        if sh.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            continue
         if not sh.has_text_frame:
+            continue
+        # Identifier les placeholders : on saute le numéro de slide
+        ph_type = None
+        try:
+            ph_type = sh.placeholder_format.type if sh.is_placeholder else None
+        except Exception:
+            ph_type = None
+        # PP_PLACEHOLDER.SLIDE_NUMBER = 13
+        if ph_type is not None and int(ph_type) == 13:
             continue
         for para in sh.text_frame.paragraphs:
             for run in para.runs:
+                # Détermine la couleur courante (peut lever si solidFill vide)
                 try:
                     cur = run.font.color.rgb
+                    cur_str = str(cur).upper() if cur else None
                 except Exception:
-                    cur = None
-                # Si la couleur est sombre (proche du fond), on bascule en blanc
-                if cur is not None and str(cur).upper() == "0D2126":
-                    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                    cur_str = None
+                # Force blanc si pas de couleur définie OU si proche du fond
+                if cur_str is None or cur_str == DARK_BG_HEX:
+                    run.font.color.rgb = WHITE_RGB
 
 
 def _delete_slide(prs, slide_idx: int):

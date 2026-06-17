@@ -1,9 +1,13 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
-## Changelog 17/06/2026
-- [x] Fix slide 7 PPTX "Accès et logistique" : fond bleu foncé `#0D2126` + texte blanc forcés programmatiquement (PowerPoint n'appliquait pas le layout `TITLE - Control - Performance`). Décorations dorées du layout désormais visibles.
-- [x] Toaster sonner repositionné `top-center` (était `bottom-right` invisible).
-- [x] Auto-suggestion nb de nuits enrichie : inclut maintenant SA1.5 + saisonnier dans le total EEG, et re-bump automatiquement si la config persistée dépasse 4900 EEG/nuit (ex: 12 nuits → 14 si avg > 4900).
+## Changelog 17/06/2026 (v2)
+- [x] **Slide 7 PPTX** — second fix : le titre avait `<a:solidFill/>` vide que PowerPoint interprétait en NOIR. Maintenant on force explicitement `#FFFFFF` sur tous les runs de texte (sauf table & numéro de slide) sur la slide 7. Fond `0D2126` + décor doré + titre blanc OK dans PowerPoint et LibreOffice.
+- [x] **Auto-suggestion nb_nuits caméras** : nouvelle règle « max 170 caméras/nuit » dans `PhasageCamTab.jsx`. Bump auto au chargement si la config persistée dépasse 170. Toast d'avertissement si modif manuelle dépasse le seuil.
+
+## Changelog 17/06/2026 (v1)
+- [x] Fix slide 7 PPTX "Accès et logistique" : fond bleu foncé `#0D2126` + texte blanc forcés programmatiquement.
+- [x] Toaster sonner repositionné `top-center`.
+- [x] Auto-suggestion nb de nuits EEG enrichie : inclut SA1.5 + saisonnier, re-bump auto si > 4900 EEG/nuit.
 
 ## Problem Statement Original
 "Je veut une application web. Je veux y mettre un excel avec 20000 lignes et je veux que l'application me crée automatiquement des nouveaux onglets avec un tri automatique. Comptage auto, etc etc... est possible?"
