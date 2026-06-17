@@ -537,6 +537,11 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     # NOTE (16/06/2026) : insertion de la slide "Accès et logistique" en
     # position 7 → toutes les slides à remplir sont décalées de +1.
     # Slide 9 (ex-8) = Commandes / 12 (ex-11) = Tableau date global / etc.
+    # Fix slide 7 (Accès et logistique) — PowerPoint n'applique pas
+    # systématiquement le fond du layout `TITLE - Control - Performance`.
+    # On force donc le fond bleu foncé 0D2126 + couleur blanche du texte footer.
+    if len(slides) >= 7:
+        _force_slide_7_dark_theme(slides[6])
     # Slide 9 (index 8)
     if len(slides) >= 9:
         _fill_slide_8(slides[8], recap_rows)
@@ -590,6 +595,31 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
+
+
+def _force_slide_7_dark_theme(slide):
+    """Force le fond dark teal (0D2126) + texte blanc sur la slide 7
+    "Accès et logistique". Sans ça, PowerPoint affiche un fond crème
+    parce qu'il n'applique pas le layout `TITLE - Control - Performance`
+    après l'insertion manuelle de la slide."""
+    # Fond explicite sur la slide
+    slide.background.fill.solid()
+    slide.background.fill.fore_color.rgb = RGBColor(0x0D, 0x21, 0x26)
+    # Force la couleur blanche pour tous les runs du footer
+    # (le footer "*Le magasin doit fournir..." a une couleur fixée à 0D2126
+    # qui devient invisible sur fond 0D2126).
+    for sh in slide.shapes:
+        if not sh.has_text_frame:
+            continue
+        for para in sh.text_frame.paragraphs:
+            for run in para.runs:
+                try:
+                    cur = run.font.color.rgb
+                except Exception:
+                    cur = None
+                # Si la couleur est sombre (proche du fond), on bascule en blanc
+                if cur is not None and str(cur).upper() == "0D2126":
+                    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
 
 
 def _delete_slide(prs, slide_idx: int):

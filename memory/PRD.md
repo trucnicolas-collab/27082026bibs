@@ -1,5 +1,10 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 17/06/2026
+- [x] Fix slide 7 PPTX "Accès et logistique" : fond bleu foncé `#0D2126` + texte blanc forcés programmatiquement (PowerPoint n'appliquait pas le layout `TITLE - Control - Performance`). Décorations dorées du layout désormais visibles.
+- [x] Toaster sonner repositionné `top-center` (était `bottom-right` invisible).
+- [x] Auto-suggestion nb de nuits enrichie : inclut maintenant SA1.5 + saisonnier dans le total EEG, et re-bump automatiquement si la config persistée dépasse 4900 EEG/nuit (ex: 12 nuits → 14 si avg > 4900).
+
 ## Problem Statement Original
 "Je veut une application web. Je veux y mettre un excel avec 20000 lignes et je veux que l'application me crée automatiquement des nouveaux onglets avec un tri automatique. Comptage auto, etc etc... est possible?"
 

@@ -46,7 +46,7 @@ export default function App() {
     if (shareToken) {
         return (
             <>
-                <Toaster position="bottom-right" richColors closeButton />
+                <Toaster position="top-center" richColors closeButton expand visibleToasts={5} />
                 <SharedView token={shareToken} />
             </>
         );
@@ -54,7 +54,7 @@ export default function App() {
     if (resetTokenParam) {
         return (
             <>
-                <Toaster position="bottom-right" richColors closeButton />
+                <Toaster position="top-center" richColors closeButton expand visibleToasts={5} />
                 <ResetPasswordScreen
                     token={resetTokenParam}
                     onSuccess={() => { window.location.href = "/"; }}
@@ -427,7 +427,7 @@ function MainApp() {
 
     return (
         <div className="app-root" data-testid="app-root">
-            <Toaster position="bottom-right" richColors closeButton />
+            <Toaster position="top-center" richColors closeButton expand visibleToasts={5} />
             {user === null ? (
                 <div className="min-h-screen flex items-center justify-center text-gray-500" data-testid="auth-loading">
                     <Loader2 className="w-5 h-5 animate-spin mr-2" /> Chargement…

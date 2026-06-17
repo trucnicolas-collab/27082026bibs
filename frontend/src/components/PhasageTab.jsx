@@ -117,18 +117,36 @@ export default function PhasageTab({ uploadId }) {
                 setSummary(res.data);
                 const ph = res.data.phasage || {};
                 const p = ph.es || { nb_nuits: 0, rows: [], weeks: null };
+                // Calcule le TOTAL EEG complet (même formule que la moyenne affichée)
+                // pour suggérer ou re-suggérer le bon nombre de nuits.
+                const t = res.data.totals || {};
+                const storeMode = res.data.store_mode || "magasin_1";
+                const isMag2 = storeMode === "magasin_2";
+                const totalESBrut = (t.es_15 || 0) + (t.es_21 || 0);
+                const totalES15Bonus = isMag2 ? 0
+                    : ((t.es_15_bonus_noir || 0) + (t.es_15_bonus_blanc || 0));
+                const totalFleches = t.fleches || 0;
+                const totalSA15 = isMag2 ? (t.sa_15 || 0) : 0;
+                const sa21Saisonnier = res.data.sa_21_saisonnier || 0;
+                const totalEEG = totalESBrut + totalES15Bonus + totalFleches
+                    + totalSA15 + sa21Saisonnier;
+                const sugg = suggestEsConfig(totalEEG);
+
                 const hasPersistedConfig = (p.nb_nuits && p.nb_nuits >= 4)
                     || (Array.isArray(p.rows) && p.rows.length > 0);
                 if (hasPersistedConfig) {
-                    setNbNuits(p.nb_nuits || 3);
-                    setWeeks(Array.isArray(p.weeks) ? p.weeks : []);
+                    // Si la config persistée ne suffit plus (avg > 4900),
+                    // on la remplace automatiquement par la suggestion.
+                    const persistedAvg = totalEEG / (p.nb_nuits || 1);
+                    if (persistedAvg > ES_MAX_PER_NIGHT && sugg.nb_nuits > (p.nb_nuits || 0)) {
+                        setNbNuits(sugg.nb_nuits);
+                        setWeeks(sugg.weeks);
+                    } else {
+                        setNbNuits(p.nb_nuits || 3);
+                        setWeeks(Array.isArray(p.weeks) ? p.weeks : []);
+                    }
                 } else {
                     // Première ouverture : on suggère nb_nuits + semaines basé sur EEG total
-                    const t = res.data.totals || {};
-                    const totalEEG = (t.es_15 || 0) + (t.es_21 || 0)
-                        + (t.es_15_bonus_noir || 0) + (t.es_15_bonus_blanc || 0)
-                        + (t.fleches || 0);
-                    const sugg = suggestEsConfig(totalEEG);
                     setNbNuits(sugg.nb_nuits);
                     setWeeks(sugg.weeks);
                 }
