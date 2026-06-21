@@ -1131,7 +1131,8 @@ def _refresh_batterie_software_block(rows: list[dict]) -> list[dict]:
         elif desig == "software caméra":
             if has_data:
                 r["quantite"] = int(sum_qty) if sum_qty.is_integer() else sum_qty
-                r["total_plus_spare"] = int(sum_tps) if sum_tps.is_integer() else sum_tps
+                # Software sans spare : total+spare = quantité (pas de t+s des caméras)
+                r["total_plus_spare"] = int(sum_qty) if sum_qty.is_integer() else sum_qty
             else:
                 r["quantite"] = 0
                 r["total_plus_spare"] = 0
