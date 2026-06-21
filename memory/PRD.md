@@ -1,7 +1,14 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
-## Changelog 21/06/2026
-- [x] **Colonne « Secteur/Rayon » slides Semaine S1-S4 PPTX** : regroupement par secteur + abréviation des rayons longs (> 8 caractères → 6 premiers + « . »), avec préservation des suffixes numériques (« Zone saisonnier 1 » → « Zone s. 1 »). Réduit fortement la largeur du tableau S3 sans perte d'info.
+## Changelog 21/06/2026 (v2)
+- [x] **Sync auto Batterie & Software caméra** : nouveau helper `_refresh_batterie_software_block()` dans `server.py` qui aligne automatiquement les lignes batterie + software sur la somme de caméra noire + caméra blanche. Règle :
+  - `batterie.qty` = sum(qty caméras), `batterie.t+s` = sum(t+s caméras), `batterie.spare` = différence (= sum des spares caméra).
+  - `software.qty` = idem, `software.t+s` = idem, **`software.spare = ""` (toujours vide)**.
+  - Appelé lors du build initial, de chaque PATCH recap-row, et à la lecture du dataset.
+- [x] Testé end-to-end : édition de caméra noire → batterie + software + VCare 16783 mis à jour automatiquement, cohérent en Web/Excel/PPTX.
+
+## Changelog 21/06/2026 (v1)
+- [x] Compression « Secteur/Rayon » slides Semaine PPTX (regroupement par secteur + abréviation > 8 chars).
 
 ## Changelog 20/06/2026
 - [x] **Slide 7 PPTX** — fix définitif : re-link de slide21 au layout `slideLayout42.xml` (`CONTENT 1 Column - Color`, fond crème FDF6E3, sans formes décoratives) directement dans le template. Aucune surcharge programmatique nécessaire — rendu identique au PPTX cible fourni par l'utilisateur.

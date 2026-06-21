@@ -499,6 +499,10 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     # VCare correspondant. La quantité du VCare est calculée à partir de
     # `total_plus_spare` (= quantité posée + spare) des produits sources.
     # Spare VCare : 5 % pour ES/SA/Rails, 2 % pour le VCare caméra (16783).
+    # Mais avant cela, on synchronise batterie + software caméra sur la
+    # somme des caméras (règle utilisateur 21/06/2026) — ainsi le VCare
+    # 16783 calculé ensuite sera juste.
+    rows = _refresh_batterie_software_block(rows)
     _vcare_rows = _build_vcare_rows(rows, df, cols)
     if _vcare_rows:
         rows.extend(_vcare_rows)
@@ -799,11 +803,12 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = _filter_autre_rows(d)
-    # On TOUJOURS recalcule le bloc VCare à la lecture pour que les
-    # changements de règle (mapping, taux, formule) prennent effet
-    # immédiatement sur les sessions existantes — sans nécessiter
-    # une ré-édition manuelle ni de re-upload.
-    recap_rows = _refresh_vcare_block(d["recap_rows"])
+    # On TOUJOURS recalcule batterie/software caméra + VCare à la lecture
+    # pour que les règles métier (mapping, taux, formule, sync caméras)
+    # prennent effet immédiatement sur les sessions existantes — sans
+    # nécessiter une ré-édition manuelle ni de re-upload.
+    recap_rows = _refresh_batterie_software_block(d["recap_rows"])
+    recap_rows = _refresh_vcare_block(recap_rows)
     return {
         "upload_id": upload_id,
         "filename": d["filename"],
@@ -1081,6 +1086,59 @@ def _parse_quantite(v):
         return v  # on garde le texte tel quel si non numérique
 
 
+def _refresh_batterie_software_block(rows: list[dict]) -> list[dict]:
+    """Synchronise les lignes 'batterie caméra' et 'software caméra' avec
+    la somme des caméras blanche + noire.
+
+    Règle utilisateur (21/06/2026) :
+      - batterie.quantite        = caméra_blanche.quantite + caméra_noire.quantite
+      - batterie.total_plus_spare = caméra_blanche.t+s     + caméra_noire.t+s
+      - batterie.spare           = batterie.t+s - batterie.quantite
+      - software.quantite        = idem batterie
+      - software.total_plus_spare = idem batterie
+      - software.spare           = "" (pas de spare)
+
+    Si les caméras n'ont aucune quantité, on vide aussi batterie/software.
+    """
+    def _to_float(v):
+        try:
+            return float(v) if v not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    # Trouve les sources (caméra blanche + caméra noire) par désignation
+    sum_qty = 0.0
+    sum_tps = 0.0
+    for r in rows:
+        desig = (r.get("designation") or "").strip().lower()
+        if desig in ("caméra (blanche)", "caméra (noire)"):
+            sum_qty += _to_float(r.get("quantite"))
+            sum_tps += _to_float(r.get("total_plus_spare"))
+
+    has_data = sum_qty > 0 or sum_tps > 0
+    for r in rows:
+        desig = (r.get("designation") or "").strip().lower()
+        if desig == "batterie caméra":
+            if has_data:
+                r["quantite"] = int(sum_qty) if sum_qty.is_integer() else sum_qty
+                r["total_plus_spare"] = int(sum_tps) if sum_tps.is_integer() else sum_tps
+                diff = sum_tps - sum_qty
+                r["spare"] = int(diff) if diff.is_integer() else diff
+            else:
+                r["quantite"] = 0
+                r["spare"] = 0
+                r["total_plus_spare"] = 0
+        elif desig == "software caméra":
+            if has_data:
+                r["quantite"] = int(sum_qty) if sum_qty.is_integer() else sum_qty
+                r["total_plus_spare"] = int(sum_tps) if sum_tps.is_integer() else sum_tps
+            else:
+                r["quantite"] = 0
+                r["total_plus_spare"] = 0
+            r["spare"] = ""  # toujours vide pour software caméra
+    return rows
+
+
 def _refresh_vcare_block(rows: list[dict]) -> list[dict]:
     """Reconstruit le bloc 'TOTAL VCare' à partir des lignes produit courantes.
     Retire l'ancien bloc VCare (s'il existe) et le ré-insère avant les lignes
@@ -1160,8 +1218,9 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, 
     # Pour les autres lignes (product, manual, empty), on bascule entre empty/manual
     if not is_dongle and not is_inclineur:
         row["kind"] = "empty" if is_empty else "manual"
-    # Recalcule le bloc VCare (1 VCare = 1 unité produit, basé sur total_plus_spare).
-    # Cf. règle utilisateur 11/06/2026.
+    # Recalcule batterie + software caméra (auto = somme caméras N+B), puis
+    # le bloc VCare. Cf. règles utilisateur 21/06/2026 + 11/06/2026.
+    rows = _refresh_batterie_software_block(rows)
     rows = _refresh_vcare_block(rows)
     # Re-persister
     try:
