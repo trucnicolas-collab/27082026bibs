@@ -4052,6 +4052,34 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
 
+    def _compress_sr_list(sr_list: list[str]) -> str:
+        """Regroupe les paires `Secteur:Rayon` par secteur pour gagner de la
+        place dans le PPTX. Ex: ["NAL:Conserves", "NAL:Liquides", "PGC:Épicerie"]
+        -> "NAL : Conserves, Liquides | PGC : Épicerie".
+        """
+        if not sr_list:
+            return ""
+        # Préserve l'ordre d'apparition des secteurs ET des rayons
+        from collections import OrderedDict
+        groups: "OrderedDict[str, list[str]]" = OrderedDict()
+        for item in sr_list:
+            if ":" in item:
+                sec, ray = item.split(":", 1)
+                sec, ray = sec.strip(), ray.strip()
+            else:
+                sec, ray = item.strip(), ""
+            if sec not in groups:
+                groups[sec] = []
+            if ray and ray not in groups[sec]:
+                groups[sec].append(ray)
+        parts = []
+        for sec, rays in groups.items():
+            if rays:
+                parts.append(f"{sec} : {', '.join(rays)}")
+            else:
+                parts.append(sec)
+        return " | ".join(parts)
+
     def _adapter(doc):
         """Convertit `_aggregate_phasage_for_export` au format attendu par pptx_export."""
         a = _aggregate_phasage_for_export(doc)
@@ -4061,7 +4089,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
         for n, b in (a.get("es_per_nuit") or {}).items():
             nuit_es[int(n)] = {
                 "date": (a.get("dates") or {}).get(str(n)),
-                "sr": " | ".join(b.get("secteurs_rayons") or []),
+                "sr": _compress_sr_list(b.get("secteurs_rayons") or []),
                 "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
                 "eeg": b.get("es", 0),
                 "rails_es": b.get("rails_es", 0),
@@ -4072,7 +4100,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
         for n, b in (a.get("cam_per_nuit") or {}).items():
             nuit_cam[int(n)] = {
                 "date": (a.get("dates") or {}).get(str(n)),
-                "sr": " | ".join(b.get("secteurs_rayons") or []),
+                "sr": _compress_sr_list(b.get("secteurs_rayons") or []),
                 "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
                 "cam": b.get("cam", 0),
             }
@@ -4110,8 +4138,17 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
     recap = _refresh_vcare_block(d.get("recap_rows") or [])
 
     try:
-        data = pptx_export.build_pptx(d, aggregate_fn=_adapter, recap_rows=recap,
-                                       summary=summary, detail_cam_rows=detail_rows)
+        # build_pptx est CPU-bound (parse + écrit un .pptx de ~38 Mo) → on l'exécute
+        # dans un threadpool pour ne pas bloquer la boucle event de FastAPI.
+        # Sinon les requêtes concurrentes (d'autres utilisateurs) sont mises en
+        # attente et Cloudflare ferme la connexion (erreur 520).
+        from starlette.concurrency import run_in_threadpool
+        from functools import partial
+        data = await run_in_threadpool(
+            partial(pptx_export.build_pptx, d,
+                    aggregate_fn=_adapter, recap_rows=recap,
+                    summary=summary, detail_cam_rows=detail_rows),
+        )
     except FileNotFoundError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:

@@ -15,6 +15,7 @@ Style : couleurs par position de la nuit dans la semaine (cf. night_color_hex).
 """
 from __future__ import annotations
 import copy
+import re
 from datetime import datetime
 from pathlib import Path
 from io import BytesIO
@@ -205,6 +206,39 @@ def _write_recap_row(table, row_idx, r):
 def _clear_row(table, row_idx):
     for c in range(len(table.columns)):
         _set_cell_text(table.cell(row_idx, c), "", size=10)
+
+
+def _replace_nb_nuits_in_title(slide, nb_nuits: int):
+    """Met à jour le titre d'une slide qui contient '(X nuits)' avec la
+    bonne valeur de nb_nuits. Cherche le pattern '(<nombre> nuits)' dans
+    tous les text-frames de la slide et le remplace tout en préservant
+    le formatage (run par run).
+
+    Ex: 'Tableau phasage EEG et rails par nuit (14 nuits)' →
+        'Tableau phasage EEG et rails par nuit (12 nuits)' si nb_nuits=12.
+    """
+    if not nb_nuits or nb_nuits <= 0:
+        return
+    pattern = re.compile(r"\(\s*\d+\s+nuits?\s*\)")
+    replacement = f"({nb_nuits} nuits)"
+    for sh in slide.shapes:
+        if not sh.has_text_frame:
+            continue
+        for para in sh.text_frame.paragraphs:
+            # Concatène le texte du paragraphe pour détecter le pattern
+            full = "".join(r.text or "" for r in para.runs)
+            if not pattern.search(full):
+                continue
+            new_full = pattern.sub(replacement, full)
+            if new_full == full:
+                continue
+            # On remet tout le texte sur le premier run en gardant son
+            # formatage. Les runs suivants sont vidés.
+            runs = list(para.runs)
+            if runs:
+                runs[0].text = new_full
+                for r in runs[1:]:
+                    r.text = ""
 
 
 def _num(v):
@@ -544,12 +578,17 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     # Slide 9 (index 8)
     if len(slides) >= 9:
         _fill_slide_8(slides[8], recap_rows)
+    # Nb nuits dynamiques pour les titres "(N nuits)"
+    nb_nuits_eeg = len(agg.get("all_nights") or [])
+    nb_nuits_cam = len(agg.get("cam_nights") or [])
     # Slide 12 (index 11)
     if len(slides) >= 12:
+        _replace_nb_nuits_in_title(slides[11], nb_nuits_eeg)
         _fill_slide_11(slides[11], agg["totals_by_nuit"], agg["dates_map"],
                        agg["weeks"], agg["all_nights"])
     # Slide 13 (index 12)
     if len(slides) >= 13:
+        _replace_nb_nuits_in_title(slides[12], nb_nuits_eeg)
         _fill_slide_12(slides[12], agg["nuit_es"], agg["weeks"])
     # Slides 14-17 (ex-13-16) = semaines S1..S4
     weeks_list = agg["weeks"] or []
@@ -571,10 +610,12 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
             used_week_slides.add(slide_idx)
     # Slide 18 (index 17) = Tableau date caméras
     if len(slides) >= 18 and agg["cam_nights"]:
+        _replace_nb_nuits_in_title(slides[17], nb_nuits_cam)
         _fill_slide_17(slides[17], agg["totals_by_nuit"], agg["dates_map"],
                        agg["cam_nights"], weeks_list)
     # Slide 19 (index 18) = Phasage caméras
     if len(slides) >= 19:
+        _replace_nb_nuits_in_title(slides[18], nb_nuits_cam)
         _fill_slide_18(slides[18], agg["nuit_cam"], weeks_list)
     # Slide 20 (index 19) = Détail caméras par allée
     if len(slides) >= 20 and detail_cam_rows:

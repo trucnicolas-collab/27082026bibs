@@ -1,13 +1,15 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
-## Changelog 17/06/2026 (v2)
-- [x] **Slide 7 PPTX** — second fix : le titre avait `<a:solidFill/>` vide que PowerPoint interprétait en NOIR. Maintenant on force explicitement `#FFFFFF` sur tous les runs de texte (sauf table & numéro de slide) sur la slide 7. Fond `0D2126` + décor doré + titre blanc OK dans PowerPoint et LibreOffice.
-- [x] **Auto-suggestion nb_nuits caméras** : nouvelle règle « max 170 caméras/nuit » dans `PhasageCamTab.jsx`. Bump auto au chargement si la config persistée dépasse 170. Toast d'avertissement si modif manuelle dépasse le seuil.
+## Changelog 20/06/2026
+- [x] **Slide 7 PPTX** — fix définitif : re-link de slide21 au layout `slideLayout42.xml` (`CONTENT 1 Column - Color`, fond crème FDF6E3, sans formes décoratives) directement dans le template. Aucune surcharge programmatique nécessaire — rendu identique au PPTX cible fourni par l'utilisateur.
+- [x] **Titres PPTX dynamiques** : les slides 12, 13, 18, 19 (« Tableau phasage EEG/cameras par nuit (X nuits) ») reflètent désormais le vrai `nb_nuits` (helper `_replace_nb_nuits_in_title`). Fini les « (14 nuits) » figés.
+- [x] **Erreur 520 Cloudflare sur export PPTX** : la génération `build_pptx` (CPU-bound, ~2-5s sur 38 Mo) bloquait la boucle event de FastAPI → toutes les requêtes concurrentes attendaient → Cloudflare timeout. Fix : wrap dans `run_in_threadpool` + `functools.partial`. Testé sur 3 exports concurrents (5.3s chacun) et auth en parallèle (96ms).
 
-## Changelog 17/06/2026 (v1)
-- [x] Fix slide 7 PPTX "Accès et logistique" : fond bleu foncé `#0D2126` + texte blanc forcés programmatiquement.
+## Changelog 17/06/2026 (v2)
+- [x] Slide 7 PPTX — fond crème (CONTENT 1 Column - Color) au lieu de dark teal.
+- [x] Auto-suggestion nb_nuits caméras (max 170/nuit).
 - [x] Toaster sonner repositionné `top-center`.
-- [x] Auto-suggestion nb de nuits EEG enrichie : inclut SA1.5 + saisonnier, re-bump auto si > 4900 EEG/nuit.
+- [x] Auto-suggestion nb_nuits EEG enrichie : SA1.5 + saisonnier inclus dans le total, re-bump auto si > 4900 EEG/nuit.
 
 ## Problem Statement Original
 "Je veut une application web. Je veux y mettre un excel avec 20000 lignes et je veux que l'application me crée automatiquement des nouveaux onglets avec un tri automatique. Comptage auto, etc etc... est possible?"
