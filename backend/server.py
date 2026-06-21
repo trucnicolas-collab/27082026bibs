@@ -120,8 +120,11 @@ async def persist_dataset(upload_id: str, data: dict, user_id: Optional[str] = N
         "recap_rows": data["recap_rows"],
         "comment_table": data.get("comment_table") or default_comment,
         "phasage": data.get("phasage") or {
-            "es": {"nb_nuits": 3, "rows": []},
-            "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5},
+            # auto_sort_by_nuit (22/06/2026) : nouvelles sessions, on regroupe
+            # automatiquement les lignes par nuit dès qu'elles sont assignées.
+            # Les anciennes sessions n'ont pas ce flag → comportement inchangé.
+            "es": {"nb_nuits": 3, "rows": [], "auto_sort_by_nuit": True},
+            "cam": {"nb_nuits": 3, "rows": [], "start_at_nuit": 5, "auto_sort_by_nuit": True},
             "suivi": {"rows": []},
         },
         "surface_category": data.get("surface_category"),
@@ -2010,6 +2013,14 @@ async def update_phasage(upload_id: str, payload: PhasageFullUpdate, current_use
     cam = _sanitize_planning(payload.cam)
     if "start_at_nuit" not in cam:
         cam["start_at_nuit"] = 5
+    # Préserve auto_sort_by_nuit (flag introduit le 22/06/2026 — n'est pas
+    # transmis par le frontend, il est figé à l'upload pour les nouvelles
+    # sessions et absent pour les anciennes).
+    _prev = d.get("phasage") if isinstance(d.get("phasage"), dict) else {}
+    for _key, _payload in (("es", es), ("cam", cam)):
+        _prev_block = (_prev or {}).get(_key) or {}
+        if "auto_sort_by_nuit" in _prev_block:
+            _payload["auto_sort_by_nuit"] = _prev_block["auto_sort_by_nuit"]
     suivi = payload.suivi or {"rows": []}
     # Sanitize suivi
     suivi_rows = []

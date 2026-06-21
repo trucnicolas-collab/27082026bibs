@@ -1,5 +1,8 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 22/06/2026
+- [x] **Tri auto par nuit dans Phasage de pose & Caméras** : flag persistant `phasage.es.auto_sort_by_nuit` / `phasage.cam.auto_sort_by_nuit` posé à `True` pour les NOUVELLES sessions uniquement. Quand l'utilisateur assigne/modifie la nuit d'une ligne, celle-ci est automatiquement regroupée avec les autres lignes de la même nuit (tri stable, lignes sans nuit en bas). Les sessions existantes (sans flag) gardent leur ordre manuel intact.
+
 ## Changelog 21/06/2026 (v2)
 - [x] **Sync auto Batterie & Software caméra** : nouveau helper `_refresh_batterie_software_block()` dans `server.py` qui aligne automatiquement les lignes batterie + software sur la somme de caméra noire + caméra blanche. Règle :
   - `batterie.qty` = sum(qty caméras), `batterie.t+s` = sum(t+s caméras), `batterie.spare` = différence (= sum des spares caméra).

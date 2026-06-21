@@ -121,8 +121,23 @@ export default function PhasageCamTab({ uploadId }) {
     }, [rows]);
 
     const updateRow = useCallback((id, patch) => {
-        setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
-    }, []);
+        setRows((prev) => {
+            const next = prev.map((r) => r.id === id ? { ...r, ...patch } : r);
+            // Auto-tri par nuit (22/06/2026) si le flag est activé sur la session
+            const flag = summary?.phasage?.cam?.auto_sort_by_nuit;
+            if (flag && Object.prototype.hasOwnProperty.call(patch, "nuit")) {
+                const withIdx = next.map((r, i) => ({ r, i }));
+                withIdx.sort((a, b) => {
+                    const na = a.r.nuit ?? Number.POSITIVE_INFINITY;
+                    const nb = b.r.nuit ?? Number.POSITIVE_INFINITY;
+                    if (na !== nb) return na - nb;
+                    return a.i - b.i;
+                });
+                return withIdx.map(({ r }) => r);
+            }
+            return next;
+        });
+    }, [summary]);
     const addRow = useCallback(() => {
         setRows((prev) => [...prev, { id: newRowId(), allee: "", nuit: null }]);
     }, []);

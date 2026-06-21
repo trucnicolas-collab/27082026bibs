@@ -217,8 +217,27 @@ export default function PhasageTab({ uploadId }) {
     const seasonalZones = summary?.seasonal_zones || [];
 
     const updateRow = useCallback((id, patch) => {
-        setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
-    }, []);
+        setRows((prev) => {
+            const next = prev.map((r) => r.id === id ? { ...r, ...patch } : r);
+            // Tri auto par nuit (croissant, lignes sans nuit en bas), uniquement
+            // pour les sessions où le flag `auto_sort_by_nuit` est activé
+            // (nouvelles sessions à partir du 22/06/2026). Stable : on garde
+            // l'ordre relatif à l'intérieur d'une même nuit.
+            const flag = summary?.phasage?.es?.auto_sort_by_nuit;
+            if (flag && Object.prototype.hasOwnProperty.call(patch, "nuit")) {
+                // Sort stable basé sur l'index d'origine en cas d'égalité
+                const withIdx = next.map((r, i) => ({ r, i }));
+                withIdx.sort((a, b) => {
+                    const na = a.r.nuit ?? Number.POSITIVE_INFINITY;
+                    const nb = b.r.nuit ?? Number.POSITIVE_INFINITY;
+                    if (na !== nb) return na - nb;
+                    return a.i - b.i;
+                });
+                return withIdx.map(({ r }) => r);
+            }
+            return next;
+        });
+    }, [summary]);
 
     const addRow = useCallback(() => {
         setRows((prev) => [...prev, { id: newRowId(), allee: "", nuit: null }]);
