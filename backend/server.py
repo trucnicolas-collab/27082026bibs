@@ -4052,10 +4052,33 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
 
+    def _abbr_rayon(name: str) -> str:
+        """Abrège un nom de rayon de plus de 8 caractères : on garde les 6
+        premiers caractères + « . », tout en préservant un éventuel
+        suffixe numérique en fin de chaîne (pour ne pas confondre
+        « Zone saisonnier 1/2/3 » → « Zone s. 1/2/3 »).
+
+        Ex: "Conserves" -> "Conser.", "Boulangerie" -> "Boulan.",
+            "Zone saisonnier 2" -> "Zone s. 2".
+        """
+        import re as _re
+        name = (name or "").strip()
+        if len(name) <= 8:
+            return name
+        # Sépare un éventuel suffixe numérique en fin (avec espaces autour)
+        m = _re.match(r"^(.*?)(\s+\d+)\s*$", name)
+        if m:
+            base, num = m.group(1).strip(), m.group(2).strip()
+            if len(base) <= 6:
+                return f"{base} {num}"
+            return f"{base[:6].rstrip()}. {num}"
+        return name[:6].rstrip() + "."
+
     def _compress_sr_list(sr_list: list[str]) -> str:
-        """Regroupe les paires `Secteur:Rayon` par secteur pour gagner de la
-        place dans le PPTX. Ex: ["NAL:Conserves", "NAL:Liquides", "PGC:Épicerie"]
-        -> "NAL : Conserves, Liquides | PGC : Épicerie".
+        """Regroupe les paires `Secteur:Rayon` par secteur et abrège les
+        noms de rayons longs (> 8 caractères) pour gagner de la place
+        dans le PPTX. Ex: ["NAL:Conserves", "NAL:Liquides", "PGC:Épicerie"]
+        -> "NAL : Conser., Liquides | PGC : Épicer.".
         """
         if not sr_list:
             return ""
@@ -4070,8 +4093,9 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
                 sec, ray = item.strip(), ""
             if sec not in groups:
                 groups[sec] = []
-            if ray and ray not in groups[sec]:
-                groups[sec].append(ray)
+            ray_abbr = _abbr_rayon(ray) if ray else ""
+            if ray_abbr and ray_abbr not in groups[sec]:
+                groups[sec].append(ray_abbr)
         parts = []
         for sec, rays in groups.items():
             if rays:

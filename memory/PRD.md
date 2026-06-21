@@ -1,5 +1,8 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 21/06/2026
+- [x] **Colonne « Secteur/Rayon » slides Semaine S1-S4 PPTX** : regroupement par secteur + abréviation des rayons longs (> 8 caractères → 6 premiers + « . »), avec préservation des suffixes numériques (« Zone saisonnier 1 » → « Zone s. 1 »). Réduit fortement la largeur du tableau S3 sans perte d'info.
+
 ## Changelog 20/06/2026
 - [x] **Slide 7 PPTX** — fix définitif : re-link de slide21 au layout `slideLayout42.xml` (`CONTENT 1 Column - Color`, fond crème FDF6E3, sans formes décoratives) directement dans le template. Aucune surcharge programmatique nécessaire — rendu identique au PPTX cible fourni par l'utilisateur.
 - [x] **Titres PPTX dynamiques** : les slides 12, 13, 18, 19 (« Tableau phasage EEG/cameras par nuit (X nuits) ») reflètent désormais le vrai `nb_nuits` (helper `_replace_nb_nuits_in_title`). Fini les « (14 nuits) » figés.
