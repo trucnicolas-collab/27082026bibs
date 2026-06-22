@@ -1,5 +1,14 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 23/06/2026
+- [x] **Nouvelle règle surface +/- 10000 m²** :
+  - **+10000 m²** : SA 2.1 (noir) +4800, SA 1.5 (noir) **+1200 (nouveau)**, Support indiv alu SA +6000.
+  - **-10000 m²** : SA 2.1 (noir) +3200, SA 1.5 (noir) **+800 (nouveau)**, Support indiv alu SA +4000.
+  - Toujours **sans spare**. Suffixe « — rajout de X SA sans spare » sur les désignations.
+  - Endpoint `update_surface` refactoré avec helper `_apply_delta_to_row()` (pas de duplication). Migration auto des `_surface_base_*` pour anciennes sessions.
+  - Frontend `RecapTable.jsx` : libellé du bandeau surface mis à jour pour afficher les 3 lignes impactées avec leurs nouvelles valeurs.
+- [x] Testé end-to-end : bascule +10000 → -10000 → null → valeurs d'origine restaurées sans dérive cumulative.
+
 ## Changelog 22/06/2026 (v2)
 - [x] **Sauvegarde versionnée du Phasage avec restauration 1-clic** (`phasage_snapshots` collection, TTL 30j, 20 derniers/session).
   - Backend : `save_phasage_snapshot()` appelé à chaque `update_phasage` ; nouveau `snapshot_id` ajouté aux détails de l'audit log.

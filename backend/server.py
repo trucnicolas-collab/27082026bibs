@@ -1389,61 +1389,50 @@ async def update_dongles(upload_id: str, payload: DonglesUpdate, current_user: d
 
 @api_router.patch("/dataset/{upload_id}/surface")
 async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: dict = Depends(get_current_user)):
-    """Définit la catégorie surface du magasin et ajoute :
-      - +6000 si "plus_10000" (surface > 10 000 m²)
-      - +4000 si "moins_10000" (surface < 10 000 m²)
-    à la ligne 'SA 2.1 (noir)' existante du recap, **uniquement sur total_plus_spare**
-    (pas de spare additionnel). La désignation est suffixée de " — rajout de X SA sans spare".
+    """Définit la catégorie surface du magasin et applique les rajouts SA
+    correspondants (sans spare), uniquement sur `total_plus_spare`.
 
-    Mécanisme : on stocke les valeurs d'origine (`_surface_base_quantite`, `_surface_base_spare`,
-    `_surface_base_total`, `_surface_base_designation`) la première fois pour pouvoir
-    revenir en arrière sans dérive cumulative.
-    Si la ligne SA 2.1 (noir) n'existe pas dans le fichier, on crée une ligne dédiée
-    (kind='surface_added') avec uniquement total_plus_spare = delta."""
+    Règles utilisateur (23/06/2026) :
+      • +10000m² → SA 2.1 (noir) +4800, SA 1.5 (noir) +1200, Support indiv alu SA +6000
+      • -10000m² → SA 2.1 (noir) +3200, SA 1.5 (noir) +800,  Support indiv alu SA +4000
+      • Aucun spare ajouté. La désignation est suffixée
+        de " — rajout de X SA sans spare" (ou X supports).
+      • On stocke les valeurs d'origine (`_surface_base_*`) la 1ère fois
+        pour pouvoir revenir en arrière sans dérive cumulative.
+      • Si une ligne cible n'existe pas dans le fichier, on crée une ligne
+        dédiée (kind='surface_added') avec uniquement total_plus_spare = delta.
+    """
     d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cat = payload.category
     if cat not in (None, "plus_10000", "moins_10000"):
         raise HTTPException(status_code=400, detail="Catégorie surface invalide")
-    delta = 6000 if cat == "plus_10000" else (4000 if cat == "moins_10000" else 0)
+    # Delta par ligne cible — règles 23/06/2026
+    if cat == "plus_10000":
+        delta_sa21, delta_sa15, delta_support = 4800, 1200, 6000
+    elif cat == "moins_10000":
+        delta_sa21, delta_sa15, delta_support = 3200, 800, 4000
+    else:
+        delta_sa21 = delta_sa15 = delta_support = 0
     d["surface_category"] = cat
     rows = d["recap_rows"]
 
     def _strip_surface_suffix(s: str) -> str:
-        """Retire un éventuel ' — rajout de X SA sans spare' à la fin de la désignation."""
+        """Retire un éventuel ' — rajout de X SA/supports sans spare' à la fin."""
         if not s:
             return s
-        # Marqueur unique pour faciliter le strip (en-dash + 'rajout de')
         idx = s.find(" — rajout de ")
         return s[:idx] if idx != -1 else s
 
-    # 0) Nettoyage : on supprime systématiquement TOUTES les anciennes lignes
-    #    `surface_added` orphelines (créées par les versions buggées précédentes).
-    rows[:] = [r for r in rows if r.get("kind") != "surface_added"]
-
-    # 1) Cherche la VRAIE ligne SA 2.1 (noir) — uniquement les lignes kind=product
-    #    (on ignore les éventuelles lignes 'spare' ou orphelines).
-    target = None
-    for r in rows:
-        if r.get("kind") != "product":
-            continue
-        base_desig = _strip_surface_suffix((r.get("designation") or "").strip())
-        if base_desig.lower() == "sa 2.1 (noir)":
-            target = r
-            break
-
-    if target is not None:
-        # Mémorise les valeurs d'origine la 1ère fois (qty, spare, total, désignation)
-        # Re-init si _surface_base_total == 0 alors que _surface_base_quantite > 0
-        # (correction héritage des datasets où l'ancienne logique stockait base_t=0).
+    def _apply_delta_to_row(target: dict, delta: int, suffix_word: str,
+                              default_desig: str) -> None:
+        """Applique le delta sur la ligne (init des _surface_base_* si besoin)."""
         needs_init = "_surface_base_quantite" not in target or (
             float(target.get("_surface_base_total") or 0) == 0
             and float(target.get("_surface_base_quantite") or 0) > 0
         )
         if needs_init:
-            # Migration depuis l'ancien schéma (qte inflée + _surface_base) :
-            # si _surface_base existe, on l'utilise comme qté d'origine et on recalcule spare/total.
             if "_surface_base" in target:
                 try:
                     base_q = float(target.get("_surface_base") or 0)
@@ -1461,8 +1450,6 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
                     target["_surface_base_spare"] = float(target.get("spare") or 0)
                 except (ValueError, TypeError):
                     target["_surface_base_spare"] = 0
-                # Si total_plus_spare est vide/manquant, on le RECALCULE depuis qté + spare
-                # pour éviter de partir de 0 et afficher un total incohérent après l'ajout.
                 try:
                     raw_t = target.get("total_plus_spare")
                     if raw_t in ("", None):
@@ -1471,100 +1458,72 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
                         target["_surface_base_total"] = float(raw_t)
                 except (ValueError, TypeError):
                     target["_surface_base_total"] = target["_surface_base_quantite"] + target["_surface_base_spare"]
-            target["_surface_base_designation"] = _strip_surface_suffix(target.get("designation") or "SA 2.1 (noir)")
+            target["_surface_base_designation"] = _strip_surface_suffix(target.get("designation") or default_desig)
 
         base_q = target["_surface_base_quantite"]
         base_s = target["_surface_base_spare"]
         base_t = target["_surface_base_total"]
         base_d = target["_surface_base_designation"]
-
-        # Règle métier (utilisateur) : QUANTITÉ et SPARE restent INCHANGÉS.
-        # Seul TOTAL+SPARE reçoit le delta (+6000 ou +4000).
-        # La mention "— rajout de X SA sans spare" justifie l'écart visuel.
         target["quantite"] = base_q if base_q > 0 else ""
         target["spare"] = base_s if base_s > 0 else ""
         if delta > 0:
             target["total_plus_spare"] = base_t + delta
-            target["designation"] = f"{base_d} — rajout de {int(delta)} SA sans spare"
+            target["designation"] = f"{base_d} — rajout de {int(delta)} {suffix_word} sans spare"
         else:
             target["total_plus_spare"] = base_t if base_t > 0 else ""
             target["designation"] = base_d
-    else:
-        # Pas trouvé dans le fichier : ligne dédiée (kind='surface_added')
-        added = next((r for r in rows if r.get("kind") == "surface_added"), None)
-        if delta == 0:
-            if added:
-                rows.remove(added)
-        else:
-            if added is None:
-                last_empty_idx = next((i for i, r in enumerate(rows) if r.get("kind") == "empty"), len(rows))
-                added = {
-                    "kind": "surface_added",
-                    "type": "SA",
-                    "reference": "",
-                    "designation": f"SA 2.1 (noir) — rajout de {int(delta)} SA sans spare",
-                    "quantite": delta,
-                    "spare": "",
-                    "total_plus_spare": delta,
-                }
-                rows.insert(last_empty_idx, added)
-            else:
-                added["designation"] = f"SA 2.1 (noir) — rajout de {int(delta)} SA sans spare"
-                added["quantite"] = delta
-                added["spare"] = ""
-                added["total_plus_spare"] = delta
-    # ===== 2) Support individuel alu SA — même delta, sans spare =====
-    # Le même nombre que pour SA 2.1 est ajouté à la ligne "Support individuel alu SA"
-    # (uniquement sur total_plus_spare, mention "rajout de N supports sans spare").
-    support_target = None
-    for r in rows:
-        if r.get("kind") != "product":
-            continue
-        base_desig = _strip_surface_suffix((r.get("designation") or "").strip())
-        # Détection robuste : "Support individuel alu SA" insensible casse
-        if "support individuel alu sa" in base_desig.lower():
-            support_target = r
-            break
 
-    if support_target is not None:
-        needs_init_s = "_surface_base_quantite" not in support_target or (
-            float(support_target.get("_surface_base_total") or 0) == 0
-            and float(support_target.get("_surface_base_quantite") or 0) > 0
-        )
-        if needs_init_s:
-            try:
-                support_target["_surface_base_quantite"] = float(support_target.get("quantite") or 0)
-            except (ValueError, TypeError):
-                support_target["_surface_base_quantite"] = 0
-            try:
-                support_target["_surface_base_spare"] = float(support_target.get("spare") or 0)
-            except (ValueError, TypeError):
-                support_target["_surface_base_spare"] = 0
-            try:
-                raw_t = support_target.get("total_plus_spare")
-                if raw_t in ("", None):
-                    support_target["_surface_base_total"] = support_target["_surface_base_quantite"] + support_target["_surface_base_spare"]
-                else:
-                    support_target["_surface_base_total"] = float(raw_t)
-            except (ValueError, TypeError):
-                support_target["_surface_base_total"] = support_target["_surface_base_quantite"] + support_target["_surface_base_spare"]
-            support_target["_surface_base_designation"] = _strip_surface_suffix(support_target.get("designation") or "Support individuel alu SA")
+    # 0) Nettoyage : on supprime systématiquement TOUTES les anciennes lignes
+    #    `surface_added` orphelines (créées par les versions buggées précédentes).
+    rows[:] = [r for r in rows if r.get("kind") != "surface_added"]
 
-        base_qs = support_target["_surface_base_quantite"]
-        base_ss = support_target["_surface_base_spare"]
-        base_ts = support_target["_surface_base_total"]
-        base_ds = support_target["_surface_base_designation"]
-        support_target["quantite"] = base_qs if base_qs > 0 else ""
-        support_target["spare"] = base_ss if base_ss > 0 else ""
-        if delta > 0:
-            support_target["total_plus_spare"] = base_ts + delta
-            support_target["designation"] = f"{base_ds} — rajout de {int(delta)} supports sans spare"
-        else:
-            support_target["total_plus_spare"] = base_ts if base_ts > 0 else ""
-            support_target["designation"] = base_ds
+    def _find_product(predicate) -> Optional[dict]:
+        for r in rows:
+            if r.get("kind") != "product":
+                continue
+            base_desig = _strip_surface_suffix((r.get("designation") or "").strip()).lower()
+            if predicate(base_desig):
+                return r
+        return None
 
-    # Recalcule le bloc VCare après le changement de surface (ajoute/retire
-    # les 6000 SA → VCare doit suivre).
+    def _create_surface_added(designation: str, delta: int, where_type: str = "SA") -> None:
+        last_empty_idx = next((i for i, r in enumerate(rows) if r.get("kind") == "empty"), len(rows))
+        rows.insert(last_empty_idx, {
+            "kind": "surface_added",
+            "type": where_type,
+            "reference": "",
+            "designation": designation,
+            "quantite": delta,
+            "spare": "",
+            "total_plus_spare": delta,
+        })
+
+    # 1) SA 2.1 (noir)
+    t_sa21 = _find_product(lambda d: d == "sa 2.1 (noir)")
+    if t_sa21 is not None:
+        _apply_delta_to_row(t_sa21, delta_sa21, "SA", "SA 2.1 (noir)")
+    elif delta_sa21 > 0:
+        _create_surface_added(f"SA 2.1 (noir) — rajout de {int(delta_sa21)} SA sans spare", delta_sa21)
+
+    # 2) SA 1.5 (noir) — règle ajoutée 23/06/2026
+    t_sa15 = _find_product(lambda d: d == "sa 1.5 (noir)")
+    if t_sa15 is not None:
+        _apply_delta_to_row(t_sa15, delta_sa15, "SA", "SA 1.5 (noir)")
+    elif delta_sa15 > 0:
+        _create_surface_added(f"SA 1.5 (noir) — rajout de {int(delta_sa15)} SA sans spare", delta_sa15)
+
+    # 3) Support individuel alu SA
+    t_support = _find_product(lambda d: "support individuel alu sa" in d)
+    if t_support is not None:
+        _apply_delta_to_row(t_support, delta_support, "supports", "Support individuel alu SA")
+    elif delta_support > 0:
+        _create_surface_added(
+            f"Support individuel alu SA — rajout de {int(delta_support)} supports sans spare",
+            delta_support, where_type="Support")
+
+    # Recalcule batterie + software caméra + VCare (les changements de surface
+    # ajoutent/retirent des SA → VCare doit suivre).
+    rows = _refresh_batterie_software_block(rows)
     rows = _refresh_vcare_block(rows)
     # Persister recap + surface_category
     try:

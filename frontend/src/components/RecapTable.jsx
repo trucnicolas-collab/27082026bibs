@@ -162,7 +162,10 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         </div>
                         {surfaceCategory && (
                             <span className="text-xs text-amber-900 font-semibold italic">
-                                → +{surfaceCategory === "plus_10000" ? "6 000" : "4 000"} SA 2.1 (noir) <span className="font-normal">+ Support indiv. alu SA</span> <span className="font-normal">sans spare</span>
+                                → +{surfaceCategory === "plus_10000" ? "4 800" : "3 200"} SA 2.1 (noir)
+                                {" "}+{surfaceCategory === "plus_10000" ? "1 200" : "800"} SA 1.5 (noir)
+                                {" "}+{surfaceCategory === "plus_10000" ? "6 000" : "4 000"} Support indiv. alu SA
+                                {" "}<span className="font-normal">sans spare</span>
                             </span>
                         )}
                     </div>
