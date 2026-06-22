@@ -225,12 +225,14 @@ def _fill_slide_8(slide, recap_rows: list):
     if len(tables) < 2:
         return
     t1, t2 = tables[0].table, tables[1].table
-    # 24/06/2026 — passe de 6 → 10 colonnes pour afficher toutes les colonnes
-    # du récap : Type / Réf / Désignation / Qté / Spare / Flèche / Signal. /
-    # Saiso. / Total / Total+MOQ. Préserve la largeur totale d'origine.
+    # 10 colonnes : Type / Réf / Désignation / Total / Spare / Flèche /
+    # Signalétique / Saisonnier / Total+Spare / Total+MOQ
     N_COLS = 10
     _ensure_table_cols(t1, N_COLS, label_cols=3)
     _ensure_table_cols(t2, N_COLS, label_cols=3)
+    # Distribution des largeurs par colonne (aligné sur le rendu cible).
+    _set_recap_col_widths(t1)
+    _set_recap_col_widths(t2)
     # Filtre : on EXCLUT les lignes VCare (demande utilisateur 16/06/2026 — le
     # bloc VCare ne doit pas apparaître dans le tableau Commandes du PowerPoint)
     # On exclut aussi les lignes vides.
@@ -258,23 +260,47 @@ def _fill_slide_8(slide, recap_rows: list):
         _clear_row(t1, i + 1)
     for i in range(len(rest), cap2):
         _clear_row(t2, i + 1)
+    # Force une hauteur de ligne compacte uniforme (180000 EMU ≈ 0.19 inch)
+    for tbl in (t1, t2):
+        for tr in tbl._tbl.findall(qn('a:tr')):
+            tr.set('h', '180000')
 
 
 # Mapping colonne PPTX (10 cols) — doit rester aligné avec _write_recap_header
 # et l'UI du frontend (RecapTable.jsx).
 _RECAP_COL_HEADERS = [
-    "Type", "Référence", "Désignation",
-    "Qté", "Spare", "Flèche", "Signalétique", "Saisonnier",
+    "Type", "Réf.", "Désignation",
+    "Total", "Spare", "Flèche", "Signalétique", "Saisonnier",
     "Total", "Total + MOQ",
 ]
+# Distribution des largeurs (en %) — somme = 100 %. Aligné sur l'export cible.
+_RECAP_COL_WEIGHTS = [7, 7, 23, 8, 8, 7, 11, 10, 8, 11]
+
+
+def _set_recap_col_widths(table):
+    """Distribue la largeur totale de la table selon _RECAP_COL_WEIGHTS."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    grid = table._tbl.find(f'{{{NS}}}tblGrid')
+    if grid is None:
+        return
+    cols = grid.findall(f'{{{NS}}}gridCol')
+    if len(cols) != len(_RECAP_COL_WEIGHTS):
+        return
+    try:
+        total = sum(int(gc.get('w')) for gc in cols)
+    except (TypeError, ValueError):
+        return
+    s = sum(_RECAP_COL_WEIGHTS)
+    for gc, w in zip(cols, _RECAP_COL_WEIGHTS):
+        gc.set('w', str(int(total * w / s)))
 
 
 def _write_recap_header(table, row_idx: int):
-    """Écrit la ligne d'en-tête (gris/gras) avec les noms des 10 colonnes."""
+    """Écrit la ligne d'en-tête (gris/gras)."""
     for c, label in enumerate(_RECAP_COL_HEADERS):
         align = "left" if c < 3 else "right"
         _set_cell_text(table.cell(row_idx, c), label,
-                       bold=True, align=align, size=9,
+                       bold=True, align=align, size=8,
                        fill_rgb=(0xE5, 0xE7, 0xEB))
 
 
@@ -282,33 +308,31 @@ def _write_recap_row(table, row_idx, r):
     is_header = r.get("kind") == "header"
     is_section = r.get("kind") == "section"
     bold = is_header or is_section
-    # Section divider (23/06/2026 v5) : nom dans col Désignation, fond bleu clair.
+    # Section divider (banner bleu clair sur les 10 cols, label en col 0).
     if is_section:
         section_fill = (0xDD, 0xEB, 0xF7)
         for c in range(10):
-            txt = ""
-            if c == 2:
-                txt = (r.get("type") or "").upper()
+            txt = (r.get("type") or "") if c == 0 else ""
             _set_cell_text(table.cell(row_idx, c), txt,
-                           bold=(c == 2), align=("left" if c < 3 else "right"),
-                           size=10, fill_rgb=section_fill)
+                           bold=(c == 0), align="left",
+                           size=9, fill_rgb=section_fill)
         return
-    # Cellules : Type / Réf / Désignation / Qté / Spare / Flèche /
-    # Signalétique / Saisonnier / Total (=total_plus_spare) / Total+MOQ
-    _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), bold=bold, align="left", size=10)
-    _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), bold=bold, align="center", size=10)
-    _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), bold=bold, align="left", size=10)
-    _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), bold=bold, align="right", size=10)
-    _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), bold=bold, align="right", size=10)
-    _set_cell_text(table.cell(row_idx, 5), _num(r.get("fleche")), bold=bold, align="right", size=10)
-    _set_cell_text(table.cell(row_idx, 6), _num(r.get("signaletique")), bold=bold, align="right", size=10)
-    _set_cell_text(table.cell(row_idx, 7), _num(r.get("saisonnier")), bold=bold, align="right", size=10)
+    # Cellules : Type / Réf / Désignation / Total / Spare / Flèche /
+    # Signalétique / Saisonnier / Total+Spare / Total+MOQ
+    _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), bold=bold, align="left", size=8)
+    _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), bold=bold, align="left", size=8)
+    _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), bold=bold, align="left", size=8)
+    _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), bold=bold, align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), bold=bold, align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 5), _num(r.get("fleche")), bold=bold, align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 6), _num(r.get("signaletique")), bold=bold, align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 7), _num(r.get("saisonnier")), bold=bold, align="right", size=8)
     _set_cell_text(table.cell(row_idx, 8), _num(r.get("total_plus_spare")),
-                   bold=True, align="right", size=10)
+                   bold=True, align="right", size=8)
     moq_val = r.get("total_moq")
     moq_txt = "—" if moq_val == "—" else _num(moq_val)
     _set_cell_text(table.cell(row_idx, 9), moq_txt,
-                   bold=True, align="right", size=10)
+                   bold=True, align="right", size=8)
     if is_header:
         for c in range(10):
             _set_cell_fill(table.cell(row_idx, c), "#FEF3C7")
@@ -316,7 +340,7 @@ def _write_recap_row(table, row_idx, r):
 
 def _clear_row(table, row_idx):
     for c in range(len(table.columns)):
-        _set_cell_text(table.cell(row_idx, c), "", size=10)
+        _set_cell_text(table.cell(row_idx, c), "", size=8)
 
 
 def _replace_nb_nuits_in_title(slide, nb_nuits: int):
