@@ -880,18 +880,62 @@ def build_par_secteur(df: pd.DataFrame, cols: dict) -> list[dict]:
     return rows
 
 
+# Alias de références : si l'utilisateur saisit une ancienne réf dans le fichier,
+# elle est automatiquement remplacée par la réf canonique avant tout calcul.
+# 26/02/2026 — 17979 ≡ 15912 (V:Care 5Y E300 2.1 F BWRY).
+REF_ALIASES: dict[str, str] = {
+    "17979": "15912",
+}
+
+
+def _normalize_reference_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Applique REF_ALIASES sur la colonne Référence (Référence/Reference)."""
+    ref_col = find_col(df, EXPECTED_COLS["reference"])
+    if ref_col is None or not REF_ALIASES:
+        return df
+
+    def _alias(val):
+        if val is None:
+            return val
+        try:
+            if isinstance(val, float) and math.isnan(val):
+                return val
+        except Exception:
+            pass
+        if isinstance(val, float) and float(val).is_integer():
+            key = str(int(val))
+        else:
+            key = str(val).strip()
+        new = REF_ALIASES.get(key)
+        if new is None:
+            return val
+        # Si valeur d'origine numérique, on garde un int pour ne pas casser
+        # le typage de la colonne dans pandas.
+        if isinstance(val, (int, np.integer)) or (
+            isinstance(val, float) and float(val).is_integer()
+        ):
+            try:
+                return int(new)
+            except ValueError:
+                return new
+        return new
+
+    df[ref_col] = df[ref_col].map(_alias)
+    return df
+
+
 def _parse_excel(contents: bytes) -> pd.DataFrame:
     """Parse un xlsx avec calamine (rapide) puis openpyxl en fallback."""
     try:
         df = pd.read_excel(io.BytesIO(contents), sheet_name=0, engine="calamine")
         logger.info(f"Parsed with calamine: {df.shape[0]} rows x {df.shape[1]} cols")
-        return df
+        return _normalize_reference_column(df)
     except Exception as e_cal:
         logger.warning(f"Calamine failed ({e_cal}), falling back to openpyxl")
     try:
         df = pd.read_excel(io.BytesIO(contents), sheet_name=0)
         logger.info(f"Parsed with openpyxl: {df.shape[0]} rows x {df.shape[1]} cols")
-        return df
+        return _normalize_reference_column(df)
     except Exception as e:
         logger.exception("Excel parse error")
         raise HTTPException(status_code=400, detail=f"Impossible de lire le fichier Excel : {e}")
@@ -1476,6 +1520,9 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, 
 
     new_type = (payload.type or "").strip()
     new_ref = (payload.reference or "").strip()
+    # Alias de référence (ex: 17979 -> 15912)
+    if new_ref in REF_ALIASES:
+        new_ref = REF_ALIASES[new_ref]
     new_desig = (payload.designation or "").strip()
     new_qty = _parse_quantite(payload.quantite)
     new_spare = _parse_quantite(payload.spare)
