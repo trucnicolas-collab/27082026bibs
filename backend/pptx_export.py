@@ -616,7 +616,9 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
 # ===================================================================
 # Slide 19 — Détail caméras par allée (split en 2 tables 27×2)
 # ===================================================================
-def _fill_slide_19(slide, detail_rows: list[tuple[str, str]]):
+def _fill_slide_19(slide, detail_rows, weeks=None):
+    """Détail caméras par allée. Rows = list[(nuit, allee, elems_str)].
+    Couleur de fond par nuit (cohérence visuelle avec le reste du PPTX)."""
     tables = _get_tables(slide)
     if len(tables) < 2:
         return
@@ -633,15 +635,31 @@ def _fill_slide_19(slide, detail_rows: list[tuple[str, str]]):
     _set_cell_text(t1.cell(0, 0), "Détail caméras par allée", bold=True, align="center", size=12)
     _set_cell_text(t1.cell(1, 0), "Allées", bold=True, size=10)
     _set_cell_text(t1.cell(1, 1), "N° Elements", bold=True, size=10)
+
+    def _row_color(n: int) -> str | None:
+        if not n or n >= 9999 or not weeks:
+            return None
+        return _color_for_night(n, weeks)
+
+    def _hex_to_rgb(hx: str):
+        hx = hx.lstrip("#")
+        return (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
+
     for i in range(min(cap1, needed)):
-        allee, elems = detail_rows[i]
-        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 0), allee, bold=True, size=10)
-        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 1), elems, align="left", size=9)
+        n, allee, elems = detail_rows[i]
+        color = _row_color(n)
+        fill = _hex_to_rgb(color) if color else None
+        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 0), allee,
+                       bold=True, size=10, fill_rgb=fill)
+        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 1), elems,
+                       align="left", size=9, fill_rgb=fill)
     rest = detail_rows[cap1:]
     for i in range(min(cap2, len(rest))):
-        allee, elems = rest[i]
-        _set_cell_text(t2.cell(i, 0), allee, bold=True, size=10)
-        _set_cell_text(t2.cell(i, 1), elems, align="left", size=9)
+        n, allee, elems = rest[i]
+        color = _row_color(n)
+        fill = _hex_to_rgb(color) if color else None
+        _set_cell_text(t2.cell(i, 0), allee, bold=True, size=10, fill_rgb=fill)
+        _set_cell_text(t2.cell(i, 1), elems, align="left", size=9, fill_rgb=fill)
     # Vide les cellules non utilisées
     for i in range(max(0, needed - cap1), cap2):
         _set_cell_text(t2.cell(i, 0), "", size=10)
@@ -730,7 +748,7 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
 # Public entry point
 # ===================================================================
 def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None = None,
-               detail_cam_rows: list[tuple[str, str]] | None = None) -> bytes:
+               detail_cam_rows: list[tuple[int, str, str]] | None = None) -> bytes:
     """Génère le PowerPoint complet à partir des données.
 
     aggregate_fn(d) → dict avec clés : nuit_es (n -> {date, sr, allees_str, eeg, rails_es, sa, cam}),
@@ -792,7 +810,7 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
         _fill_slide_18(slides[18], agg["nuit_cam"], weeks_list)
     # Slide 20 (index 19) = Détail caméras par allée
     if len(slides) >= 20 and detail_cam_rows:
-        _fill_slide_19(slides[19], detail_cam_rows)
+        _fill_slide_19(slides[19], detail_cam_rows, weeks=weeks_list)
     # Slide 21 (index 20) = Phasage full consolidé
     if len(slides) >= 21:
         _fill_slide_20(slides[20], agg["nuit_es"], agg["nuit_cam"],

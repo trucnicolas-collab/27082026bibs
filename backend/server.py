@@ -4582,15 +4582,37 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
             "cam_nights": cam_nights,
         }
 
-    # Détail caméras par allée
+    # Détail caméras par allée — groupé par nuit pour un rendu en bandes de
+    # couleur cohérentes (alignement sur la cible utilisateur 26/02/2026).
     summary = compute_phasage_summary(d)
-    detail_rows: list[tuple[str, str]] = []
+    phasage_obj = _normalize_phasage(d.get("phasage"))
+    cam_plan = phasage_obj.get("cam", {})
+    weeks_cam = cam_plan.get("weeks") or []
+    cam_start_at = int(cam_plan.get("start_at_nuit") or 5)
+    # uid → nuit (globale) via le plan caméras
+    allee_to_nuit: dict[str, int] = {}
+    for r in cam_plan.get("rows") or []:
+        a_uid = str(r.get("allee") or "").strip()
+        n = r.get("nuit")
+        if a_uid and n:
+            allee_to_nuit[a_uid] = cam_start_at + int(n) - 1
+    detail_rows: list[tuple[int, str, str]] = []  # (nuit, label, elems)
     for a in summary.get("allees", []):
         elems = a.get("camera_elems") or []
-        if elems:
-            label = _allee_display_label(a)
-            detail_rows.append((label, ", ".join(str(e) for e in elems)))
-    detail_rows.sort(key=lambda x: (0, int(x[0]) if x[0].isdigit() else 999, x[0]))
+        if not elems:
+            continue
+        label = _allee_display_label(a)
+        a_uid = str(a.get("uid") or a.get("allee") or "")
+        n = allee_to_nuit.get(a_uid, 9999)  # 9999 = pas planifiée
+        detail_rows.append((n, label, ", ".join(str(e) for e in elems)))
+
+    def _label_sort_key(s: str):
+        # Tri "smart" : numérique d'abord, puis suffixe (ex: "7-1" < "7-2")
+        m = re.match(r"^(\d+)(?:[-](\d+))?$", s)
+        if m:
+            return (0, int(m.group(1)), int(m.group(2) or 0))
+        return (1, 0, 0, s)
+    detail_rows.sort(key=lambda x: (x[0], _label_sort_key(x[1])))
 
     # Recap rows à jour (avec VCare recalculé)
     recap = _refresh_vcare_block(d.get("recap_rows") or [])
