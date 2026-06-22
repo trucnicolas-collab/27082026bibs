@@ -66,6 +66,48 @@ async def _on_startup():
         await db.audit_log.create_index("timestamp", expireAfterSeconds=60 * 60 * 24 * 365)
     except Exception as e:
         logger.warning(f"audit_log index failed: {e}")
+    try:
+        # phasage_snapshots : TTL 30 jours + index upload_id (22/06/2026)
+        # Conserve un snapshot complet du phasage à chaque save → restauration
+        # possible depuis le panneau Historique.
+        await db.phasage_snapshots.create_index("upload_id")
+        await db.phasage_snapshots.create_index(
+            "created_at", expireAfterSeconds=60 * 60 * 24 * 30
+        )
+    except Exception as e:
+        logger.warning(f"phasage_snapshots index failed: {e}")
+
+
+# Nombre maximum de snapshots conservés par session (les plus anciens sont purgés)
+PHASAGE_SNAPSHOTS_MAX_PER_UPLOAD = 20
+
+
+async def save_phasage_snapshot(upload_id: str, user: Optional[dict],
+                                phasage: dict) -> Optional[str]:
+    """Insère un snapshot complet du phasage et purge les plus anciens
+    au-delà de PHASAGE_SNAPSHOTS_MAX_PER_UPLOAD. Retourne l'_id en str."""
+    try:
+        doc = {
+            "upload_id": upload_id,
+            "user_id": str(user["_id"]) if user else None,
+            "user_email": (user.get("email") if user else None) or "anonyme",
+            "phasage": phasage or {},
+            "created_at": datetime.now(timezone.utc),
+        }
+        res = await db.phasage_snapshots.insert_one(doc)
+        new_id = str(res.inserted_id)
+        # Purge des plus anciens au-delà du quota
+        cursor = db.phasage_snapshots.find(
+            {"upload_id": upload_id},
+            {"_id": 1, "created_at": 1},
+        ).sort("created_at", -1).skip(PHASAGE_SNAPSHOTS_MAX_PER_UPLOAD)
+        to_delete = [d["_id"] async for d in cursor]
+        if to_delete:
+            await db.phasage_snapshots.delete_many({"_id": {"$in": to_delete}})
+        return new_id
+    except Exception as e:
+        logger.warning(f"save_phasage_snapshot failed: {e}")
+        return None
 
 
 async def log_audit(upload_id: Optional[str], user: Optional[dict],
@@ -1020,6 +1062,62 @@ async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_
         if hasattr(ts, "isoformat"):
             it["timestamp"] = ts.isoformat()
     return {"activity": items, "count": len(items)}
+
+
+@api_router.get("/dataset/{upload_id}/phasage-snapshots")
+async def list_phasage_snapshots(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Liste les snapshots versionnés du phasage (20 derniers max, 30j TTL)."""
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    cursor = db.phasage_snapshots.find(
+        {"upload_id": upload_id},
+        {"phasage": 0},  # On n'envoie pas le payload complet ici
+    ).sort("created_at", -1).limit(PHASAGE_SNAPSHOTS_MAX_PER_UPLOAD)
+    items = await cursor.to_list(length=PHASAGE_SNAPSHOTS_MAX_PER_UPLOAD)
+    for it in items:
+        it["id"] = str(it.pop("_id"))
+        ts = it.get("created_at")
+        if hasattr(ts, "isoformat"):
+            it["created_at"] = ts.isoformat()
+    return {"snapshots": items, "count": len(items)}
+
+
+@api_router.post("/dataset/{upload_id}/phasage-restore/{snapshot_id}")
+async def restore_phasage_snapshot(upload_id: str, snapshot_id: str,
+                                    current_user: dict = Depends(get_current_user)):
+    """Restaure le phasage à partir d'un snapshot versionné."""
+    from bson import ObjectId
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    try:
+        snap = await db.phasage_snapshots.find_one({
+            "_id": ObjectId(snapshot_id),
+            "upload_id": upload_id,
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Snapshot ID invalide")
+    if not snap:
+        raise HTTPException(status_code=404, detail="Snapshot introuvable")
+    new_phasage = snap.get("phasage") or {}
+    if not isinstance(new_phasage, dict):
+        raise HTTPException(status_code=500, detail="Snapshot corrompu")
+    # Sauvegarde un snapshot du phasage actuel AVANT restauration
+    # (pour pouvoir annuler la restauration si nécessaire).
+    await save_phasage_snapshot(upload_id, current_user, d.get("phasage") or {})
+    d["phasage"] = new_phasage
+    try:
+        await persist_phasage(upload_id, d["phasage"])
+    except Exception as e:
+        logger.warning(f"Mongo persist phasage failed (restore): {e}")
+    new_snap_id = await save_phasage_snapshot(upload_id, current_user, new_phasage)
+    await log_audit(
+        upload_id, current_user, "phasage_restored",
+        target=f"snapshot {snapshot_id[:8]}...",
+        details={"restored_from": snapshot_id, "snapshot_id": new_snap_id},
+    )
+    return {"ok": True, "phasage": new_phasage}
 
 
 def _filter_autre_rows(d: dict) -> list[dict]:
@@ -2063,6 +2161,8 @@ async def update_phasage(upload_id: str, payload: PhasageFullUpdate, current_use
         await persist_phasage(upload_id, d["phasage"])
     except Exception as e:
         logger.warning(f"Mongo persist phasage failed: {e}")
+    # Snapshot versionné (22/06/2026) — restaurable depuis l'Historique.
+    snapshot_id = await save_phasage_snapshot(upload_id, current_user, d["phasage"])
     # Détermine ce qui a changé pour le log
     changed = []
     if payload.dates is not None: changed.append("dates")
@@ -2070,9 +2170,11 @@ async def update_phasage(upload_id: str, payload: PhasageFullUpdate, current_use
     if (prev_phasage or {}).get("cam") != cam: changed.append("planning Caméras")
     if (prev_phasage or {}).get("suivi", {}).get("rows") != suivi_rows: changed.append("suivi")
     if changed:
+        details = {"nb_nuits_es": es.get("nb_nuits"), "nb_nuits_cam": cam.get("nb_nuits")}
+        if snapshot_id:
+            details["snapshot_id"] = snapshot_id
         await log_audit(upload_id, current_user, "phasage_updated",
-                        target=", ".join(changed),
-                        details={"nb_nuits_es": es.get("nb_nuits"), "nb_nuits_cam": cam.get("nb_nuits")})
+                        target=", ".join(changed), details=details)
     return {"ok": True, "phasage": d["phasage"]}
 
 

@@ -1,7 +1,15 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 22/06/2026 (v2)
+- [x] **Sauvegarde versionnée du Phasage avec restauration 1-clic** (`phasage_snapshots` collection, TTL 30j, 20 derniers/session).
+  - Backend : `save_phasage_snapshot()` appelé à chaque `update_phasage` ; nouveau `snapshot_id` ajouté aux détails de l'audit log.
+  - Endpoints : `GET /api/dataset/{id}/phasage-snapshots` (liste) et `POST /api/dataset/{id}/phasage-restore/{snapshot_id}` (restauration).
+  - Avant restauration, l'état actuel est aussi snapshoté → undo possible.
+  - Frontend : bouton « ↺ Restaurer » dans chaque entrée d'historique liée à un snapshot (icône `RotateCcw`, confirmation modale), remount auto des onglets Phasage via `phasageVersion` key.
+  - Testé end-to-end : save→snapshot→restore→bon état restauré ✅
+
 ## Changelog 22/06/2026
-- [x] **Tri auto par nuit dans Phasage de pose & Caméras** : flag persistant `phasage.es.auto_sort_by_nuit` / `phasage.cam.auto_sort_by_nuit` posé à `True` pour les NOUVELLES sessions uniquement. Quand l'utilisateur assigne/modifie la nuit d'une ligne, celle-ci est automatiquement regroupée avec les autres lignes de la même nuit (tri stable, lignes sans nuit en bas). Les sessions existantes (sans flag) gardent leur ordre manuel intact.
+- [x] **Tri auto par nuit** dans Phasage de pose & Caméras pour les nouvelles sessions uniquement.
 
 ## Changelog 21/06/2026 (v2)
 - [x] **Sync auto Batterie & Software caméra** : nouveau helper `_refresh_batterie_software_block()` dans `server.py` qui aligne automatiquement les lignes batterie + software sur la somme de caméra noire + caméra blanche. Règle :

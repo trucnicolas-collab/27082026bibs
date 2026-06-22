@@ -16,6 +16,7 @@ export default function Header({
     onReset,
     onOpenSession,
     onDeletedSession,
+    onPhasageRestored,
     user,
     onLogout,
 }) {
@@ -57,7 +58,7 @@ export default function Header({
                     onDeleted={onDeletedSession}
                 />
                 {dataset && (
-                    <ActivityPanel uploadId={dataset.upload_id} />
+                    <ActivityPanel uploadId={dataset.upload_id} onRestored={onPhasageRestored} />
                 )}
                 {dataset && (
                     <>

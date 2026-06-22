@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
-import { History, Loader2, RefreshCw } from "lucide-react";
+import { History, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -15,6 +15,7 @@ const ACTION_LABELS = {
     surface_changed: { label: "Surface modifiée", color: "text-orange-700", bg: "bg-orange-50" },
     dongles_changed: { label: "Dongles modifiés", color: "text-indigo-700", bg: "bg-indigo-50" },
     phasage_updated: { label: "Phasage mis à jour", color: "text-purple-700", bg: "bg-purple-50" },
+    phasage_restored: { label: "Phasage restauré", color: "text-emerald-700", bg: "bg-emerald-50" },
     comment_table_updated: { label: "Commentaire édité", color: "text-amber-700", bg: "bg-amber-50" },
     recap_row_updated: { label: "Ligne récap modifiée", color: "text-cyan-700", bg: "bg-cyan-50" },
     recap_row_added: { label: "Ligne ajoutée", color: "text-cyan-700", bg: "bg-cyan-50" },
@@ -50,15 +51,17 @@ function formatDetails(details) {
         else if (k === "nb_nuits_es") parts.push(`${v} nuits ES`);
         else if (k === "nb_nuits_cam") parts.push(`${v} nuits Cam`);
         else if (k === "cols" || k === "rows") parts.push(`${v} ${k}`);
+        else if (k === "snapshot_id" || k === "restored_from") continue;
         else parts.push(`${k} = ${v}`);
     }
     return parts.join(" · ");
 }
 
-export default function ActivityPanel({ uploadId }) {
+export default function ActivityPanel({ uploadId, onRestored }) {
     const [open, setOpen] = useState(false);
     const [activity, setActivity] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [restoringId, setRestoringId] = useState(null);
     const ref = useRef(null);
 
     const fetchActivity = useCallback(async () => {
@@ -73,6 +76,27 @@ export default function ActivityPanel({ uploadId }) {
             setLoading(false);
         }
     }, [uploadId]);
+
+    const restoreSnapshot = useCallback(async (snapshotId, when) => {
+        if (!uploadId || !snapshotId) return;
+        const ok = window.confirm(
+            `Restaurer le phasage à la version du ${when} ?\n\n` +
+            `La version actuelle sera sauvegardée comme un nouveau snapshot ` +
+            `(vous pourrez l'annuler).`
+        );
+        if (!ok) return;
+        setRestoringId(snapshotId);
+        try {
+            await axios.post(`${API}/dataset/${uploadId}/phasage-restore/${snapshotId}`);
+            toast.success("Phasage restauré.");
+            await fetchActivity();
+            if (typeof onRestored === "function") onRestored();
+        } catch (err) {
+            toast.error(`Restauration échouée : ${err.response?.data?.detail || err.message}`);
+        } finally {
+            setRestoringId(null);
+        }
+    }, [uploadId, fetchActivity, onRestored]);
 
     useEffect(() => {
         if (open) fetchActivity();
@@ -138,6 +162,8 @@ export default function ActivityPanel({ uploadId }) {
                                         bg: "bg-gray-50",
                                     };
                                     const details = formatDetails(it.details);
+                                    const snapshotId = it.details?.snapshot_id;
+                                    const isRestoring = restoringId === snapshotId;
                                     return (
                                         <li key={idx} className="px-4 py-2.5" data-testid={`activity-item-${idx}`}>
                                             <div className="flex items-start gap-2">
@@ -158,8 +184,27 @@ export default function ActivityPanel({ uploadId }) {
                                                     {formatRelative(it.timestamp)}
                                                 </span>
                                             </div>
-                                            <div className="text-[10px] text-gray-400 ml-1 mt-0.5">
-                                                par <span className="text-gray-600 font-medium">{it.user_name || it.user_email}</span>
+                                            <div className="flex items-center justify-between mt-0.5 ml-1">
+                                                <div className="text-[10px] text-gray-400">
+                                                    par <span className="text-gray-600 font-medium">{it.user_name || it.user_email}</span>
+                                                </div>
+                                                {snapshotId && (
+                                                    <button
+                                                        type="button"
+                                                        className="inline-flex items-center gap-1 text-[10.5px] text-purple-700 hover:text-purple-900 hover:bg-purple-50 px-1.5 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-wait"
+                                                        onClick={() => restoreSnapshot(snapshotId, formatRelative(it.timestamp))}
+                                                        disabled={isRestoring}
+                                                        data-testid={`activity-restore-${idx}`}
+                                                        title="Restaurer cette version du phasage"
+                                                    >
+                                                        {isRestoring ? (
+                                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                                        ) : (
+                                                            <RotateCcw className="w-3 h-3" />
+                                                        )}
+                                                        Restaurer
+                                                    </button>
+                                                )}
                                             </div>
                                         </li>
                                     );

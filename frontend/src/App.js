@@ -68,6 +68,7 @@ export default function App() {
 function MainApp() {
     const { user, logout } = useAuth();
     const [dataset, setDataset] = useState(null);
+    const [phasageVersion, setPhasageVersion] = useState(0);
     const [activeTab, setActiveTab] = useState("recap");
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
@@ -279,6 +280,13 @@ function MainApp() {
         await loadDataset(uploadId, { silent: false });
     }, [loadDataset]);
 
+    const handlePhasageRestored = useCallback(async () => {
+        if (dataset?.upload_id) {
+            // Force le remount des onglets Phasage pour qu'ils re-fetch le summary
+            setPhasageVersion((v) => v + 1);
+        }
+    }, [dataset]);
+
     const handleDeletedSession = useCallback((uploadId) => {
         // Si on a supprimé la session active, on revient à l'écran d'upload
         if (dataset?.upload_id === uploadId) {
@@ -453,6 +461,7 @@ function MainApp() {
                         onReset={handleReset}
                         onOpenSession={handleOpenSession}
                         onDeletedSession={handleDeletedSession}
+                        onPhasageRestored={handlePhasageRestored}
                         user={user}
                         onLogout={logout}
                     />
@@ -514,10 +523,10 @@ function MainApp() {
                                 />
                             )}
                             {activeTab === "pose" && (
-                                <PhasageTab uploadId={dataset.upload_id} />
+                                <PhasageTab key={`pose-${phasageVersion}`} uploadId={dataset.upload_id} />
                             )}
                             {activeTab === "pose_cam" && (
-                                <PhasageCamTab uploadId={dataset.upload_id} />
+                                <PhasageCamTab key={`cam-${phasageVersion}`} uploadId={dataset.upload_id} />
                             )}
                             {activeTab === "pose_full" && (
                                 <PhasageFullTab uploadId={dataset.upload_id} />
