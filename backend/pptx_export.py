@@ -618,23 +618,27 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
 # ===================================================================
 def _fill_slide_19(slide, detail_rows, weeks=None):
     """Détail caméras par allée. Rows = list[(nuit, allee, elems_str)].
-    Couleur de fond par nuit (cohérence visuelle avec le reste du PPTX)."""
+    Couleur de fond par nuit (cohérence visuelle avec le reste du PPTX).
+    Pas de bandeau violet interne — le titre est déjà la title de slide."""
     tables = _get_tables(slide)
     if len(tables) < 2:
         return
     t1, t2 = tables[0].table, tables[1].table
-    # t1 row 0 = title, row 1 = header. Data depuis row 2.
-    # t2 commence direct en data.
-    DATA_OFFSET_T1 = 2
+    # On utilise row 0 de t1 comme HEADER (Allées | N° Elements), data depuis
+    # row 1 — cohérent avec le rendu cible (pas de double titre).
+    DATA_OFFSET_T1 = 1
     cap1 = len(t1.rows) - DATA_OFFSET_T1
     cap2 = len(t2.rows)
     needed = len(detail_rows)
     if needed > cap1 + cap2:
         _ensure_table_size(t2, needed - cap1)
         cap2 = len(t2.rows)
-    _set_cell_text(t1.cell(0, 0), "Détail caméras par allée", bold=True, align="center", size=12)
-    _set_cell_text(t1.cell(1, 0), "Allées", bold=True, size=10)
-    _set_cell_text(t1.cell(1, 1), "N° Elements", bold=True, size=10)
+    # Header gris/gras à la place de l'ancien bandeau violet
+    header_fill = (0xE5, 0xE7, 0xEB)
+    _set_cell_text(t1.cell(0, 0), "Allées", bold=True, align="left",
+                   size=8, fill_rgb=header_fill)
+    _set_cell_text(t1.cell(0, 1), "N° Elements", bold=True, align="left",
+                   size=8, fill_rgb=header_fill)
 
     def _row_color(n: int) -> str | None:
         if not n or n >= 9999 or not weeks:
@@ -650,20 +654,25 @@ def _fill_slide_19(slide, detail_rows, weeks=None):
         color = _row_color(n)
         fill = _hex_to_rgb(color) if color else None
         _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 0), allee,
-                       bold=True, size=10, fill_rgb=fill)
+                       bold=False, align="left", size=8, fill_rgb=fill)
         _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 1), elems,
-                       align="left", size=9, fill_rgb=fill)
+                       align="left", size=7, fill_rgb=fill)
     rest = detail_rows[cap1:]
     for i in range(min(cap2, len(rest))):
         n, allee, elems = rest[i]
         color = _row_color(n)
         fill = _hex_to_rgb(color) if color else None
-        _set_cell_text(t2.cell(i, 0), allee, bold=True, size=10, fill_rgb=fill)
-        _set_cell_text(t2.cell(i, 1), elems, align="left", size=9, fill_rgb=fill)
-    # Vide les cellules non utilisées
+        _set_cell_text(t2.cell(i, 0), allee, bold=False, align="left",
+                       size=8, fill_rgb=fill)
+        _set_cell_text(t2.cell(i, 1), elems, align="left", size=7, fill_rgb=fill)
+    # Vide les cellules non utilisées (sans fond)
     for i in range(max(0, needed - cap1), cap2):
-        _set_cell_text(t2.cell(i, 0), "", size=10)
-        _set_cell_text(t2.cell(i, 1), "", size=10)
+        _set_cell_text(t2.cell(i, 0), "", size=8)
+        _set_cell_text(t2.cell(i, 1), "", size=8)
+    # Hauteur de ligne compacte uniforme
+    for tbl in (t1, t2):
+        for tr in tbl._tbl.findall(qn('a:tr')):
+            tr.set('h', '180000')
 
 
 # ===================================================================
