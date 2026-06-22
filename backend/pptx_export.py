@@ -149,6 +149,63 @@ def _ensure_table_size(table, n_rows: int):
         _clone_last_row(table)
 
 
+def _clone_last_col(table):
+    """Duplique la dernière colonne du tableau (gridCol + tc dans chaque tr).
+    Conserve les styles de la dernière colonne."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    tbl = table._tbl
+    grid = tbl.find(f'{{{NS}}}tblGrid')
+    if grid is None:
+        return
+    grid_cols = grid.findall(f'{{{NS}}}gridCol')
+    if not grid_cols:
+        return
+    new_gc = copy.deepcopy(grid_cols[-1])
+    grid.append(new_gc)
+    for tr in tbl.findall(f'{{{NS}}}tr'):
+        tcs = tr.findall(f'{{{NS}}}tc')
+        if not tcs:
+            continue
+        new_tc = copy.deepcopy(tcs[-1])
+        for p in new_tc.findall(f'.//{{{NS}}}txBody/{{{NS}}}p'):
+            for r in p.findall(f'{{{NS}}}r'):
+                t = r.find(f'{{{NS}}}t')
+                if t is not None:
+                    t.text = ""
+        tr.append(new_tc)
+
+
+def _ensure_table_cols(table, n_cols: int):
+    """Étend une table jusqu'à n_cols en clonant la dernière colonne,
+    puis redistribue les largeurs des colonnes data (>=1) pour rester dans
+    la largeur totale d'origine."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    tbl = table._tbl
+    grid = tbl.find(f'{{{NS}}}tblGrid')
+    if grid is None:
+        return
+    grid_cols = grid.findall(f'{{{NS}}}gridCol')
+    orig_n = len(grid_cols)
+    if orig_n >= n_cols:
+        return
+    # Total width avant ajout (somme des grid cols)
+    try:
+        orig_data_total = sum(int(gc.get('w')) for gc in grid_cols[1:])
+    except (TypeError, ValueError):
+        orig_data_total = None
+    while len(table.columns) < n_cols:
+        _clone_last_col(table)
+    # Redistribue la largeur des colonnes data (indice >=1) pour ne pas
+    # déborder de la slide.
+    if orig_data_total is not None:
+        new_grid_cols = grid.findall(f'{{{NS}}}gridCol')
+        data_cols = new_grid_cols[1:]
+        if data_cols:
+            new_w = orig_data_total // len(data_cols)
+            for gc in data_cols:
+                gc.set('w', str(new_w))
+
+
 def _fmt_date(iso: str | None) -> str:
     if not iso:
         return ""
@@ -448,6 +505,9 @@ def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], week
     if not tables:
         return
     t = tables[0].table
+    # Étend dynamiquement le tableau pour accueillir toutes les nuits caméras
+    # (1 colonne label + N colonnes nuits). Avant : tronqué à cur_cols-1 nuits.
+    _ensure_table_cols(t, 1 + len(cam_nights))
     cur_cols = len(t.columns)
     nights = cam_nights[: cur_cols - 1]
     _set_cell_text(t.cell(0, 0), "", size=10)
