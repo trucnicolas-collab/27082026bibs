@@ -59,9 +59,18 @@ def _color_for_night(n: int, weeks: list | None) -> str:
     return WEEK_COLORS_HEX[(pos - 1) % len(WEEK_COLORS_HEX)]
 
 
-def _set_cell_text(cell, value, *, bold=False, align="center", size=None, color=None):
+def _set_cell_text(cell, value, *, bold=False, align="center", size=None, color=None, fill_rgb=None):
     """Remplace le contenu d'une cellule en préservant approximativement le
-    style. On garde le premier paragraphe + run existants si présents."""
+    style. On garde le premier paragraphe + run existants si présents.
+
+    fill_rgb : tuple (r, g, b) optionnel pour la couleur de fond de la cellule.
+    """
+    if fill_rgb is not None:
+        try:
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = RGBColor(*fill_rgb)
+        except Exception:
+            pass
     tf = cell.text_frame
     # Conserve les paragraphes/runs existants pour garder police/style si on
     # peut, sinon on rebuilde.
@@ -190,8 +199,22 @@ def _fill_slide_8(slide, recap_rows: list):
 
 def _write_recap_row(table, row_idx, r):
     is_header = r.get("kind") == "header"
-    bold = is_header
-    # Cellules : Type / Référence / Désignation / Quantité / Spare / Total+Spare
+    is_section = r.get("kind") == "section"
+    bold = is_header or is_section
+    # Section divider (23/06/2026 v5) : nom dans col Désignation, fond bleu clair.
+    if is_section:
+        _set_cell_text(table.cell(row_idx, 0), "", bold=False, align="left", size=10)
+        _set_cell_text(table.cell(row_idx, 1), "", bold=False, align="center", size=10)
+        _set_cell_text(table.cell(row_idx, 2), (r.get("type") or "").upper(),
+                       bold=True, align="left", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        _set_cell_text(table.cell(row_idx, 3), "", bold=False, align="right", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        _set_cell_text(table.cell(row_idx, 4), "", bold=False, align="right", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        _set_cell_text(table.cell(row_idx, 5), "", bold=False, align="right", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        # Aussi le fond sur col 0 et 1 pour cohérence visuelle
+        _set_cell_text(table.cell(row_idx, 0), "", bold=False, align="left", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        _set_cell_text(table.cell(row_idx, 1), "", bold=False, align="center", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        return
+    # Cellules : Type / Référence / Désignation / Total / Spare / Total+Spare
     _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), bold=bold, align="left", size=10)
     _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), bold=bold, align="center", size=10)
     _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), bold=bold, align="left", size=10)
