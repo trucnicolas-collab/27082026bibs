@@ -376,7 +376,8 @@ def _apply_total_moq_and_bonuses(rows: list[dict]) -> list[dict]:
             r["saisonnier"] = ""
         # Total + MOQ
         r["total_moq"] = _compute_total_moq(r.get("total_plus_spare"), r.get("reference"))
-    return rows
+    # Re-organise en sections (idempotent ; appelé partout via ce helper)
+    return _apply_sections(rows)
 
 
 # Colonnes attendues (le fichier peut avoir des variantes)
@@ -436,6 +437,96 @@ def classify_eeg(designation: str) -> Optional[str]:
     if s.startswith("SA"):
         return "SA"
     return None
+
+
+def _classify_section(designation: str, ref: str, kind: str, type_: str) -> str:
+    """Classifie une ligne de recap dans l'une des 5 sections (23/06/2026 v4).
+    Sections retournées : "EEG", "Rails EdgeSense", "Captana", "Dongles", "Rails/Fixation SA".
+    """
+    d = (designation or "").strip().lower()
+    t = (type_ or "").strip().lower()
+    if kind == "dongle" or t == "dongle":
+        return "Dongles"
+    if any(d.startswith(p) for p in ("es 1.5", "es 2.1", "sa 1.5", "sa 2.1", "sa 4.2")):
+        return "EEG"
+    if d.startswith("face arrière") or d.startswith("face arriere"):
+        return "Rails EdgeSense"
+    if d == "inclineur" or kind == "inclineur" or "inclineur" in d:
+        return "Rails EdgeSense"
+    if d == "vis fixation":
+        return "Rails EdgeSense"
+    # Rails (1320 mm / 990 mm / 535 mm / 650 mm / 1240 mm / 1187 mm / 908 mm)
+    import re as _re
+    if _re.search(r"\bmm\b", d) and ("rail" in t or t == "rail" or d.startswith("rail") or _re.match(r"^\d{3,4}\s*mm", d)):
+        return "Rails EdgeSense"
+    if d.startswith("rail "):
+        return "Rails EdgeSense"
+    captana_designations = (
+        "caméra (blanche)", "caméra (noire)",
+        "batterie caméra", "software caméra",
+        "support mobilier captana (blanc)", "support mobilier captana (noir)",
+        "support ajustable adhésif captana",
+        "pied réglable 0,5-1 m adhésif captana",
+    )
+    if d in captana_designations:
+        return "Captana"
+    if d.startswith("v:care") or t == "vcare":
+        # VCare = à classer selon ce qu'il accompagne. Pour simplifier on les
+        # met dans la section EEG (la majorité concerne ES/SA), sauf VCare
+        # caméra qui va dans Captana.
+        if "captana" in d or "caméra" in d or "camera" in d or ref == "16783":
+            return "Captana"
+        return "EEG"
+    return "Rails/Fixation SA"
+
+
+def _apply_sections(rows: list[dict]) -> list[dict]:
+    """Re-organise les recap_rows en 5 sections (séparateurs bleu clair).
+    Retire les anciens en-têtes 'TOTAL EEG / TOTAL Fixation / etc.' devenus
+    obsolètes (demande utilisateur 23/06/2026).
+    """
+    SECTIONS = ["EEG", "Rails EdgeSense", "Captana", "Dongles", "Rails/Fixation SA"]
+    # On garde les lignes "empty" en fin
+    empties = [r for r in rows if r.get("kind") == "empty"]
+    others = [r for r in rows
+              if r.get("kind") not in ("empty", "header", "section")]
+    buckets: dict[str, list[dict]] = {s: [] for s in SECTIONS}
+    for r in others:
+        sec = _classify_section(
+            r.get("designation"), r.get("reference"), r.get("kind"), r.get("type"))
+        buckets.setdefault(sec, buckets["Rails/Fixation SA"]).append(r)
+    result: list[dict] = []
+    for sec in SECTIONS:
+        if not buckets[sec]:
+            continue
+        result.append({
+            "kind": "section",
+            "type": sec,
+            "reference": "",
+            "designation": "",
+            "quantite": "", "spare": "", "total_plus_spare": "",
+            "fleche": "", "signaletique": "", "saisonnier": "",
+            "total_moq": "",
+        })
+        result.extend(buckets[sec])
+    result.extend(empties)
+    return result
+
+
+def _validate_missing_refs(rows: list[dict]) -> list[str]:
+    """Retourne la liste des désignations de lignes sans référence
+    (lignes produit/vcare/surface_added/manual uniquement). Vide → OK pour export.
+    """
+    bad: list[str] = []
+    for r in rows:
+        kind = r.get("kind")
+        if kind in ("section", "header", "empty"):
+            continue
+        ref = (r.get("reference") or "").strip()
+        if not ref:
+            desig = (r.get("designation") or "").strip() or f"(ligne kind={kind})"
+            bad.append(desig)
+    return bad
 
 
 def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
@@ -664,7 +755,7 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     for _ in range(3):
         rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": "", "total_plus_spare": ""})
 
-    # Calcule fleche/signaletique/saisonnier/total_moq (23/06/2026)
+    # Calcule fleche/signaletique/saisonnier/total_moq + sectioning (23/06/2026)
     rows = _apply_total_moq_and_bonuses(rows)
     return rows
 
@@ -4160,7 +4251,27 @@ async def export_excel(upload_id: str, sheet: str = "all", current_user: dict = 
     d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
+    _check_export_refs(d)
     return await _build_export(d, sheet)
+
+
+def _check_export_refs(d: dict) -> None:
+    """Bloque l'export si une ou plusieurs lignes du recap n'ont pas de référence."""
+    recap = _refresh_vcare_block(d.get("recap_rows") or [])
+    recap = _refresh_batterie_software_block(recap)
+    bad = _validate_missing_refs(recap)
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Export bloqué : "
+                f"{len(bad)} ligne(s) sans référence — "
+                "veuillez compléter la colonne Référence dans le tableau "
+                "Commandes avant de relancer l'export. Désignations "
+                f"concernées : {', '.join(bad[:10])}"
+                + (" ..." if len(bad) > 10 else "")
+            ),
+        )
 
 
 async def _build_export(d: dict, sheet: str = "all"):
@@ -4194,13 +4305,22 @@ async def _build_export(d: dict, sheet: str = "all"):
             # On recalcule TOUJOURS le bloc VCare pour appliquer les
             # règles VCare courantes sur les sessions existantes.
             recap = _refresh_vcare_block(d["recap_rows"])
+            recap = _apply_total_moq_and_bonuses(recap)
             ws = workbook.add_worksheet("Commandes")
             writer.sheets["Commandes"] = ws
-            headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
+            fmt_section = workbook.add_format({
+                "bold": True, "bg_color": "#DDEBF7", "border": 1,
+                "font_size": 11, "align": "left",
+            })
+            headers = ["Type", "Réf.", "Désignation", "Total", "Spare", "Flèche", "Signalétique", "Saisonnier", "Total", "Total + MOQ"]
             for col_i, h in enumerate(headers):
                 ws.write(0, col_i, h, fmt_header)
             for row_i, r in enumerate(recap, start=1):
                 kind = r["kind"]
+                if kind == "section":
+                    # Séparateur de section sur fond bleu clair (cellule A → fusion sur 10 colonnes)
+                    ws.merge_range(row_i, 0, row_i, 9, r.get("type", ""), fmt_section)
+                    continue
                 if kind == "header":
                     fmt = fmt_total
                 elif kind == "inclineur":
@@ -4212,15 +4332,25 @@ async def _build_export(d: dict, sheet: str = "all"):
                 ws.write(row_i, 2, r["designation"], fmt)
                 ws.write(row_i, 3, r["quantite"] if r["quantite"] != "" else "", fmt)
                 ws.write(row_i, 4, r.get("spare", "") if r.get("spare", "") != "" else "", fmt)
-                ws.write(row_i, 5, r.get("total_plus_spare", "") if r.get("total_plus_spare", "") != "" else "", fmt)
-            ws.set_column(0, 0, 12)
-            ws.set_column(1, 1, 14)
-            ws.set_column(2, 2, 50)
-            ws.set_column(3, 3, 12)
-            ws.set_column(4, 4, 14)
-            ws.set_column(5, 5, 16)
+                ws.write(row_i, 5, r.get("fleche", "") if r.get("fleche", "") != "" else "", fmt)
+                ws.write(row_i, 6, r.get("signaletique", "") if r.get("signaletique", "") != "" else "", fmt)
+                ws.write(row_i, 7, r.get("saisonnier", "") if r.get("saisonnier", "") != "" else "", fmt)
+                ws.write(row_i, 8, r.get("total_plus_spare", "") if r.get("total_plus_spare", "") != "" else "", fmt)
+                tm = r.get("total_moq", "")
+                ws.write(row_i, 9, tm if tm not in ("", None) else "", fmt)
+            # Largeurs serrées pour tenir dans une slide PPTX (10 colonnes)
+            ws.set_column(0, 0, 7)    # Type
+            ws.set_column(1, 1, 7)    # Réf.
+            ws.set_column(2, 2, 28)   # Désignation
+            ws.set_column(3, 3, 8)    # Total (qty)
+            ws.set_column(4, 4, 7)    # Spare
+            ws.set_column(5, 5, 7)    # Flèche
+            ws.set_column(6, 6, 11)   # Signalétique
+            ws.set_column(7, 7, 10)   # Saisonnier
+            ws.set_column(8, 8, 8)    # Total (sum)
+            ws.set_column(9, 9, 11)   # Total + MOQ
             if len(recap) > 0:
-                ws.autofilter(0, 0, len(recap), 5)
+                ws.autofilter(0, 0, len(recap), 9)
                 ws.freeze_panes(1, 0)
 
         if sheet in ("all", "parsecteur"):
@@ -4284,6 +4414,7 @@ async def export_carrefour(upload_id: str, current_user: dict = Depends(get_curr
     d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
+    _check_export_refs(d)
     await log_audit(upload_id, current_user, "carrefour_export_downloaded")
     return await _build_carrefour_export(d)
 
@@ -4298,6 +4429,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
     d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
+    _check_export_refs(d)
 
     def _abbr_rayon(name: str) -> str:
         """Abrège un nom de rayon de plus de 8 caractères : on garde les 6
@@ -4407,6 +4539,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
 
     # Recap rows à jour (avec VCare recalculé)
     recap = _refresh_vcare_block(d.get("recap_rows") or [])
+    recap = _apply_total_moq_and_bonuses(recap)
 
     try:
         # build_pptx est CPU-bound (parse + écrit un .pptx de ~38 Mo) → on l'exécute
@@ -4632,13 +4765,21 @@ async def _build_carrefour_export(d: dict):
         # On recalcule TOUJOURS le bloc VCare pour appliquer les règles
         # courantes (les VCare persistés peuvent être obsolètes).
         recap = _refresh_vcare_block(d.get("recap_rows") or [])
+        recap = _apply_total_moq_and_bonuses(recap)
         ws = wb.add_worksheet("Commandes")
         writer.sheets["Commandes"] = ws
-        headers = ["Type", "Référence", "Désignation", "Quantité", "Spare", "Total + Spare"]
+        fmt_section_cf = wb.add_format({
+            "bold": True, "bg_color": "#DDEBF7", "border": 1,
+            "font_size": 11, "align": "left",
+        })
+        headers = ["Type", "Réf.", "Désignation", "Total", "Spare", "Flèche", "Signalétique", "Saisonnier", "Total", "Total + MOQ"]
         for ci, h in enumerate(headers):
             ws.write(0, ci, h, fmt_h)
         for ri, r in enumerate(recap, start=1):
             kind = r.get("kind")
+            if kind == "section":
+                ws.merge_range(ri, 0, ri, 9, r.get("type", ""), fmt_section_cf)
+                continue
             if kind == "header":
                 f = fmt_total
             elif kind == "inclineur":
@@ -4650,13 +4791,25 @@ async def _build_carrefour_export(d: dict):
             ws.write(ri, 2, r.get("designation", ""), f)
             ws.write(ri, 3, r.get("quantite", "") if r.get("quantite", "") != "" else "", f)
             ws.write(ri, 4, r.get("spare", "") if r.get("spare", "") != "" else "", f)
-            ws.write(ri, 5, r.get("total_plus_spare", "") if r.get("total_plus_spare", "") != "" else "", f)
-        ws.set_column(0, 0, 12)
-        ws.set_column(1, 1, 14)
-        ws.set_column(2, 2, 50)
-        ws.set_column(3, 5, 14)
+            ws.write(ri, 5, r.get("fleche", "") if r.get("fleche", "") != "" else "", f)
+            ws.write(ri, 6, r.get("signaletique", "") if r.get("signaletique", "") != "" else "", f)
+            ws.write(ri, 7, r.get("saisonnier", "") if r.get("saisonnier", "") != "" else "", f)
+            ws.write(ri, 8, r.get("total_plus_spare", "") if r.get("total_plus_spare", "") != "" else "", f)
+            tm = r.get("total_moq", "")
+            ws.write(ri, 9, tm if tm not in ("", None) else "", f)
+        # Largeurs serrées (cohérentes avec l'export RTR)
+        ws.set_column(0, 0, 7)
+        ws.set_column(1, 1, 7)
+        ws.set_column(2, 2, 28)
+        ws.set_column(3, 3, 8)
+        ws.set_column(4, 4, 7)
+        ws.set_column(5, 5, 7)
+        ws.set_column(6, 6, 11)
+        ws.set_column(7, 7, 10)
+        ws.set_column(8, 8, 8)
+        ws.set_column(9, 9, 11)
         if recap:
-            ws.autofilter(0, 0, len(recap), 5)
+            ws.autofilter(0, 0, len(recap), 9)
             ws.freeze_panes(1, 0)
 
         # ===== 2. Récap EEG par nuit =====

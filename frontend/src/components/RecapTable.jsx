@@ -121,6 +121,12 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
             });
     }, [rows, search]);
 
+    // Lignes sans référence (utilisé pour le bandeau d'alerte + état des exports)
+    const missingRefRows = useMemo(() => rows.filter((r) =>
+        !["section", "header", "empty"].includes(r.kind) &&
+        !((r.reference || "").toString().trim())
+    ), [rows]);
+
     return (
         <div className="h-full flex flex-col bg-white" data-testid="recap-table">
             <div className="min-h-12 border-b border-gray-200 px-3 py-2 flex items-center justify-between bg-gray-50 flex-shrink-0 gap-3 flex-wrap">
@@ -210,6 +216,20 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                 </div>
             </div>
             <div className="flex-1 overflow-auto custom-scroll">
+                {missingRefRows.length > 0 && (
+                    <div
+                        className="px-4 py-2.5 bg-red-100 border-b-2 border-red-400 text-red-900 text-sm font-semibold flex items-start gap-2"
+                        data-testid="missing-ref-banner"
+                    >
+                        <span className="text-lg leading-none">⚠️</span>
+                        <span>
+                            <strong>{missingRefRows.length} ligne(s) sans référence</strong> — exports bloqués tant qu'elles ne sont pas complétées.
+                            Désignations :{" "}
+                            <span className="italic">{missingRefRows.slice(0, 5).map((r) => r.designation || "(vide)").join(", ")}</span>
+                            {missingRefRows.length > 5 && ` ... +${missingRefRows.length - 5}`}
+                        </span>
+                    </div>
+                )}
                 <table className="border-collapse text-left">
                     <thead className="sticky top-0 z-10 bg-gray-100 thead-sticky">
                         <tr>
@@ -251,12 +271,31 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         {filtered.map((r, displayIdx) => {
                             const i = r._origIndex;
                             // Toutes les lignes sont éditables SAUF les en-têtes de section (TOTAL EEG, TOTAL Fixation, etc.)
-                            const editable = r.kind !== "header";
+                            const editable = r.kind !== "header" && r.kind !== "section";
+                            // Ligne sans référence = rouge + alerte (kind product/manual/vcare/surface_added)
+                            const missingRef = !["section", "header", "empty"].includes(r.kind)
+                                && !((r.reference || "").toString().trim());
                             let rowClass = displayIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
                             if (r.kind === "header") rowClass = "row-total";
+                            else if (r.kind === "section") rowClass = "";
                             else if (r.kind === "inclineur") rowClass = "row-inclineur";
                             else if (r.kind === "empty") rowClass = "row-empty";
                             else if (r.kind === "manual") rowClass = "bg-emerald-50/30";
+                            if (missingRef) rowClass = "bg-red-50";
+
+                            // Ligne de section bleu clair (fusion sur toute la largeur)
+                            if (r.kind === "section") {
+                                return (
+                                    <tr key={i} data-testid={`recap-section-${i}`}>
+                                        <td
+                                            colSpan={12}
+                                            className="px-4 py-2 text-sm font-bold uppercase tracking-wider text-blue-900 bg-blue-100 border-y-2 border-blue-300"
+                                        >
+                                            {r.type}
+                                        </td>
+                                    </tr>
+                                );
+                            }
 
                             if (!editable) {
                                 return (

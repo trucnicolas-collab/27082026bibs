@@ -1,5 +1,21 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 23/06/2026 (v4)
+- [x] **Restructuration du tableau Commandes en 5 sections** (séparateurs bleu clair, plus de « TOTAL EEG / Fixation / etc. ») :
+  - **EEG** : ES/SA 1.5/2.1/4.2 + VCare associés
+  - **Rails EdgeSense** : rails (longueurs mm), inclineurs, « Face arrière... », Vis fixation
+  - **Captana** : caméras blanche/noire, batterie/software caméra, Support mobilier/ajustable/Pied réglable Captana, VCare Captana
+  - **Dongles** : Dongles (16639)
+  - **Rails/Fixation SA** : tout le reste + AUTRE*
+- [x] **Bloqueur d'export si réf manquante** : helper `_check_export_refs()` appliqué aux 3 endpoints (RTR / Carrefour / PPTX). Renvoie HTTP 400 avec message explicatif listant les désignations concernées.
+- [x] **Bandeau d'alerte rouge** en haut du tableau RecapTable quand des lignes manquent de référence + chaque ligne concernée passe en fond rouge.
+- [x] Excel : section dividers fusionnés sur 10 colonnes en fond bleu clair `#DDEBF7`.
+
+## Changelog 23/06/2026 (v3)
+- [x] **Exports Excel RTR & Carrefour : 4 nouvelles colonnes ajoutées** à la feuille Commandes (Flèche, Signalétique, Saisonnier, Total + MOQ) + largeurs serrées (~19 cm total) pour tenir dans une slide PPTX.
+- [x] `_apply_total_moq_and_bonuses` appelé désormais aussi dans les pipelines `/export/{id}`, `/export-carrefour/{id}` et `/export-pptx/{id}` (en plus de `get_dataset`).
+- [x] Testé : ES 1.5 (blanc) Total=105 → Total+MOQ=200, ES 1.5 (noir) Signalétique=7868, ES 2.1 (noir) Total=40911 → 41000. « — » pour réfs sans MOQ.
+
 ## Changelog 23/06/2026 (v2)
 - [x] **Nouvelles colonnes dans le tableau Commandes** : Flèche, Signalétique, Saisonnier, Total+MOQ.
   - Backend `server.py` :
