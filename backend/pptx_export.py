@@ -175,10 +175,11 @@ def _clone_last_col(table):
         tr.append(new_tc)
 
 
-def _ensure_table_cols(table, n_cols: int):
-    """Étend une table jusqu'à n_cols en clonant la dernière colonne,
-    puis redistribue les largeurs des colonnes data (>=1) pour rester dans
-    la largeur totale d'origine."""
+def _ensure_table_cols(table, n_cols: int, label_cols: int = 1):
+    """Étend une table jusqu'à n_cols en clonant la dernière colonne.
+    Les `label_cols` premières conservent leur largeur ; les autres
+    (data_cols) se partagent équitablement la somme des largeurs des
+    anciennes data_cols pour rester dans la largeur totale d'origine."""
     NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
     tbl = table._tbl
     grid = tbl.find(f'{{{NS}}}tblGrid')
@@ -188,18 +189,15 @@ def _ensure_table_cols(table, n_cols: int):
     orig_n = len(grid_cols)
     if orig_n >= n_cols:
         return
-    # Total width avant ajout (somme des grid cols)
     try:
-        orig_data_total = sum(int(gc.get('w')) for gc in grid_cols[1:])
+        orig_data_total = sum(int(gc.get('w')) for gc in grid_cols[label_cols:])
     except (TypeError, ValueError):
         orig_data_total = None
     while len(table.columns) < n_cols:
         _clone_last_col(table)
-    # Redistribue la largeur des colonnes data (indice >=1) pour ne pas
-    # déborder de la slide.
     if orig_data_total is not None:
         new_grid_cols = grid.findall(f'{{{NS}}}gridCol')
-        data_cols = new_grid_cols[1:]
+        data_cols = new_grid_cols[label_cols:]
         if data_cols:
             new_w = orig_data_total // len(data_cols)
             for gc in data_cols:
@@ -227,31 +225,57 @@ def _fill_slide_8(slide, recap_rows: list):
     if len(tables) < 2:
         return
     t1, t2 = tables[0].table, tables[1].table
+    # 24/06/2026 — passe de 6 → 10 colonnes pour afficher toutes les colonnes
+    # du récap : Type / Réf / Désignation / Qté / Spare / Flèche / Signal. /
+    # Saiso. / Total / Total+MOQ. Préserve la largeur totale d'origine.
+    N_COLS = 10
+    _ensure_table_cols(t1, N_COLS, label_cols=3)
+    _ensure_table_cols(t2, N_COLS, label_cols=3)
     # Filtre : on EXCLUT les lignes VCare (demande utilisateur 16/06/2026 — le
     # bloc VCare ne doit pas apparaître dans le tableau Commandes du PowerPoint)
     # On exclut aussi les lignes vides.
     rows = [r for r in recap_rows
             if r.get("kind") != "empty" and r.get("type") != "VCare"]
-    cap1 = len(t1.rows)
-    cap2 = len(t2.rows)
+    # Ajoute une ligne d'en-tête (row 0) sur chaque table → -1 sur la capacité
+    _write_recap_header(t1, 0)
+    _write_recap_header(t2, 0)
+    cap1 = len(t1.rows) - 1
+    cap2 = len(t2.rows) - 1
     # Étend si nécessaire pour tout caser
     needed = len(rows)
     if needed > cap1 + cap2:
-        _ensure_table_size(t2, needed - cap1)
-        cap2 = len(t2.rows)
-    # Remplit table 1
+        _ensure_table_size(t2, 1 + needed - cap1)
+        cap2 = len(t2.rows) - 1
+    # Remplit table 1 (data depuis row 1)
     for i in range(min(cap1, len(rows))):
-        r = rows[i]
-        _write_recap_row(t1, i, r)
-    # Remplit table 2 (suite)
+        _write_recap_row(t1, i + 1, rows[i])
+    # Remplit table 2 (suite, data depuis row 1)
     rest = rows[cap1:]
     for i in range(min(cap2, len(rest))):
-        _write_recap_row(t2, i, rest[i])
+        _write_recap_row(t2, i + 1, rest[i])
     # Vide les lignes restantes
     for i in range(len(rows), cap1):
-        _clear_row(t1, i)
+        _clear_row(t1, i + 1)
     for i in range(len(rest), cap2):
-        _clear_row(t2, i)
+        _clear_row(t2, i + 1)
+
+
+# Mapping colonne PPTX (10 cols) — doit rester aligné avec _write_recap_header
+# et l'UI du frontend (RecapTable.jsx).
+_RECAP_COL_HEADERS = [
+    "Type", "Référence", "Désignation",
+    "Qté", "Spare", "Flèche", "Signalétique", "Saisonnier",
+    "Total", "Total + MOQ",
+]
+
+
+def _write_recap_header(table, row_idx: int):
+    """Écrit la ligne d'en-tête (gris/gras) avec les noms des 10 colonnes."""
+    for c, label in enumerate(_RECAP_COL_HEADERS):
+        align = "left" if c < 3 else "right"
+        _set_cell_text(table.cell(row_idx, c), label,
+                       bold=True, align=align, size=9,
+                       fill_rgb=(0xE5, 0xE7, 0xEB))
 
 
 def _write_recap_row(table, row_idx, r):
@@ -260,26 +284,33 @@ def _write_recap_row(table, row_idx, r):
     bold = is_header or is_section
     # Section divider (23/06/2026 v5) : nom dans col Désignation, fond bleu clair.
     if is_section:
-        _set_cell_text(table.cell(row_idx, 0), "", bold=False, align="left", size=10)
-        _set_cell_text(table.cell(row_idx, 1), "", bold=False, align="center", size=10)
-        _set_cell_text(table.cell(row_idx, 2), (r.get("type") or "").upper(),
-                       bold=True, align="left", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
-        _set_cell_text(table.cell(row_idx, 3), "", bold=False, align="right", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
-        _set_cell_text(table.cell(row_idx, 4), "", bold=False, align="right", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
-        _set_cell_text(table.cell(row_idx, 5), "", bold=False, align="right", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
-        # Aussi le fond sur col 0 et 1 pour cohérence visuelle
-        _set_cell_text(table.cell(row_idx, 0), "", bold=False, align="left", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
-        _set_cell_text(table.cell(row_idx, 1), "", bold=False, align="center", size=10, fill_rgb=(0xDD, 0xEB, 0xF7))
+        section_fill = (0xDD, 0xEB, 0xF7)
+        for c in range(10):
+            txt = ""
+            if c == 2:
+                txt = (r.get("type") or "").upper()
+            _set_cell_text(table.cell(row_idx, c), txt,
+                           bold=(c == 2), align=("left" if c < 3 else "right"),
+                           size=10, fill_rgb=section_fill)
         return
-    # Cellules : Type / Référence / Désignation / Total / Spare / Total+Spare
+    # Cellules : Type / Réf / Désignation / Qté / Spare / Flèche /
+    # Signalétique / Saisonnier / Total (=total_plus_spare) / Total+MOQ
     _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), bold=bold, align="left", size=10)
     _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), bold=bold, align="center", size=10)
     _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), bold=bold, align="left", size=10)
     _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), bold=bold, align="right", size=10)
     _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), bold=bold, align="right", size=10)
-    _set_cell_text(table.cell(row_idx, 5), _num(r.get("total_plus_spare")), bold=bold, align="right", size=10)
+    _set_cell_text(table.cell(row_idx, 5), _num(r.get("fleche")), bold=bold, align="right", size=10)
+    _set_cell_text(table.cell(row_idx, 6), _num(r.get("signaletique")), bold=bold, align="right", size=10)
+    _set_cell_text(table.cell(row_idx, 7), _num(r.get("saisonnier")), bold=bold, align="right", size=10)
+    _set_cell_text(table.cell(row_idx, 8), _num(r.get("total_plus_spare")),
+                   bold=True, align="right", size=10)
+    moq_val = r.get("total_moq")
+    moq_txt = "—" if moq_val == "—" else _num(moq_val)
+    _set_cell_text(table.cell(row_idx, 9), moq_txt,
+                   bold=True, align="right", size=10)
     if is_header:
-        for c in range(6):
+        for c in range(10):
             _set_cell_fill(table.cell(row_idx, c), "#FEF3C7")
 
 
