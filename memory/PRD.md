@@ -1,5 +1,20 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 23/06/2026 (v2)
+- [x] **Nouvelles colonnes dans le tableau Commandes** : Flèche, Signalétique, Saisonnier, Total+MOQ.
+  - Backend `server.py` :
+    - Constante `MOQ_BY_REF` (57 références, hardcodée depuis MOQ.xlsx).
+    - Helper `_apply_total_moq_and_bonuses()` qui :
+      - Expose `_fleche_bonus` / `_rail_bonus` / delta surface en champs dédiés (`fleche`, `signaletique`, `saisonnier`).
+      - Calcule `total_moq = ceil(total / moq) * moq`. « — » si la réf n'a pas de MOQ.
+      - Nettoie l'ancien suffixe « — rajout de X rails/flèches » dans la désignation (rétro-compatible).
+    - Appelé à : build initial, lecture dataset, PATCH/DELETE recap-row, surface, dongles.
+    - Flèche : valeur appliquée à ES 1.5 (noir) ET SA 1.5 (noir) si les 2 existent.
+    - Signalétique : sur ES 1.5 (noir/blanc) uniquement.
+    - Saisonnier : sur SA 2.1 (noir) ET SA 1.5 (noir) uniquement.
+  - Frontend `RecapTable.jsx` : 4 nouvelles colonnes, en-têtes colorés (Flèche amber / Signalétique purple / Saisonnier orange / Total+MOQ indigo), valeurs en lecture seule (calculées auto).
+- [x] Testé end-to-end : surface +10000 → SA 2.1 saisonnier=4800, SA 1.5 saisonnier=1200 ; Total+MOQ correct pour les 57 réfs listées ; "—" affiché si réf non MOQ.
+
 ## Changelog 23/06/2026
 - [x] **Nouvelle règle surface +/- 10000 m²** :
   - **+10000 m²** : SA 2.1 (noir) +4800, SA 1.5 (noir) **+1200 (nouveau)**, Support indiv alu SA +6000.

@@ -268,6 +268,117 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
 # Longueurs de rails qui comptent pour 1 inclineur
 INCLINEUR_LENGTHS = ["1320mm", "1240mm", "990mm", "1187mm", "908mm", "650mm", "535mm"]
 
+# === MOQ par référence (Minimum Order Quantity) ===
+# Source : fichier MOQ.xlsx fourni par l'utilisateur le 23/06/2026.
+# Liste maintenue manuellement ici ; si une référence n'est pas listée,
+# on n'arrondit pas (Total+MOQ affiche "—" côté UI).
+MOQ_BY_REF: dict[str, int] = {
+    "11892": 5,   "12202": 10,  "13585": 48,  "13827": 25,  "14218": 5,
+    "14466": 25,  "14745": 24,  "15024": 100, "15395": 24,  "15506": 24,
+    "15507": 24,  "15550": 60,  "15551": 10,  "15910": 100, "15912": 100,
+    "16362": 100, "16441": 50,  "16574": 100, "16607": 100, "16639": 1,
+    "16657": 100, "16783": 1,   "16808": 100, "16957": 24,  "17103": 40,
+    "17165": 25,  "17285": 24,  "17651": 25,  "17717": 25,  "17723": 1,
+    "17724": 100, "17741": 50,  "17868": 24,  "17869": 100, "17870": 100,
+    "17889": 1,   "17900": 1,   "17929": 1,   "17938": 1,   "17940": 1,
+    "18048": 90,  "18052": 1,   "18107": 50,  "18108": 50,  "18173": 24,
+    "18183": 1,   "18216": 50,  "18217": 50,  "18308": 1,   "3903": 25,
+    "3962": 50,   "3966": 50,   "3971": 50,   "4507": 100,  "4552": 1,
+    "6669": 1,    "9484": 50,
+}
+
+
+def _compute_total_moq(total_plus_spare, ref) -> int | str:
+    """Calcule Total+MOQ pour une ligne. Si la référence n'a pas de MOQ
+    déclaré, retourne "—" (tiret cadratin) — l'UI affichera tel quel.
+    Si MOQ = 0 ou 1 → pas d'arrondi nécessaire.
+    """
+    try:
+        total = float(total_plus_spare) if total_plus_spare not in (None, "") else 0
+    except (ValueError, TypeError):
+        return ""
+    if total <= 0:
+        return ""
+    moq = MOQ_BY_REF.get(str(ref or "").strip())
+    if moq is None:
+        return "—"
+    if moq <= 1:
+        return int(total) if total == int(total) else total
+    rounded = int(math.ceil(total / moq) * moq)
+    return rounded
+
+
+def _apply_total_moq_and_bonuses(rows: list[dict]) -> list[dict]:
+    """Pour chaque ligne du recap, expose les bonus dans des champs dédiés
+    (`fleche`, `signaletique`, `saisonnier`) et calcule `total_moq` à partir
+    de `total_plus_spare` et du MOQ par référence. Idempotent.
+
+    Nettoie aussi l'éventuel suffixe ' — rajout de X ...' présent dans
+    les désignations (héritage des anciennes versions) — récupère au passage
+    le bonus rails/flèches si pas encore stocké dans `_rail_bonus`/`_fleche_bonus`.
+    """
+    import re as _re
+    pat_rajout = _re.compile(r"\s+—\s+rajout de\s+(\d+)\s+([\wéèàùâêîôû()]+)", _re.IGNORECASE)
+    for r in rows:
+        kind = r.get("kind")
+        # Strip suffix ancien dans la désignation (toutes lignes)
+        desig = r.get("designation") or ""
+        if " — rajout de " in desig:
+            # Tente de récupérer le 1er nombre + mot-clé pour rétro-remplir
+            matches = pat_rajout.findall(desig)
+            for num_str, word in matches:
+                w = word.lower()
+                num = int(num_str)
+                if "rail" in w and not r.get("_rail_bonus"):
+                    r["_rail_bonus"] = num
+                elif ("flèche" in w or "fleche" in w) and not r.get("_fleche_bonus"):
+                    r["_fleche_bonus"] = num
+            # Retire toute la portion " — rajout de ..."
+            r["designation"] = desig.split(" — rajout de")[0].strip()
+        if kind in ("header", "empty"):
+            r["total_moq"] = ""
+            r.setdefault("fleche", "")
+            r.setdefault("signaletique", "")
+            r.setdefault("saisonnier", "")
+            continue
+        # Détecte la ligne pour savoir si Flèche/Signalétique/Saisonnier s'appliquent
+        d_norm = (r.get("designation") or "").strip().lower()
+        # Flèche : ES 1.5 (noir) ou SA 1.5 (noir)
+        if d_norm in ("es 1.5 (noir)", "sa 1.5 (noir)"):
+            fb = r.get("_fleche_bonus")
+            r["fleche"] = int(fb) if (fb and fb > 0) else ""
+        else:
+            r["fleche"] = ""
+        # Signalétique : ES 1.5 (noir) ou ES 1.5 (blanc)
+        if d_norm in ("es 1.5 (noir)", "es 1.5 (blanc)"):
+            rb = r.get("_rail_bonus")
+            r["signaletique"] = int(rb) if (rb and rb > 0) else ""
+        else:
+            r["signaletique"] = ""
+        # Saisonnier : SA 2.1 (noir) ou SA 1.5 (noir) uniquement
+        if d_norm in ("sa 2.1 (noir)", "sa 1.5 (noir)"):
+            if "_surface_base_total" in r:
+                try:
+                    cur_t = float(r.get("total_plus_spare") or 0)
+                    base_t = float(r.get("_surface_base_total") or 0)
+                    delta = cur_t - base_t
+                    r["saisonnier"] = int(delta) if delta > 0 else ""
+                except (ValueError, TypeError):
+                    r["saisonnier"] = ""
+            else:
+                r["saisonnier"] = ""
+        elif kind == "surface_added" and d_norm in ("sa 2.1 (noir)", "sa 1.5 (noir)"):
+            try:
+                r["saisonnier"] = int(float(r.get("total_plus_spare") or 0))
+            except (ValueError, TypeError):
+                r["saisonnier"] = ""
+        else:
+            r["saisonnier"] = ""
+        # Total + MOQ
+        r["total_moq"] = _compute_total_moq(r.get("total_plus_spare"), r.get("reference"))
+    return rows
+
+
 # Colonnes attendues (le fichier peut avoir des variantes)
 EXPECTED_COLS = {
     "secteur": ["Secteur"],
@@ -472,8 +583,8 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 if cur_total == 0 and (cur_q + cur_s) > 0:
                     cur_total = cur_q + cur_s
                 r["total_plus_spare"] = cur_total + bonus
-                base_label = (r.get("designation") or "").split(" — rajout de")[0].strip()
-                r["designation"] = f"{base_label} — rajout de {bonus} rails"
+                # 23/06/2026 : suffixe retiré (info exposée via colonne Signalétique).
+                r["designation"] = (r.get("designation") or "").split(" — rajout de")[0].strip()
                 r["_rail_bonus"] = bonus
                 r["_rail_bonus_color"] = color
                 break
@@ -492,40 +603,37 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
         if not fleche_df.empty:
             fleche_total = int(pd.to_numeric(fleche_df[qty_col], errors="coerce").fillna(0).sum())
 
-    # Applique le bonus à la ligne ES 1.5 (noir) du recap
+    # Applique le bonus à la ligne ES 1.5 (noir) ET à SA 1.5 (noir) du recap
+    # (23/06/2026 : sur les 2 lignes si elles existent toutes les deux).
     if fleche_total > 0:
-        target_label = "es 1.5 (noir)"
+        target_labels = ("es 1.5 (noir)", "sa 1.5 (noir)")
         for r in rows:
             if r.get("kind") != "product":
                 continue
             desig_norm = _norm_desig(r.get("designation"))
             base_desig = desig_norm.split(" — rajout de")[0]
-            if base_desig == target_label:
-                try:
-                    cur_total = float(r.get("total_plus_spare") or 0)
-                except (ValueError, TypeError):
-                    cur_total = 0
-                try:
-                    cur_q = float(r.get("quantite") or 0)
-                except (ValueError, TypeError):
-                    cur_q = 0
-                try:
-                    cur_s = float(r.get("spare") or 0)
-                except (ValueError, TypeError):
-                    cur_s = 0
-                if cur_total == 0 and (cur_q + cur_s) > 0:
-                    cur_total = cur_q + cur_s
-                r["total_plus_spare"] = cur_total + fleche_total
-                # On préserve une éventuelle annotation rails existante en
-                # ajoutant la mention flèches en plus.
-                base_label = (r.get("designation") or "").split(" — rajout de")[0].strip()
-                rails_existing = r.get("_rail_bonus") or 0
-                if rails_existing > 0:
-                    r["designation"] = f"{base_label} — rajout de {int(rails_existing)} rails + {fleche_total} flèche(s)"
-                else:
-                    r["designation"] = f"{base_label} — rajout de {fleche_total} flèche(s)"
-                r["_fleche_bonus"] = fleche_total
-                break
+            if base_desig not in target_labels:
+                continue
+            try:
+                cur_total = float(r.get("total_plus_spare") or 0)
+            except (ValueError, TypeError):
+                cur_total = 0
+            try:
+                cur_q = float(r.get("quantite") or 0)
+            except (ValueError, TypeError):
+                cur_q = 0
+            try:
+                cur_s = float(r.get("spare") or 0)
+            except (ValueError, TypeError):
+                cur_s = 0
+            if cur_total == 0 and (cur_q + cur_s) > 0:
+                cur_total = cur_q + cur_s
+            r["total_plus_spare"] = cur_total + fleche_total
+            # On préserve la désignation brute (sans suffixe " — rajout de X")
+            # car le détail est désormais exposé via des colonnes dédiées
+            # (Flèche, Signalétique, Saisonnier).
+            r["designation"] = (r.get("designation") or "").split(" — rajout de")[0].strip()
+            r["_fleche_bonus"] = fleche_total
 
     # Ligne Dongle — éditable, pas de Spare ni Total+Spare
     # Référence fixe = 16639 (rajoutée automatiquement)
@@ -556,6 +664,8 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     for _ in range(3):
         rows.append({"kind": "empty", "type": "", "reference": "", "designation": "", "quantite": "", "spare": "", "total_plus_spare": ""})
 
+    # Calcule fleche/signaletique/saisonnier/total_moq (23/06/2026)
+    rows = _apply_total_moq_and_bonuses(rows)
     return rows
 
 
@@ -854,6 +964,8 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
     # nécessiter une ré-édition manuelle ni de re-upload.
     recap_rows = _refresh_batterie_software_block(d["recap_rows"])
     recap_rows = _refresh_vcare_block(recap_rows)
+    # Bonus + MOQ (23/06/2026)
+    recap_rows = _apply_total_moq_and_bonuses(recap_rows)
     return {
         "upload_id": upload_id,
         "filename": d["filename"],
@@ -1324,6 +1436,7 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, 
     # le bloc VCare. Cf. règles utilisateur 21/06/2026 + 11/06/2026.
     rows = _refresh_batterie_software_block(rows)
     rows = _refresh_vcare_block(rows)
+    rows = _apply_total_moq_and_bonuses(rows)
     # Re-persister
     try:
         await persist_recap_rows(upload_id, rows)
@@ -1383,6 +1496,7 @@ async def update_dongles(upload_id: str, payload: DonglesUpdate, current_user: d
         await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"dongles_quantity": qty}})
     except Exception as e:
         logger.warning(f"Mongo persist dongles failed: {e}")
+    rows = _apply_total_moq_and_bonuses(rows)
     await log_audit(upload_id, current_user, "dongles_changed", details={"quantity": qty})
     return {"quantity": qty, "rows": rows}
 
@@ -1468,7 +1582,8 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
         target["spare"] = base_s if base_s > 0 else ""
         if delta > 0:
             target["total_plus_spare"] = base_t + delta
-            target["designation"] = f"{base_d} — rajout de {int(delta)} {suffix_word} sans spare"
+            # 23/06/2026 : suffixe retiré, info via colonne Saisonnier.
+            target["designation"] = base_d
         else:
             target["total_plus_spare"] = base_t if base_t > 0 else ""
             target["designation"] = base_d
@@ -1503,28 +1618,27 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
     if t_sa21 is not None:
         _apply_delta_to_row(t_sa21, delta_sa21, "SA", "SA 2.1 (noir)")
     elif delta_sa21 > 0:
-        _create_surface_added(f"SA 2.1 (noir) — rajout de {int(delta_sa21)} SA sans spare", delta_sa21)
+        _create_surface_added("SA 2.1 (noir)", delta_sa21)
 
     # 2) SA 1.5 (noir) — règle ajoutée 23/06/2026
     t_sa15 = _find_product(lambda d: d == "sa 1.5 (noir)")
     if t_sa15 is not None:
         _apply_delta_to_row(t_sa15, delta_sa15, "SA", "SA 1.5 (noir)")
     elif delta_sa15 > 0:
-        _create_surface_added(f"SA 1.5 (noir) — rajout de {int(delta_sa15)} SA sans spare", delta_sa15)
+        _create_surface_added("SA 1.5 (noir)", delta_sa15)
 
     # 3) Support individuel alu SA
     t_support = _find_product(lambda d: "support individuel alu sa" in d)
     if t_support is not None:
         _apply_delta_to_row(t_support, delta_support, "supports", "Support individuel alu SA")
     elif delta_support > 0:
-        _create_surface_added(
-            f"Support individuel alu SA — rajout de {int(delta_support)} supports sans spare",
-            delta_support, where_type="Support")
+        _create_surface_added("Support individuel alu SA", delta_support, where_type="Support")
 
     # Recalcule batterie + software caméra + VCare (les changements de surface
     # ajoutent/retirent des SA → VCare doit suivre).
     rows = _refresh_batterie_software_block(rows)
     rows = _refresh_vcare_block(rows)
+    rows = _apply_total_moq_and_bonuses(rows)
     # Persister recap + surface_category
     try:
         await persist_recap_rows(upload_id, rows)
@@ -1550,6 +1664,7 @@ async def delete_recap_row(upload_id: str, index: int, current_user: dict = Depe
     rows.pop(index)
     # Recalcule VCare (la suppression d'une source modifie les totaux VCare).
     rows = _refresh_vcare_block(rows)
+    rows = _apply_total_moq_and_bonuses(rows)
     try:
         await persist_recap_rows(upload_id, rows)
     except Exception as e:

@@ -223,13 +223,25 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                 Désignation
                             </th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap">
-                                Quantité
+                                Total
                             </th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-emerald-50">
                                 Spare
                             </th>
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-amber-50" data-testid="header-fleche">
+                                Flèche
+                            </th>
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-purple-50" data-testid="header-signaletique">
+                                Signalétique
+                            </th>
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-orange-50" data-testid="header-saisonnier">
+                                Saisonnier
+                            </th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-blue-50">
-                                Total + Spare
+                                Total
+                            </th>
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-indigo-50" data-testid="header-total-moq" title="Total arrondi au MOQ supérieur">
+                                Total + MOQ
                             </th>
                             <th className="w-10" />
                             <th className="w-full" />
@@ -259,7 +271,11 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                         <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.designation}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap">{fmtNum(r.quantite)}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-emerald-50/40">{fmtNum(r.spare)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-amber-50/40">{fmtNum(r.fleche)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-purple-50/40">{fmtNum(r.signaletique)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-orange-50/40">{fmtNum(r.saisonnier)}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-blue-50/40 font-semibold">{fmtNum(r.total_plus_spare)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-indigo-50/40 font-semibold">{r.total_moq === "—" ? <span className="text-gray-400">—</span> : fmtNum(r.total_moq)}</td>
                                         <td />
                                         <td />
                                     </tr>
@@ -331,7 +347,11 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                             onCommit={(v) => onUpdateRow(i, { type: r.type, reference: r.reference, designation: r.designation, quantite: r.quantite, spare: v })}
                                         />
                                     </td>
+                                    <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-amber-50/40">{fmtNum(r.fleche)}</td>
+                                    <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-purple-50/40">{fmtNum(r.signaletique)}</td>
+                                    <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-orange-50/40">{fmtNum(r.saisonnier)}</td>
                                     <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-blue-50/40 font-semibold">{fmtNum(r.total_plus_spare)}</td>
+                                    <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-indigo-50/40 font-semibold">{r.total_moq === "—" ? <span className="text-gray-400">—</span> : fmtNum(r.total_moq)}</td>
                                     <td className="p-0 text-center align-middle">
                                         <button
                                             onClick={() => onDeleteRow(i)}
@@ -348,7 +368,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         })}
                         {filtered.length === 0 && (
                             <tr>
-                                <td colSpan={8} className="px-3 py-8 text-center text-sm text-gray-500">
+                                <td colSpan={12} className="px-3 py-8 text-center text-sm text-gray-500">
                                     Aucun résultat
                                 </td>
                             </tr>
