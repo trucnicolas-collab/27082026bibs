@@ -633,7 +633,9 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
         return
     t = tables[0].table
     all_n = sorted(set(nuit_es_data.keys()) | set(nuit_cam_data.keys()))
-    _ensure_table_size(t, 3 + len(all_n))
+    # 3 lignes d'en-tête + N nuits + 1 ligne TOTAL
+    needed = 3 + len(all_n) + 1
+    _ensure_table_size(t, needed)
     _set_cell_text(t.cell(0, 0), "Phasage full — Planning consolidé EEG + Caméras",
                    bold=True, align="center", size=11)
     _set_cell_text(t.cell(1, 0), "Phasage étiquettes et rails", bold=True, align="center", size=9)
@@ -644,6 +646,7 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
     for ci, s in enumerate(subs):
         _set_cell_text(t.cell(2, ci), s, bold=True, size=8)
     # Data — police plus compacte pour faire tenir toutes les nuits dans la slide
+    tot_es = tot_rails = tot_sa = tot_cam = 0
     for i, n in enumerate(all_n):
         r = i + 3
         es = nuit_es_data.get(n, {})
@@ -661,6 +664,38 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
         color = _color_for_night(n, weeks)
         for ci in range(10):
             _set_cell_fill(t.cell(r, ci), color)
+        # Cumul TOTAL
+        for v, key in ((es.get("eeg"), "es"), (es.get("rails_es"), "rails"),
+                       (es.get("sa"), "sa"), (cam.get("cam"), "cam")):
+            try:
+                f = float(v) if v not in (None, "") else 0
+            except (ValueError, TypeError):
+                f = 0
+            if key == "es":
+                tot_es += f
+            elif key == "rails":
+                tot_rails += f
+            elif key == "sa":
+                tot_sa += f
+            else:
+                tot_cam += f
+    # Ligne TOTAL (réécrit la dernière row pour neutraliser les valeurs
+    # héritées du template — bug 26/02/2026)
+    total_row = 3 + len(all_n)
+    _set_cell_text(t.cell(total_row, 0), "TOTAL", bold=True, align="left", size=9)
+    _set_cell_text(t.cell(total_row, 1), _num(int(tot_es)), bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 2), _num(int(tot_rails)), bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 3), _num(int(tot_sa)), bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 4), "", size=9)
+    _set_cell_text(t.cell(total_row, 5), f"{len(all_n)} nuits", bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 6), "", size=9)
+    _set_cell_text(t.cell(total_row, 7), "", size=9)
+    _set_cell_text(t.cell(total_row, 8), "", size=9)
+    _set_cell_text(t.cell(total_row, 9), _num(int(tot_cam)), bold=True, size=9)
+    # Vide les rows résiduelles éventuelles (si template a + de rows que prévu)
+    for r in range(total_row + 1, len(t.rows)):
+        for ci in range(10):
+            _set_cell_text(t.cell(r, ci), "", size=8)
     # Force des hauteurs de ligne réduites pour faire tenir tout dans la slide
     # (cy en EMU : 240000 ≈ 0.25 inch ≈ ligne compacte)
     for tr in t._tbl.findall(qn('a:tr')):

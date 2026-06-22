@@ -2473,8 +2473,12 @@ def _full_allee_index(summary: dict) -> dict:
         idx[str(z["id"])] = {
             "uid": z["id"], "allee": z["id"],
             "es_15": 0, "es_21": sz_eeg,
-            "sa": float(z.get("sa_21") or 0), "sa_15": 0,
-            "sa_21": float(z.get("sa_21") or 0),
+            # 26/02/2026 — les Zones Saisonnières sont comptées en SA 2.1
+            # (semantic "SA 2.1 saisonnier"). Sans ça, l'Excel/PPTX affichait
+            # SA=0 sur les nuits qui ne contiennent que des ZS, alors que
+            # l'App montrait SA=eeg. Source de divergence corrigée.
+            "sa": sz_eeg, "sa_15": 0,
+            "sa_21": sz_eeg,
             "rails_es": 0, "rails_es_by_desig": {},
             "cameras": 0, "camera_elems": [],
             "fleches": 0,
@@ -3692,6 +3696,11 @@ def _write_code_couleur_sheet(workbook, writer, d):
         t = totals_by_nuit.setdefault(int(n), {"eeg": 0, "cam": 0, "sa": 0})
         if zone:
             t["eeg"] += zone.get("eeg") or 0
+            # 26/02/2026 — les Zones Saisonnières sont aussi comptées en SA
+            # (cohérence avec l'App). Avant, SA des nuits avec uniquement
+            # des ZS apparaissait à 0 dans Excel/PPTX alors que l'App
+            # affichait l'eeg de la zone.
+            t["sa"] += zone.get("eeg") or 0
         elif node:
             base = (node.get("es_15") or 0) + (node.get("es_21") or 0)
             bonus = 0 if is_mag2 else ((node.get("es_15_bonus_noir") or 0) + (node.get("es_15_bonus_blanc") or 0))
