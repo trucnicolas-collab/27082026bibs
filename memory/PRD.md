@@ -1,5 +1,9 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 24/06/2026
+- [x] **Export Carrefour : ajout des 2 feuilles « Recap par secteur »** (par rayon + global) — mêmes données que dans l'export RTR (factorisé via `_write_par_secteur_sheets`).
+- [x] **PPTX : rendu des sections** (séparateurs bleu clair `#DDEBF7` sur la colonne Désignation) directement dans le tableau slide 9 — pas de nouvelles colonnes, mais le contexte des sections est désormais visible.
+
 ## Changelog 23/06/2026 (v5)
 - [x] **Ordre des sections** revu : EEG / Rails EdgeSense / **Rails/Fixation SA** / Captana / Dongles / **VCare** (6 sections au lieu de 5, VCare désormais dans une section dédiée au lieu d'être réparti dans EEG/Captana).
 - [x] **Référence doit être numérique** : `_validate_missing_refs` détecte aussi les refs alphanumériques (ex: "AUTRE1"). Frontend rouge + bandeau d'alerte + blocage exports avec message explicite.

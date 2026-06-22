@@ -4994,6 +4994,13 @@ async def _build_carrefour_export(d: dict):
         ws.write(tot_row, 9, int(round(agg["totals_cam"]["cam"])), fmt_total_n)
         ws.freeze_panes(2, 0)
 
+        # ===== 6. Recap par secteur (24/06/2026) =====
+        # Mêmes 2 feuilles que dans l'export RTR, basées sur les raw_records.
+        try:
+            _write_par_secteur_sheets(wb, writer, d, fmt_h, fmt_cell, fmt_total, fmt_inclineur)
+        except Exception as e:
+            logger.warning(f"Recap par secteur (Carrefour) failed: {e}")
+
     output.seek(0)
     filename = f"{Path(d['filename']).stem}_Carrefour.xlsx"
     return StreamingResponse(
