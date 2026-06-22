@@ -440,11 +440,13 @@ def classify_eeg(designation: str) -> Optional[str]:
 
 
 def _classify_section(designation: str, ref: str, kind: str, type_: str) -> str:
-    """Classifie une ligne de recap dans l'une des 5 sections (23/06/2026 v4).
-    Sections retournées : "EEG", "Rails EdgeSense", "Captana", "Dongles", "Rails/Fixation SA".
+    """Classifie une ligne de recap dans l'une des 6 sections (23/06/2026 v5).
+    Sections retournées : "EEG", "Rails EdgeSense", "Rails/Fixation SA", "Captana", "Dongles", "VCare".
     """
     d = (designation or "").strip().lower()
     t = (type_ or "").strip().lower()
+    if d.startswith("v:care") or t == "vcare" or kind == "vcare":
+        return "VCare"
     if kind == "dongle" or t == "dongle":
         return "Dongles"
     if any(d.startswith(p) for p in ("es 1.5", "es 2.1", "sa 1.5", "sa 2.1", "sa 4.2")):
@@ -455,7 +457,6 @@ def _classify_section(designation: str, ref: str, kind: str, type_: str) -> str:
         return "Rails EdgeSense"
     if d == "vis fixation":
         return "Rails EdgeSense"
-    # Rails (1320 mm / 990 mm / 535 mm / 650 mm / 1240 mm / 1187 mm / 908 mm)
     import re as _re
     if _re.search(r"\bmm\b", d) and ("rail" in t or t == "rail" or d.startswith("rail") or _re.match(r"^\d{3,4}\s*mm", d)):
         return "Rails EdgeSense"
@@ -470,23 +471,12 @@ def _classify_section(designation: str, ref: str, kind: str, type_: str) -> str:
     )
     if d in captana_designations:
         return "Captana"
-    if d.startswith("v:care") or t == "vcare":
-        # VCare = à classer selon ce qu'il accompagne. Pour simplifier on les
-        # met dans la section EEG (la majorité concerne ES/SA), sauf VCare
-        # caméra qui va dans Captana.
-        if "captana" in d or "caméra" in d or "camera" in d or ref == "16783":
-            return "Captana"
-        return "EEG"
     return "Rails/Fixation SA"
 
 
 def _apply_sections(rows: list[dict]) -> list[dict]:
-    """Re-organise les recap_rows en 5 sections (séparateurs bleu clair).
-    Retire les anciens en-têtes 'TOTAL EEG / TOTAL Fixation / etc.' devenus
-    obsolètes (demande utilisateur 23/06/2026).
-    """
-    SECTIONS = ["EEG", "Rails EdgeSense", "Captana", "Dongles", "Rails/Fixation SA"]
-    # On garde les lignes "empty" en fin
+    """Re-organise les recap_rows en 6 sections (séparateurs bleu clair)."""
+    SECTIONS = ["EEG", "Rails EdgeSense", "Rails/Fixation SA", "Captana", "Dongles", "VCare"]
     empties = [r for r in rows if r.get("kind") == "empty"]
     others = [r for r in rows
               if r.get("kind") not in ("empty", "header", "section")]
@@ -514,8 +504,8 @@ def _apply_sections(rows: list[dict]) -> list[dict]:
 
 
 def _validate_missing_refs(rows: list[dict]) -> list[str]:
-    """Retourne la liste des désignations de lignes sans référence
-    (lignes produit/vcare/surface_added/manual uniquement). Vide → OK pour export.
+    """Retourne la liste des désignations de lignes dont la référence est
+    vide OU contient des caractères non-numériques (24/06/2026).
     """
     bad: list[str] = []
     for r in rows:
@@ -523,7 +513,7 @@ def _validate_missing_refs(rows: list[dict]) -> list[str]:
         if kind in ("section", "header", "empty"):
             continue
         ref = (r.get("reference") or "").strip()
-        if not ref:
+        if not ref or not ref.isdigit():
             desig = (r.get("designation") or "").strip() or f"(ligne kind={kind})"
             bad.append(desig)
     return bad
@@ -4265,10 +4255,11 @@ def _check_export_refs(d: dict) -> None:
             status_code=400,
             detail=(
                 "Export bloqué : "
-                f"{len(bad)} ligne(s) sans référence — "
-                "veuillez compléter la colonne Référence dans le tableau "
-                "Commandes avant de relancer l'export. Désignations "
-                f"concernées : {', '.join(bad[:10])}"
+                f"{len(bad)} ligne(s) avec une référence invalide "
+                "(vide ou non-numérique) — veuillez corriger la colonne "
+                "Référence dans le tableau Commandes avant de relancer l'export. "
+                "Les références doivent contenir uniquement des chiffres. "
+                f"Désignations concernées : {', '.join(bad[:10])}"
                 + (" ..." if len(bad) > 10 else "")
             ),
         )

@@ -121,10 +121,10 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
             });
     }, [rows, search]);
 
-    // Lignes sans référence (utilisé pour le bandeau d'alerte + état des exports)
+    // Lignes avec référence invalide (vide OU non-numérique) — alerte + blocage exports
     const missingRefRows = useMemo(() => rows.filter((r) =>
         !["section", "header", "empty"].includes(r.kind) &&
-        !((r.reference || "").toString().trim())
+        !/^\d+$/.test(((r.reference || "").toString().trim()))
     ), [rows]);
 
     return (
@@ -223,7 +223,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                     >
                         <span className="text-lg leading-none">⚠️</span>
                         <span>
-                            <strong>{missingRefRows.length} ligne(s) sans référence</strong> — exports bloqués tant qu'elles ne sont pas complétées.
+                            <strong>{missingRefRows.length} ligne(s) avec une référence invalide</strong> (vide ou non-numérique) — exports bloqués tant qu'elles ne sont pas corrigées.
                             Désignations :{" "}
                             <span className="italic">{missingRefRows.slice(0, 5).map((r) => r.designation || "(vide)").join(", ")}</span>
                             {missingRefRows.length > 5 && ` ... +${missingRefRows.length - 5}`}
@@ -272,9 +272,10 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             const i = r._origIndex;
                             // Toutes les lignes sont éditables SAUF les en-têtes de section (TOTAL EEG, TOTAL Fixation, etc.)
                             const editable = r.kind !== "header" && r.kind !== "section";
-                            // Ligne sans référence = rouge + alerte (kind product/manual/vcare/surface_added)
+                            // Ligne sans référence ou réf non-numérique = rouge
+                            const refStr = (r.reference || "").toString().trim();
                             const missingRef = !["section", "header", "empty"].includes(r.kind)
-                                && !((r.reference || "").toString().trim());
+                                && !/^\d+$/.test(refStr);
                             let rowClass = displayIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
                             if (r.kind === "header") rowClass = "row-total";
                             else if (r.kind === "section") rowClass = "";

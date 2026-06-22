@@ -1,5 +1,9 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 23/06/2026 (v5)
+- [x] **Ordre des sections** revu : EEG / Rails EdgeSense / **Rails/Fixation SA** / Captana / Dongles / **VCare** (6 sections au lieu de 5, VCare désormais dans une section dédiée au lieu d'être réparti dans EEG/Captana).
+- [x] **Référence doit être numérique** : `_validate_missing_refs` détecte aussi les refs alphanumériques (ex: "AUTRE1"). Frontend rouge + bandeau d'alerte + blocage exports avec message explicite.
+
 ## Changelog 23/06/2026 (v4)
 - [x] **Restructuration du tableau Commandes en 5 sections** (séparateurs bleu clair, plus de « TOTAL EEG / Fixation / etc. ») :
   - **EEG** : ES/SA 1.5/2.1/4.2 + VCare associés
