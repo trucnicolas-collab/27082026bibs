@@ -457,6 +457,12 @@ def _classify_section(designation: str, ref: str, kind: str, type_: str) -> str:
         return "Rails EdgeSense"
     if d == "vis fixation":
         return "Rails EdgeSense"
+    # Rails SA (à classer dans "Rails/Fixation SA", PAS dans Rails EdgeSense) —
+    # 26/02/2026 : "Rail minimal adhésif …", "Rail no Easylock …"
+    if d.startswith("rail ") and (
+        "minimal adh" in d or "no easylock" in d
+    ):
+        return "Rails/Fixation SA"
     import re as _re
     if _re.search(r"\bmm\b", d) and ("rail" in t or t == "rail" or d.startswith("rail") or _re.match(r"^\d{3,4}\s*mm", d)):
         return "Rails EdgeSense"
