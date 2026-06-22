@@ -279,7 +279,6 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             let rowClass = displayIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
                             if (r.kind === "header") rowClass = "row-total";
                             else if (r.kind === "section") rowClass = "";
-                            else if (r.kind === "inclineur") rowClass = "row-inclineur";
                             else if (r.kind === "empty") rowClass = "row-empty";
                             else if (r.kind === "manual") rowClass = "bg-emerald-50/30";
                             if (missingRef) rowClass = "bg-red-50";
@@ -421,9 +420,6 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                 <span className="ml-4 flex items-center gap-3">
                     <span className="flex items-center gap-1">
                         <span className="w-3 h-3 rounded-sm" style={{ background: "#FEF3C7" }} /> Total
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm" style={{ background: "#DBEAFE" }} /> Inclineur
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="w-3 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Spare

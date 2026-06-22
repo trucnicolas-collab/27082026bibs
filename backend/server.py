@@ -620,7 +620,7 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "kind": "inclineur",
                 "type": tp,
                 "reference": "16657",
-                "designation": "Inclineur (1 par rail 1320/1240/990/1187/908/650/535mm)",
+                "designation": "Inclineur",
                 "quantite": inclineur_total,
                 "spare": inclineur_spare,
                 "total_plus_spare": inclineur_total + inclineur_spare,
@@ -4343,7 +4343,7 @@ async def _build_export(d: dict, sheet: str = "all"):
             "bold": True, "bg_color": "#FEF3C7", "border": 1
         })
         fmt_inclineur = workbook.add_format({
-            "bold": True, "bg_color": "#DBEAFE", "border": 1
+            "border": 1
         })
         fmt_cell = workbook.add_format({"border": 1})
 
@@ -4796,8 +4796,7 @@ async def _build_carrefour_export(d: dict):
                                      "border": 1, "align": "right"})
         fmt_total_lbl = wb.add_format({"bold": True, "bg_color": "#FEF3C7",
                                        "border": 1, "align": "center"})
-        fmt_inclineur = wb.add_format({"bold": True, "bg_color": "#DBEAFE",
-                                       "border": 1})
+        fmt_inclineur = wb.add_format({"border": 1})
         fmt_date = wb.add_format({"border": 1, "align": "center",
                                   "num_format": "dd/mm/yyyy"})
 
