@@ -31,7 +31,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v16-smaller-banners"
+__PPTX_VERSION__ = "2026-02-27-v17-forced-height"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -275,15 +275,20 @@ def _fill_slide_8(slide, recap_rows: list):
     cap_per_table = 24
     n_t1 = min(len(rows), cap_per_table)
     rest = rows[n_t1:]
-    # 5) Crée les 2 nouvelles tables (1 header + N data rows chacune)
+    # 5) Crée les 2 nouvelles tables — HAUTEUR = N rows × row_height_fixe
+    # pour forcer des lignes très compactes (PowerPoint ignore le `h` sur tr
+    # mais respecte la hauteur totale de la table).
+    ROW_HEIGHT_EMU = 120000  # ≈ 0.13 inch — assez pour 7pt + padding 0
     n_rows_t1 = 1 + n_t1
     n_rows_t2 = max(1 + len(rest), 2)
+    h_t1 = ROW_HEIGHT_EMU * n_rows_t1
+    h_t2 = ROW_HEIGHT_EMU * n_rows_t2
     t1_shape = slide.shapes.add_table(n_rows_t1, 10,
                                        placements[0]["left"], placements[0]["top"],
-                                       placements[0]["width"], placements[0]["height"])
+                                       placements[0]["width"], h_t1)
     t2_shape = slide.shapes.add_table(n_rows_t2, 10,
                                        placements[1]["left"], placements[1]["top"],
-                                       placements[1]["width"], placements[1]["height"])
+                                       placements[1]["width"], h_t2)
     t1, t2 = t1_shape.table, t2_shape.table
     # 6) Largeurs proportionnelles
     _set_recap_col_widths(t1, placements[0]["width"])
@@ -295,10 +300,10 @@ def _fill_slide_8(slide, recap_rows: list):
         _write_recap_row(t1, i + 1, r)
     for i, r in enumerate(rest):
         _write_recap_row(t2, i + 1, r)
-    # Hauteur de ligne très compacte (100000 EMU ≈ 0.11 inch — juste 7pt + 0 padding)
+    # Hauteur de ligne FORCÉE — même valeur sur chaque tr ET sur la hauteur totale.
     for tbl in (t1, t2):
         for tr in tbl._tbl.findall(qn('a:tr')):
-            tr.set('h', '100000')
+            tr.set('h', str(ROW_HEIGHT_EMU))
 
 
 def _write_recap_header(table, row_idx: int):
