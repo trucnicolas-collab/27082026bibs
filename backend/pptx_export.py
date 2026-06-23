@@ -31,7 +31,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v8-stable-6cols"
+__PPTX_VERSION__ = "2026-02-27-v9-fresh-tables"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -224,87 +224,110 @@ def _get_tables(slide):
 # ===================================================================
 # Slide 8 — Commandes (split en 2 tables 24×6 et 25×6)
 # ===================================================================
+# Headers et largeurs pour les NOUVELLES tables 10-cols créées via add_table().
+_RECAP_COL_HEADERS = [
+    "Type", "Réf.", "Désignation", "Total", "Spare", "Flèche",
+    "Signalétique", "Saisonnier", "Total", "Total + MOQ",
+]
+_RECAP_COL_WEIGHTS = [7, 7, 23, 8, 8, 7, 11, 10, 8, 11]
+
+
+def _set_recap_col_widths(table, total_emu: int):
+    """Définit explicitement la largeur de chaque colonne (table créée via add_table)."""
+    s = sum(_RECAP_COL_WEIGHTS)
+    for ci, w in enumerate(_RECAP_COL_WEIGHTS):
+        table.columns[ci].width = Emu(int(total_emu * w / s))
+
+
 def _fill_slide_8(slide, recap_rows: list):
-    tables = _get_tables(slide)
-    if len(tables) < 2:
+    """27/02/2026 v9 — On SUPPRIME les 2 tables 6-cols du template et on CRÉE
+    2 nouvelles tables 10-cols via slide.shapes.add_table(). Cela génère un
+    XML 100 % compatible PowerPoint Desktop (comme un copier-coller Excel→PPT).
+    """
+    # 1) Localise les positions/tailles des 2 tables existantes pour les recréer
+    old_tables = _get_tables(slide)
+    if len(old_tables) < 2:
         return
-    t1, t2 = tables[0].table, tables[1].table
-    # IMPORTANT 27/02/2026 — On reste sur les 6 cols natives du template
-    # (Type/Réf/Désignation/Total/Spare/Total+Spare). Les colonnes Flèche/
-    # Signalétique/Saisonnier/Total+MOQ ne sont disponibles QUE dans l'Excel,
-    # car PowerPoint Desktop a un bug de rendu avec les colonnes ajoutées
-    # à la volée (cellules apparaissent vides). L'Excel reste exhaustif.
-    N_COLS = 6
-    # Filtre : on EXCLUT les lignes VCare + lignes vides.
+    placements = []
+    for gframe in old_tables[:2]:
+        placements.append({
+            "left": gframe.left, "top": gframe.top,
+            "width": gframe.width, "height": gframe.height,
+        })
+    # 2) Supprime les anciennes tables
+    for gframe in old_tables[:2]:
+        sp = gframe._element
+        sp.getparent().remove(sp)
+    # 3) Filtre les lignes (exclut VCare et vides)
     rows = [r for r in recap_rows
             if r.get("kind") != "empty" and r.get("type") != "VCare"]
-    # Ajoute une ligne d'en-tête (row 0) sur chaque table → -1 sur la capacité
+    # 4) Calcule la répartition rows → t1 / t2
+    cap_per_table = 24
+    n_t1 = min(len(rows), cap_per_table)
+    rest = rows[n_t1:]
+    # 5) Crée les 2 nouvelles tables (1 header + N data rows chacune)
+    n_rows_t1 = 1 + n_t1
+    n_rows_t2 = max(1 + len(rest), 2)
+    t1_shape = slide.shapes.add_table(n_rows_t1, 10,
+                                       placements[0]["left"], placements[0]["top"],
+                                       placements[0]["width"], placements[0]["height"])
+    t2_shape = slide.shapes.add_table(n_rows_t2, 10,
+                                       placements[1]["left"], placements[1]["top"],
+                                       placements[1]["width"], placements[1]["height"])
+    t1, t2 = t1_shape.table, t2_shape.table
+    # 6) Largeurs proportionnelles
+    _set_recap_col_widths(t1, placements[0]["width"])
+    _set_recap_col_widths(t2, placements[1]["width"])
+    # 7) Headers + data
     _write_recap_header(t1, 0)
     _write_recap_header(t2, 0)
-    cap1 = len(t1.rows) - 1
-    cap2 = len(t2.rows) - 1
-    needed = len(rows)
-    if needed > cap1 + cap2:
-        _ensure_table_size(t2, 1 + needed - cap1)
-        cap2 = len(t2.rows) - 1
-    for i in range(min(cap1, len(rows))):
-        _write_recap_row(t1, i + 1, rows[i])
-    rest = rows[cap1:]
-    for i in range(min(cap2, len(rest))):
-        _write_recap_row(t2, i + 1, rest[i])
-    for i in range(len(rows), cap1):
-        _clear_row(t1, i + 1)
-    for i in range(len(rest), cap2):
-        _clear_row(t2, i + 1)
-    # Force hauteur compacte
+    for i, r in enumerate(rows[:n_t1]):
+        _write_recap_row(t1, i + 1, r)
+    for i, r in enumerate(rest):
+        _write_recap_row(t2, i + 1, r)
+    # 8) Hauteur de ligne compacte
     for tbl in (t1, t2):
         for tr in tbl._tbl.findall(qn('a:tr')):
             tr.set('h', '180000')
 
 
-# Headers réduits à 6 cols (template natif).
-_RECAP_COL_HEADERS = [
-    "Type", "Réf.", "Désignation", "Total", "Spare", "Total + Spare",
-]
-
-
 def _write_recap_header(table, row_idx: int):
-    """Écrit la ligne d'en-tête (gris/gras) — 6 cols natives."""
+    """Header gris/gras sur 10 cols."""
     for c, label in enumerate(_RECAP_COL_HEADERS):
         align = "left" if c < 3 else "right"
         _set_cell_text(table.cell(row_idx, c), label,
-                       bold=True, align=align, size=9,
+                       bold=True, align=align, size=8,
                        fill_rgb=(0xE5, 0xE7, 0xEB))
 
 
 def _write_recap_row(table, row_idx, r):
-    is_header = r.get("kind") == "header"
     is_section = r.get("kind") == "section"
-    bold = is_header or is_section
     if is_section:
         section_fill = (0xDD, 0xEB, 0xF7)
-        for c in range(6):
+        for c in range(10):
             txt = (r.get("type") or "") if c == 0 else ""
             _set_cell_text(table.cell(row_idx, c), txt,
                            bold=(c == 0), align="left",
-                           size=10, fill_rgb=section_fill)
+                           size=9, fill_rgb=section_fill)
         return
-    # 6 cols : Type / Réf / Désignation / Total / Spare / Total+Spare
-    _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), bold=bold, align="left", size=9)
-    _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), bold=bold, align="left", size=9)
-    _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), bold=bold, align="left", size=9)
-    _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), bold=bold, align="right", size=9)
-    _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), bold=bold, align="right", size=9)
-    _set_cell_text(table.cell(row_idx, 5), _num(r.get("total_plus_spare")),
-                   bold=True, align="right", size=9)
-    if is_header:
-        for c in range(6):
-            _set_cell_fill(table.cell(row_idx, c), "#FEF3C7")
+    _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), align="left", size=8)
+    _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), align="left", size=8)
+    _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), align="left", size=8)
+    _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 5), _num(r.get("fleche")), align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 6), _num(r.get("signaletique")), align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 7), _num(r.get("saisonnier")), align="right", size=8)
+    _set_cell_text(table.cell(row_idx, 8), _num(r.get("total_plus_spare")),
+                   bold=True, align="right", size=8)
+    moq_val = r.get("total_moq")
+    moq_txt = "—" if moq_val == "—" else _num(moq_val)
+    _set_cell_text(table.cell(row_idx, 9), moq_txt, bold=True, align="right", size=8)
 
 
 def _clear_row(table, row_idx):
     for c in range(len(table.columns)):
-        _set_cell_text(table.cell(row_idx, c), "", size=9)
+        _set_cell_text(table.cell(row_idx, c), "", size=8)
 
 
 def _replace_nb_nuits_in_title(slide, nb_nuits: int):
