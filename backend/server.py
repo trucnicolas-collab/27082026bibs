@@ -4641,7 +4641,10 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        headers={"Content-Disposition": f'attachment; filename="{base}_CR_VT.pptx"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{base}_CR_VT.pptx"',
+            "X-PPTX-Version": getattr(pptx_export, "__PPTX_VERSION__", "unknown"),
+        },
     )
 
 

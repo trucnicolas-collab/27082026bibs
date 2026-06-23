@@ -260,7 +260,10 @@ function MainApp() {
             document.body.appendChild(link);
             link.click();
             link.remove();
-            toast.success("PowerPoint téléchargé", { id: "pptx-export" });
+            // Affiche la version PPTX dans le toast pour vérifier que le backend
+            // exécute bien le dernier code après un (re)déploiement.
+            const pptxVersion = res.headers?.["x-pptx-version"] || "?";
+            toast.success(`PowerPoint téléchargé (backend ${pptxVersion})`, { id: "pptx-export" });
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
             toast.error(`Erreur export PowerPoint : ${msg}`, { id: "pptx-export" });

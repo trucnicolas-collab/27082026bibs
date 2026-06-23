@@ -29,6 +29,10 @@ from lxml import etree
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
+# Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
+# Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
+__PPTX_VERSION__ = "2026-02-27-v6-10cols-target"
+
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
 WHITE = "#FFFFFF"
