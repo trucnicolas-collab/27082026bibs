@@ -31,7 +31,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v9-fresh-tables"
+__PPTX_VERSION__ = "2026-02-27-v10-tight"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -227,16 +227,27 @@ def _get_tables(slide):
 # Headers et largeurs pour les NOUVELLES tables 10-cols créées via add_table().
 _RECAP_COL_HEADERS = [
     "Type", "Réf.", "Désignation", "Total", "Spare", "Flèche",
-    "Signalétique", "Saisonnier", "Total", "Total + MOQ",
+    "Signal.", "Saiso.", "Total", "Total+MOQ",
 ]
-_RECAP_COL_WEIGHTS = [7, 7, 23, 8, 8, 7, 11, 10, 8, 11]
+# Largeurs : Désignation plus étroite (18%), data cols plus larges pour éviter
+# le wrap des headers ("Signalétique" raccourci en "Signal." pour la même raison).
+_RECAP_COL_WEIGHTS = [9, 7, 18, 8, 8, 8, 11, 10, 9, 12]
 
 
 def _set_recap_col_widths(table, total_emu: int):
-    """Définit explicitement la largeur de chaque colonne (table créée via add_table)."""
     s = sum(_RECAP_COL_WEIGHTS)
     for ci, w in enumerate(_RECAP_COL_WEIGHTS):
         table.columns[ci].width = Emu(int(total_emu * w / s))
+
+
+def _set_cell_margins_zero(cell):
+    """Réduit les marges internes pour maximiser la largeur dispo du texte."""
+    from pptx.oxml.ns import qn as _qn
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcPr.set('marL', '36000')   # 0.04 inch
+    tcPr.set('marR', '36000')
+    tcPr.set('marT', '18000')
+    tcPr.set('marB', '18000')
 
 
 def _fill_slide_8(slide, recap_rows: list):
@@ -295,9 +306,10 @@ def _write_recap_header(table, row_idx: int):
     """Header gris/gras sur 10 cols."""
     for c, label in enumerate(_RECAP_COL_HEADERS):
         align = "left" if c < 3 else "right"
-        _set_cell_text(table.cell(row_idx, c), label,
-                       bold=True, align=align, size=8,
+        cell = table.cell(row_idx, c)
+        _set_cell_text(cell, label, bold=True, align=align, size=7,
                        fill_rgb=(0xE5, 0xE7, 0xEB))
+        _set_cell_margins_zero(cell)
 
 
 def _write_recap_row(table, row_idx, r):
@@ -306,23 +318,27 @@ def _write_recap_row(table, row_idx, r):
         section_fill = (0xDD, 0xEB, 0xF7)
         for c in range(10):
             txt = (r.get("type") or "") if c == 0 else ""
-            _set_cell_text(table.cell(row_idx, c), txt,
-                           bold=(c == 0), align="left",
-                           size=9, fill_rgb=section_fill)
+            cell = table.cell(row_idx, c)
+            _set_cell_text(cell, txt, bold=(c == 0), align="left",
+                           size=8, fill_rgb=section_fill)
+            _set_cell_margins_zero(cell)
         return
-    _set_cell_text(table.cell(row_idx, 0), r.get("type", ""), align="left", size=8)
-    _set_cell_text(table.cell(row_idx, 1), r.get("reference", ""), align="left", size=8)
-    _set_cell_text(table.cell(row_idx, 2), r.get("designation", ""), align="left", size=8)
-    _set_cell_text(table.cell(row_idx, 3), _num(r.get("quantite")), align="right", size=8)
-    _set_cell_text(table.cell(row_idx, 4), _num(r.get("spare")), align="right", size=8)
-    _set_cell_text(table.cell(row_idx, 5), _num(r.get("fleche")), align="right", size=8)
-    _set_cell_text(table.cell(row_idx, 6), _num(r.get("signaletique")), align="right", size=8)
-    _set_cell_text(table.cell(row_idx, 7), _num(r.get("saisonnier")), align="right", size=8)
-    _set_cell_text(table.cell(row_idx, 8), _num(r.get("total_plus_spare")),
-                   bold=True, align="right", size=8)
-    moq_val = r.get("total_moq")
-    moq_txt = "—" if moq_val == "—" else _num(moq_val)
-    _set_cell_text(table.cell(row_idx, 9), moq_txt, bold=True, align="right", size=8)
+    vals = [
+        (r.get("type", ""), "left", False),
+        (r.get("reference", ""), "left", False),
+        (r.get("designation", ""), "left", False),
+        (_num(r.get("quantite")), "right", False),
+        (_num(r.get("spare")), "right", False),
+        (_num(r.get("fleche")), "right", False),
+        (_num(r.get("signaletique")), "right", False),
+        (_num(r.get("saisonnier")), "right", False),
+        (_num(r.get("total_plus_spare")), "right", True),
+        (("—" if r.get("total_moq") == "—" else _num(r.get("total_moq"))), "right", True),
+    ]
+    for c, (txt, align, bold) in enumerate(vals):
+        cell = table.cell(row_idx, c)
+        _set_cell_text(cell, txt, bold=bold, align=align, size=7)
+        _set_cell_margins_zero(cell)
 
 
 def _clear_row(table, row_idx):
