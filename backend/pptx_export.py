@@ -31,7 +31,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v17-forced-height"
+__PPTX_VERSION__ = "2026-02-27-v18-inclineur-short"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -332,7 +332,9 @@ def _write_recap_row(table, row_idx, r):
     vals = [
         (r.get("type", ""), "left", False),
         (r.get("reference", ""), "left", False),
-        (r.get("designation", ""), "left", False),
+        # Force la désignation "Inclineur" simple même si le dataset stocke
+        # encore l'ancien texte long "Inclineur (1 par rail 1320/...)".
+        ("Inclineur" if r.get("kind") == "inclineur" else r.get("designation", ""), "left", False),
         (_num(r.get("quantite")), "right", False),
         (_num(r.get("spare")), "right", False),
         (_num(r.get("fleche")), "right", False),
