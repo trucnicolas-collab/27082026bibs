@@ -31,7 +31,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v6-10cols-target"
+__PPTX_VERSION__ = "2026-02-27-v7-native10cols"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -229,12 +229,13 @@ def _fill_slide_8(slide, recap_rows: list):
     if len(tables) < 2:
         return
     t1, t2 = tables[0].table, tables[1].table
-    # 10 colonnes : Type / Réf / Désignation / Total / Spare / Flèche /
-    # Signalétique / Saisonnier / Total+Spare / Total+MOQ
+    # Le template a maintenant 10 colonnes natives (modifié 27/02/2026) — plus
+    # besoin de cloner à la volée (le clone provoquait un bug de rendu dans
+    # PowerPoint Desktop où les nouvelles colonnes apparaissaient vides).
+    # _ensure_table_cols reste là par sécurité si jamais le template revient à 6.
     N_COLS = 10
     _ensure_table_cols(t1, N_COLS, label_cols=3)
     _ensure_table_cols(t2, N_COLS, label_cols=3)
-    # Distribution des largeurs par colonne (aligné sur le rendu cible).
     _set_recap_col_widths(t1)
     _set_recap_col_widths(t2)
     # Filtre : on EXCLUT les lignes VCare (demande utilisateur 16/06/2026 — le
