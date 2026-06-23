@@ -31,7 +31,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v10-tight"
+__PPTX_VERSION__ = "2026-02-27-v16-smaller-banners"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -227,11 +227,10 @@ def _get_tables(slide):
 # Headers et largeurs pour les NOUVELLES tables 10-cols créées via add_table().
 _RECAP_COL_HEADERS = [
     "Type", "Réf.", "Désignation", "Total", "Spare", "Flèche",
-    "Signal.", "Saiso.", "Total", "Total+MOQ",
+    "Signalétique", "Saisonnier", "Total", "Total + MOQ",
 ]
-# Largeurs : Désignation plus étroite (18%), data cols plus larges pour éviter
-# le wrap des headers ("Signalétique" raccourci en "Signal." pour la même raison).
-_RECAP_COL_WEIGHTS = [9, 7, 18, 8, 8, 8, 11, 10, 9, 12]
+# Largeurs finalisées : Type 8% pour "Fixation" tienne sur une ligne partout.
+_RECAP_COL_WEIGHTS = [8, 6, 28, 6, 6, 6, 11, 10, 7, 12]
 
 
 def _set_recap_col_widths(table, total_emu: int):
@@ -241,13 +240,13 @@ def _set_recap_col_widths(table, total_emu: int):
 
 
 def _set_cell_margins_zero(cell):
-    """Réduit les marges internes pour maximiser la largeur dispo du texte."""
-    from pptx.oxml.ns import qn as _qn
+    """Marges internes ultra-réduites pour maximiser l'espace texte ET
+    minimiser la hauteur de ligne effective."""
     tcPr = cell._tc.get_or_add_tcPr()
-    tcPr.set('marL', '36000')   # 0.04 inch
+    tcPr.set('marL', '36000')   # 0.04 inch L/R
     tcPr.set('marR', '36000')
-    tcPr.set('marT', '18000')
-    tcPr.set('marB', '18000')
+    tcPr.set('marT', '0')       # 0 padding T/B → row height au plus près du texte
+    tcPr.set('marB', '0')
 
 
 def _fill_slide_8(slide, recap_rows: list):
@@ -296,10 +295,10 @@ def _fill_slide_8(slide, recap_rows: list):
         _write_recap_row(t1, i + 1, r)
     for i, r in enumerate(rest):
         _write_recap_row(t2, i + 1, r)
-    # 8) Hauteur de ligne compacte
+    # Hauteur de ligne très compacte (100000 EMU ≈ 0.11 inch — juste 7pt + 0 padding)
     for tbl in (t1, t2):
         for tr in tbl._tbl.findall(qn('a:tr')):
-            tr.set('h', '180000')
+            tr.set('h', '100000')
 
 
 def _write_recap_header(table, row_idx: int):
@@ -315,13 +314,15 @@ def _write_recap_header(table, row_idx: int):
 def _write_recap_row(table, row_idx, r):
     is_section = r.get("kind") == "section"
     if is_section:
-        section_fill = (0xDD, 0xEB, 0xF7)
-        for c in range(10):
-            txt = (r.get("type") or "") if c == 0 else ""
-            cell = table.cell(row_idx, c)
-            _set_cell_text(cell, txt, bold=(c == 0), align="left",
-                           size=8, fill_rgb=section_fill)
-            _set_cell_margins_zero(cell)
+        # Banner : on FUSIONNE les 10 cellules en une seule (comme un copier-coller
+        # Excel), puis on remplit avec le nom de section + fond bleu clair.
+        first = table.cell(row_idx, 0)
+        last = table.cell(row_idx, 9)
+        first.merge(last)
+        _set_cell_text(first, (r.get("type") or ""),
+                       bold=True, align="left", size=7,
+                       fill_rgb=(0xDD, 0xEB, 0xF7))
+        _set_cell_margins_zero(first)
         return
     vals = [
         (r.get("type", ""), "left", False),
