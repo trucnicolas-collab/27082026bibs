@@ -268,6 +268,14 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
 # Longueurs de rails qui comptent pour 1 inclineur
 INCLINEUR_LENGTHS = ["1320mm", "1240mm", "990mm", "1187mm", "908mm", "650mm", "535mm"]
 
+# Références des rails EdgeSense (ES) — seules celles-ci comptent pour
+# le calcul Inclineur (27/02/2026). Les rails SA (réf 4507, 18048, 9484
+# pour "Rail minimal adhésif", "Rail no Easylock") sont EXCLUS.
+ES_RAIL_REFS: set[str] = {
+    "16957", "15507", "14745", "13585", "18173",
+    "17285", "15395", "15506", "17868",
+}
+
 # === MOQ par référence (Minimum Order Quantity) ===
 # Source : fichier MOQ.xlsx fourni par l'utilisateur le 23/06/2026.
 # Liste maintenue manuellement ici ; si une référence n'est pas listée,
@@ -612,8 +620,19 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
                 "total_plus_spare": total_plus_spare,
             })
         # Inclineur (uniquement pour Rail) — comptable comme produit à commander
+        # 27/02/2026 : ne comptabilise QUE les rails ES (réfs dans ES_RAIL_REFS).
+        # Les rails SA (Rail minimal adhésif, Rail no Easylock) sont exclus.
         if tp.lower() == "rail":
-            mask = sub[desig_col].apply(is_inclineur_rail)
+            mask_len = sub[desig_col].apply(is_inclineur_rail)
+            ref_col_local = cols.get("reference")
+            if ref_col_local and ref_col_local in sub.columns:
+                mask_es = sub[ref_col_local].astype(str).str.strip().isin(ES_RAIL_REFS)
+            else:
+                # Fallback : exclusion par mots-clés SA dans la désignation
+                mask_es = ~sub[desig_col].astype(str).str.lower().str.contains(
+                    "minimal adh|no easylock", regex=True, na=False
+                )
+            mask = mask_len & mask_es
             inclineur_total = float(sub.loc[mask, qty_col].sum())
             inclineur_spare = math.ceil(inclineur_total * 0.05)
             rows.append({
