@@ -736,14 +736,15 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
     })
 
     # ===== Bloc VCare =====
-    # Règle utilisateur (11/06/2026) : 1 unité produit installée = 1 unité
-    # VCare correspondant. La quantité du VCare est calculée à partir de
-    # `total_plus_spare` (= quantité posée + spare) des produits sources.
-    # Spare VCare : 5 % pour ES/SA/Rails, 2 % pour le VCare caméra (16783).
-    # Mais avant cela, on synchronise batterie + software caméra sur la
-    # somme des caméras (règle utilisateur 21/06/2026) — ainsi le VCare
-    # 16783 calculé ensuite sera juste.
+    # Règle utilisateur (11/06/2026, mise à jour 27/02/2026) : la quantité
+    # VCare est calculée à partir du `total_moq` (= Total + MOQ, la quantité
+    # réellement commandée arrondie). Pour ça, on doit calculer total_moq
+    # AVANT de construire les VCare (auparavant total_moq était calculé après).
     rows = _refresh_batterie_software_block(rows)
+    # Pré-calcule total_moq sur les sources (sans encore appliquer le sectioning final)
+    for _r in rows:
+        if _r.get("kind") in ("product", "surface_added", "manual"):
+            _r["total_moq"] = _compute_total_moq(_r.get("total_plus_spare"), _r.get("reference"))
     _vcare_rows = _build_vcare_rows(rows, df, cols)
     if _vcare_rows:
         rows.extend(_vcare_rows)
@@ -782,12 +783,19 @@ VCARE_MAPPING = [
 
 
 def _build_vcare_rows(rows: list[dict], df: pd.DataFrame, cols: dict) -> list[dict]:
-    """Construit le bloc 'TOTAL VCare'. Règle simple (12/06/2026 — option b
-    utilisateur) : la quantité VCare = somme du `Total + Spare` des refs
-    sources, sans soustraction. Le rajout saisonnier "sans spare" et les
-    bonus rails sont INCLUS (= VCare couvre exactement ce qui est affiché
-    en Total dans la ligne source)."""
+    """Construit le bloc 'TOTAL VCare'. Règle 27/02/2026 : la quantité VCare
+    = somme du `Total + MOQ` des refs sources (= la quantité qui sera
+    réellement commandée, arrondie selon le MOQ fournisseur). Si `total_moq`
+    n'est pas disponible (cas marginal), on retombe sur `total_plus_spare`."""
     def _vcare_src_value(r: dict) -> float:
+        # Priorité au total_moq (= valeur commandée finale)
+        moq = r.get("total_moq")
+        if moq not in (None, "", "—"):
+            try:
+                return max(float(moq), 0)
+            except (ValueError, TypeError):
+                pass
+        # Fallback : total_plus_spare
         try:
             tps = float(r.get("total_plus_spare") or 0)
         except (ValueError, TypeError):
@@ -1495,6 +1503,11 @@ def _refresh_vcare_block(rows: list[dict]) -> list[dict]:
     cleaned = [r for r in rows if not (
         r.get("type") == "VCare" and r.get("kind") in ("header", "product")
     )]
+    # 1bis) S'assure que total_moq est à jour sur les sources (sinon les
+    # VCare seront calculés sur d'anciennes valeurs).
+    for _r in cleaned:
+        if _r.get("kind") in ("product", "surface_added", "manual"):
+            _r["total_moq"] = _compute_total_moq(_r.get("total_plus_spare"), _r.get("reference"))
     # 2) Recalcule à partir des lignes courantes
     new_vcare = _build_vcare_rows(cleaned, pd.DataFrame(), {})
     if not new_vcare:
