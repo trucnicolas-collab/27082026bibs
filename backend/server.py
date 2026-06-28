@@ -366,21 +366,24 @@ def _apply_total_moq_and_bonuses(rows: list[dict]) -> list[dict]:
             r["signaletique"] = int(rb) if (rb and rb > 0) else ""
         else:
             r["signaletique"] = ""
-        # Saisonnier : SA 2.1 (noir) ou SA 1.5 (noir) uniquement
-        if d_norm in ("sa 2.1 (noir)", "sa 1.5 (noir)"):
-            if "_surface_base_total" in r:
-                try:
-                    cur_t = float(r.get("total_plus_spare") or 0)
-                    base_t = float(r.get("_surface_base_total") or 0)
-                    delta = cur_t - base_t
-                    r["saisonnier"] = int(delta) if delta > 0 else ""
-                except (ValueError, TypeError):
-                    r["saisonnier"] = ""
-            else:
-                r["saisonnier"] = ""
-        elif kind == "surface_added" and d_norm in ("sa 2.1 (noir)", "sa 1.5 (noir)"):
+        # Saisonnier (sans spare) : SA 2.1 (noir), SA 1.5 (noir) ET
+        # Support individuel alu SA — rajout lié à la surface +/- 10000 m².
+        is_saison_row = (
+            d_norm in ("sa 2.1 (noir)", "sa 1.5 (noir)")
+            or "support individuel alu sa" in d_norm
+        )
+        if is_saison_row and kind == "surface_added":
+            # Ligne créée de toutes pièces : tout le total est du saisonnier.
             try:
                 r["saisonnier"] = int(float(r.get("total_plus_spare") or 0))
+            except (ValueError, TypeError):
+                r["saisonnier"] = ""
+        elif is_saison_row and "_surface_base_total" in r:
+            try:
+                cur_t = float(r.get("total_plus_spare") or 0)
+                base_t = float(r.get("_surface_base_total") or 0)
+                delta = cur_t - base_t
+                r["saisonnier"] = int(delta) if delta > 0 else ""
             except (ValueError, TypeError):
                 r["saisonnier"] = ""
         else:
