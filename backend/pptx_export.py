@@ -221,6 +221,39 @@ def _get_tables(slide):
     return [sh for sh in slide.shapes if sh.has_table]
 
 
+def _set_col_widths_by_ratio(table, ratios: list[int]):
+    """Répartit la largeur totale actuelle de la table selon `ratios`
+    (un poids par colonne). Préserve la largeur totale d'origine."""
+    try:
+        total = sum(int(c.width) for c in table.columns)
+    except (TypeError, ValueError):
+        return
+    s = sum(ratios) or 1
+    for ci, w in enumerate(ratios):
+        if ci < len(table.columns):
+            table.columns[ci].width = Emu(int(total * w / s))
+
+
+# En-têtes + ratios de largeur pour les tables "Phasage par nuit" (slide 12 +
+# semaines) après éclatement de la colonne SA en SA 1.5 / 2.1 / frz (+ magasin)
+# et retrait de la colonne Caméras (les caméras ont leurs propres slides).
+def _phasage_headers(hide_sa_mag: bool) -> list[str]:
+    base = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES",
+            "SA 1.5", "SA 2.1", "SA 2.1 frz"]
+    if not hide_sa_mag:
+        base.append("SA magasin")
+    return base
+
+
+def _phasage_ratios(hide_sa_mag: bool) -> list[int]:
+    base = [7, 9, 17, 20, 8, 8, 7, 7, 8]
+    if not hide_sa_mag:
+        base.append(8)
+    return base
+
+
+
+
 # ===================================================================
 # Slide 8 — Commandes (split en 2 tables 24×6 et 25×6)
 # ===================================================================
@@ -422,7 +455,7 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
     for i in range(len(all_nights) + 1, cur_cols):
         _set_cell_text(t.cell(0, i), "", size=10)
 
-    labels = ["Date", "EEG", "Caméra", "SA"]
+    labels = ["Date", "EEG", "Caméra", "SA posées"]
     for li, lab in enumerate(labels):
         r = li + 1
         _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=10)
@@ -445,7 +478,7 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
 # ===================================================================
 # Slide 12 — Phasage EEG/Rails complet (N+2 × 8) — étend
 # ===================================================================
-def _fill_slide_12(slide, nuit_es_data, weeks):
+def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     tables = _get_tables(slide)
     if not tables:
         return
@@ -454,8 +487,11 @@ def _fill_slide_12(slide, nuit_es_data, weeks):
     n_nights = len(nights_sorted)
     needed_rows = 2 + n_nights
     _ensure_table_size(t, needed_rows)
+    headers = _phasage_headers(hide_sa_mag)
+    ncols = len(headers)
+    _ensure_table_cols(t, ncols, label_cols=1)
+    _set_col_widths_by_ratio(t, _phasage_ratios(hide_sa_mag))
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=11)
-    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
     for ci, h in enumerate(headers):
         _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=9)
     for i, n in enumerate(nights_sorted):
@@ -467,10 +503,13 @@ def _fill_slide_12(slide, nuit_es_data, weeks):
         _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
         _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
         _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
-        _set_cell_text(t.cell(r, 6), _num(d.get("sa", 0)), size=9)
-        _set_cell_text(t.cell(r, 7), _num(d.get("cam", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 6), _num(d.get("sa_inst_15", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 7), _num(d.get("sa_inst_21", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 8), _num(d.get("sa_inst_freezer", 0) or ""), size=9)
+        if not hide_sa_mag:
+            _set_cell_text(t.cell(r, 9), _num(d.get("sa_mag", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
-        for ci in range(8):
+        for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
     # Supprime les lignes vides finales (au-delà de needed_rows)
     while len(t.rows) > needed_rows:
@@ -485,7 +524,7 @@ def _fill_slide_12(slide, nuit_es_data, weeks):
 # Slides 13-16 — Par semaine (2 tables : phasage 7×8 + tableau date 5×5)
 # ===================================================================
 def _fill_slide_week(slide, week_index: int, week_nights: list[int],
-                     nuit_es_data, totals_by_nuit, dates_map, weeks):
+                     nuit_es_data, totals_by_nuit, dates_map, weeks, hide_sa_mag=False):
     tables = _get_tables(slide)
     if len(tables) < 2:
         return
@@ -510,7 +549,10 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     _set_cell_text(t_phasage.cell(0, 0),
                    f"Semaine {week_index} (Nuits {week_nights[0]} → {week_nights[-1]})",
                    bold=True, align="center", size=11)
-    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
+    headers = _phasage_headers(hide_sa_mag)
+    ncols = len(headers)
+    _ensure_table_cols(t_phasage, ncols, label_cols=1)
+    _set_col_widths_by_ratio(t_phasage, _phasage_ratios(hide_sa_mag))
     for ci, h in enumerate(headers):
         _set_cell_text(t_phasage.cell(1, ci), h, bold=True, align="center", size=9)
     for i, n in enumerate(week_nights):
@@ -522,10 +564,13 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         _set_cell_text(t_phasage.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
         _set_cell_text(t_phasage.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
         _set_cell_text(t_phasage.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
-        _set_cell_text(t_phasage.cell(r, 6), _num(d.get("sa", 0)), size=9)
-        _set_cell_text(t_phasage.cell(r, 7), _num(d.get("cam", 0) or ""), size=9)
+        _set_cell_text(t_phasage.cell(r, 6), _num(d.get("sa_inst_15", 0) or ""), size=9)
+        _set_cell_text(t_phasage.cell(r, 7), _num(d.get("sa_inst_21", 0) or ""), size=9)
+        _set_cell_text(t_phasage.cell(r, 8), _num(d.get("sa_inst_freezer", 0) or ""), size=9)
+        if not hide_sa_mag:
+            _set_cell_text(t_phasage.cell(r, 9), _num(d.get("sa_mag", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
-        for ci in range(8):
+        for ci in range(ncols):
             _set_cell_fill(t_phasage.cell(r, ci), color)
     # Supprime les lignes vides finales (au-delà de 2 + n_data)
     while len(t_phasage.rows) > needed:
@@ -542,7 +587,7 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     # Vide colonnes restantes
     for i in range(len(nights_in_date) + 1, cur_cols):
         _set_cell_text(t_date.cell(0, i), "", size=10)
-    labels = ["Date", "EEG", "Caméra", "SA"]
+    labels = ["Date", "EEG", "Caméra", "SA posées"]
     for li, lab in enumerate(labels):
         r = li + 1
         _set_cell_text(t_date.cell(r, 0), lab, bold=True, align="left", size=10)
@@ -703,7 +748,7 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
     _set_cell_text(t.cell(1, 0), "Phasage étiquettes et rails", bold=True, align="center", size=9)
     _set_cell_text(t.cell(1, 5), "Nuit", bold=True, align="center", size=9)
     _set_cell_text(t.cell(1, 7), "Phasage caméras", bold=True, align="center", size=9)
-    subs = ["Allées", "ES", "Rails ES", "SA", "Secteur/Rayon",
+    subs = ["Allées", "ES", "Rails ES", "SA posées", "Secteur/Rayon",
             "Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]
     for ci, s in enumerate(subs):
         _set_cell_text(t.cell(2, ci), s, bold=True, size=8)
@@ -885,7 +930,8 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     # Slide 13 (index 12)
     if len(slides) >= 13:
         _replace_nb_nuits_in_title(slides[12], nb_nuits_eeg)
-        _fill_slide_12(slides[12], agg["nuit_es"], agg["weeks"])
+        _fill_slide_12(slides[12], agg["nuit_es"], agg["weeks"],
+                       hide_sa_mag=agg.get("hide_sa_mag", False))
     # Slides 14-17 (ex-13-16) = semaines S1..S4
     weeks_list = agg["weeks"] or []
     # Indices des slides semaine dans le template (0-based)
@@ -902,7 +948,8 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
         if slide_idx < len(slides):
             _fill_slide_week(slides[slide_idx], wi + 1, week_nights,
                              agg["nuit_es"], agg["totals_by_nuit"],
-                             agg["dates_map"], weeks_list)
+                             agg["dates_map"], weeks_list,
+                             hide_sa_mag=agg.get("hide_sa_mag", False))
             used_week_slides.add(slide_idx)
     # Slide 18 (index 17) = Tableau date caméras
     if len(slides) >= 18 and agg["cam_nights"]:

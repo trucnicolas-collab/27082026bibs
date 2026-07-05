@@ -3642,7 +3642,10 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     ws.set_column(3, 3, 9)    # D SA 1.5
     ws.set_column(4, 4, 9)    # E SA 2.1
     ws.set_column(5, 5, 10)   # F SA 2.1 frz
-    ws.set_column(6, 6, 11)   # G SA magasin
+    if cfg_sa.get("enabled") and cfg_sa.get("toutes"):
+        ws.set_column(6, 6, 11, None, {"hidden": True})  # G SA magasin (masquée si Toutes)
+    else:
+        ws.set_column(6, 6, 11)   # G SA magasin
     ws.set_column(7, 7, 20)   # H Secteur/Rayon EEG
     ws.set_column(8, 8, 8)    # I Nuit (partagée — BLANC)
     ws.set_column(9, 9, 11)   # J Date
@@ -4660,7 +4663,11 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
                 "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
                 "eeg": b.get("es", 0),
                 "rails_es": b.get("rails_es", 0),
-                "sa": b.get("sa", 0),
+                "sa": (b.get("sa_inst_15", 0) + b.get("sa_inst_21", 0) + b.get("sa_inst_freezer", 0)),
+                "sa_inst_15": b.get("sa_inst_15", 0),
+                "sa_inst_21": b.get("sa_inst_21", 0),
+                "sa_inst_freezer": b.get("sa_inst_freezer", 0),
+                "sa_mag": b.get("sa_mag", 0),
                 "cam": (a.get("cam_per_nuit") or {}).get(int(n), {}).get("cam", 0),
             }
         nuit_cam = {}
@@ -4681,6 +4688,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
             }
         all_nights = sorted(set(nuit_es.keys()) | set(nuit_cam.keys()))
         cam_nights = sorted(nuit_cam.keys())
+        _cfg = doc.get("sa_install") or {}
         return {
             "nuit_es": nuit_es,
             "nuit_cam": nuit_cam,
@@ -4689,6 +4697,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
             "weeks": a.get("weeks_es") or [],
             "all_nights": all_nights,
             "cam_nights": cam_nights,
+            "hide_sa_mag": bool(_cfg.get("enabled") and _cfg.get("toutes")),
         }
 
     # Détail caméras par allée — groupé par nuit pour un rendu en bandes de
@@ -5126,6 +5135,8 @@ async def _build_carrefour_export(d: dict):
     """
     output = io.BytesIO()
     agg = _aggregate_phasage_for_export(d)
+    _cfg_sa = d.get("sa_install") or {}
+    hide_sa_mag = bool(_cfg_sa.get("enabled") and _cfg_sa.get("toutes"))
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         wb = writer.book
@@ -5254,7 +5265,10 @@ async def _build_carrefour_export(d: dict):
         widths2 = [10, 12, 28, 36, 12, 12, 10, 10, 11, 12]
         for ci, (h, w) in enumerate(zip(cols2, widths2)):
             ws.write(1, ci, h, fmt_lbl)
-            ws.set_column(ci, ci, w)
+            if ci == 9 and hide_sa_mag:
+                ws.set_column(ci, ci, w, None, {"hidden": True})
+            else:
+                ws.set_column(ci, ci, w)
         for i, n in enumerate(range(1, n_es + 1), start=0):
             row = 2 + i
             bucket = agg["es_per_nuit"].get(n, {})
@@ -5389,7 +5403,10 @@ async def _build_carrefour_export(d: dict):
                 ws.write(1, ci, h, fmt_h_eeg)
             else:
                 ws.write(1, ci, h, fmt_h_cam)
-            ws.set_column(ci, ci, w)
+            if ci == 6 and hide_sa_mag:
+                ws.set_column(ci, ci, w, None, {"hidden": True})
+            else:
+                ws.set_column(ci, ci, w)
         # Données : 1 ligne par nuit ES (1..n_es) ; bloc Cam rempli si nuit
         # correspondante existe dans cam_per_nuit
         for i, n in enumerate(range(1, n_es + 1), start=0):

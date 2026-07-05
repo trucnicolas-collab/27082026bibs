@@ -532,3 +532,12 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] Validé : pytest test_export_carrefour.py 8/8 + e2e manuel + testing agent frontend 100% (iteration_7.json).
 - Fichiers : `frontend/src/components/PhasageTab.jsx`, `SaInstallPanel.jsx`, `backend/server.py` (`_aggregate_phasage_for_export`, `_write_phasage_full_sheet`, `_build_carrefour_export`, `_Phasage_data`), `backend/tests/test_export_carrefour.py`.
 - Backlog connu (hors scope) : bouton "PowerPoint" encore visible dans le header alors que l'endpoint PPTX a été retiré (iteration 6) ; warning React `<span> in <option>` non bloquant ; PhasageTab.jsx > 700 lignes à découper.
+
+## Suite (05/07/2026) — Masquage "SA magasin" (Toutes) + adaptation PPTX
+- [x] **Frontend** : colonne "SA magasin" masquée dans les 2 tableaux Phasage quand `sa_install.enabled && toutes` (elle valait toujours 0). Booléen `hideSaMagasin` (PhasageTab.jsx).
+- [x] **Exports Excel** : colonne "SA magasin" MASQUÉE (set_column hidden=True, sans réagencer) quand Toutes — "Récap EEG par nuit" (col J), "Récap complet" (col G), RTR "Phasage full" (col G).
+- [x] **PPTX (`pptx_export.py` + adaptateur `server.py`)** :
+  - Slide 12 (Récap par nuit) + slides Semaine : colonne SA unique éclatée en `SA 1.5 / SA 2.1 / SA 2.1 frz` (+ `SA magasin` masquée si Toutes), colonne **Caméras retirée** (caméras isolées slides 17-18). Table élargie via `_ensure_table_cols` + largeurs `_set_col_widths_by_ratio`.
+  - Vues compactes (slide 11 "Tableau date", slide 20 consolidé) : valeur "SA" = **SA à poser** (total à installer) pour cohérence, libellé "SA posées".
+- [x] Validé e2e : PPTX (24 Mo, slide 12 = 10 col partiel / 9 col Toutes, caméras absentes), Carrefour & RTR (colonnes SA magasin hidden=True en Toutes), pytest 8/8.
+- ⚠️ NOTE (pré-existant, hors scope) : quand `surface_category=plus_10000`, une ligne "Support individuel alu SA" sans référence numérique déclenche le garde-fou d'export (400 "référence invalide"). À investiguer si les magasins +10000m² doivent exporter.
