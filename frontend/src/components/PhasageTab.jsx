@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
 import { toast } from "sonner";
-import SaInstallPanel, { computeSaToInstall } from "./SaInstallPanel";
+import SaInstallPanel, { computeSaToInstall, computeNodeSaInstall, nodeSaTotal } from "./SaInstallPanel";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -275,7 +275,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, cameras: 0, allees: [], secteur_rayon: new Set() };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, cameras: 0, sa_inst_15: 0, sa_inst_21: 0, sa_inst_freezer: 0, sa_mag: 0, allees: [], secteur_rayon: new Set() };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -286,6 +286,13 @@ export default function PhasageTab({ uploadId }) {
             tot[r.nuit].sa_15 += node.sa_15 || 0;
             tot[r.nuit].sa_21 += node.sa_21 || 0;
             tot[r.nuit].rails_es += node.rails_es || 0;
+            // SA à installer (par NOUS) selon la config du panneau — répartie par allée/nuit
+            const inst = computeNodeSaInstall(node, saInstall);
+            tot[r.nuit].sa_inst_15 += inst.sa_15 || 0;
+            tot[r.nuit].sa_inst_21 += inst.sa_21 || 0;
+            tot[r.nuit].sa_inst_freezer += inst.freezer || 0;
+            // Reste SA installé par le magasin (info) = total SA allée − installées par nous
+            tot[r.nuit].sa_mag += Math.max(0, nodeSaTotal(node) - (inst.sa_15 + inst.sa_21 + inst.freezer));
             // Bonus rails → ES 1.5 (par couleur, par allée)
             tot[r.nuit].bonus = (tot[r.nuit].bonus || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0);
             // Flèches (= +1 ES 1.5 noir chacune) ajoutées par allée
@@ -323,7 +330,7 @@ export default function PhasageTab({ uploadId }) {
             });
         });
         return tot;
-    }, [rows, nbNuits, alleeIndex, summary]);
+    }, [rows, nbNuits, alleeIndex, summary, saInstall]);
 
     // Allées déjà utilisées (pour les exclure des selects)
     const usedAllees = useMemo(() => {
@@ -342,6 +349,10 @@ export default function PhasageTab({ uploadId }) {
             sa: values.reduce((a, x) => a + (x.sa || 0), 0),
             sa_15: values.reduce((a, x) => a + (x.sa_15 || 0), 0),
             sa_21: values.reduce((a, x) => a + (x.sa_21 || 0), 0),
+            sa_inst_15: values.reduce((a, x) => a + (x.sa_inst_15 || 0), 0),
+            sa_inst_21: values.reduce((a, x) => a + (x.sa_inst_21 || 0), 0),
+            sa_inst_freezer: values.reduce((a, x) => a + (x.sa_inst_freezer || 0), 0),
+            sa_mag: values.reduce((a, x) => a + (x.sa_mag || 0), 0),
             seasonal: values.reduce((a, x) => a + (x.seasonal || 0), 0),
             bonus: values.reduce((a, x) => a + (x.bonus || 0), 0),
             fleches: values.reduce((a, x) => a + (x.fleches || 0), 0),
@@ -379,8 +390,8 @@ export default function PhasageTab({ uploadId }) {
     // SA 1.5 (noir + blanc) — magasin 2 uniquement : compté dans EEG à installer
     const totalSA15 = isMagasin2 ? ((totals.sa_15 || 0)) : 0;
     // EEG par nuit = ES brut + bonus rails (mag1) + flèches + SA 1.5 (mag2) + saisonnier
-    const eegPerNight = (esBrutNuit, seasonalNuit, bonusNuit, flechesNuit, sa15Nuit) =>
-        Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0));
+    const eegPerNight = (esBrutNuit, seasonalNuit, bonusNuit, flechesNuit, sa15Nuit, saInstNuit) =>
+        Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0) + (saInstNuit || 0));
     // SA à installer (hors saisonnier) selon la config utilisateur — ajouté aux EEG à poser
     const saToInstall = computeSaToInstall(summary?.sa_breakdown, saInstall);
     const saInstallTotal = (saToInstall.sa_15 || 0) + (saToInstall.sa_21 || 0) + (saToInstall.freezer || 0);
@@ -589,15 +600,10 @@ export default function PhasageTab({ uploadId }) {
                                             EEG
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
-                                        {isMagasin2 && (
-                                            <th className="px-2 py-1.5 text-right font-semibold text-purple-700" title="SA 1.5 à poser (déjà inclus dans EEG)">SA 1.5</th>
-                                        )}
-                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500"
-                                            title={isMagasin2
-                                                ? "Info : SA 2.1 — non incluses dans EEG"
-                                                : "Info : toutes étiquettes SA (SA 1.5, SA 2.1, SA 4.2, etc.) — non incluse dans les calculs"}>
-                                            {isMagasin2 ? "SA 2.1" : "SA"}
-                                        </th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT) — selon la config du panneau">SA 1.5</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT) — selon la config du panneau">SA 2.1</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT) — selon la config du panneau">SA 2.1 frz</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info, non incluses dans EEG)">SA magasin</th>
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
                                         <th className="px-2 py-1.5 w-8"></th>
                                     </tr>
@@ -605,13 +611,16 @@ export default function PhasageTab({ uploadId }) {
                                 <tbody>
                                     {rows.length === 0 && (
                                         <tr>
-                                            <td colSpan={isMagasin2 ? 7 : 6} className="px-3 py-6 text-center text-gray-500 italic">
+                                            <td colSpan={9} className="px-3 py-6 text-center text-gray-500 italic">
                                                 Cliquez sur « Ajouter une allée » pour commencer
                                             </td>
                                         </tr>
                                     )}
                                     {rows.map((r) => {
                                         const node = alleeIndex[String(r.allee)];
+                                        const inst = computeNodeSaInstall(node, saInstall);
+                                        const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0);
+                                        const saMag = node ? Math.max(0, nodeSaTotal(node) - instTotal) : 0;
                                         const color = nightColor(r.nuit, weeks);
                                         const rowStyle = color ? {
                                             backgroundColor: color.bg,
@@ -660,20 +669,24 @@ export default function PhasageTab({ uploadId }) {
                                                         : undefined}>
                                                     {node ? fmt(node.is_seasonal
                                                         ? (node.seasonal_eeg || 0)
-                                                        : (isMagasin2
+                                                        : ((isMagasin2
                                                             ? ((node.es_15 || 0) + (node.es_21 || 0) + (node.sa_15 || 0) + (node.fleches || 0))
-                                                            : ((node.es_15 || 0) + (node.es_21 || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0) + (node.fleches || 0)))
+                                                            : ((node.es_15 || 0) + (node.es_21 || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0) + (node.fleches || 0))) + instTotal)
                                                     ) : ""}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
-                                                {isMagasin2 && (
-                                                    <td className="px-2 py-1 text-right font-mono-data text-purple-700 font-semibold">
-                                                        {node ? fmt(node.sa_15 || 0) : ""}
-                                                    </td>
-                                                )}
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {node && inst.sa_15 > 0 ? fmt(inst.sa_15) : <span className="text-gray-300">—</span>}
+                                                </td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {node && inst.sa_21 > 0 ? fmt(inst.sa_21) : <span className="text-gray-300">—</span>}
+                                                </td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {node && inst.freezer > 0 ? fmt(inst.freezer) : <span className="text-gray-300">—</span>}
+                                                </td>
                                                 <td className="px-2 py-1 text-right font-mono-data italic text-gray-500"
-                                                    title={isMagasin2 ? "SA 2.1 (info)" : "Toutes étiquettes SA (info)"}>
-                                                    {node ? fmt(isMagasin2 ? (node.sa_21 || 0) : (node.sa || 0)) : ""}
+                                                    title="SA restantes installées par le magasin (info)">
+                                                    {node && saMag > 0 ? fmt(saMag) : <span className="text-gray-300">—</span>}
                                                 </td>
                                                 <td className="px-1 py-1">
                                                     <select
@@ -724,18 +737,15 @@ export default function PhasageTab({ uploadId }) {
                                             EEG
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
-                                        {isMagasin2 && (
-                                            <th className="px-2 py-1.5 text-right font-semibold text-purple-700" title="SA 1.5 à poser (inclus dans EEG)">SA 1.5</th>
-                                        )}
-                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="Info (non inclus dans EEG)">
-                                            {isMagasin2 ? "SA 2.1" : "SA"}
-                                        </th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-purple-700" title="Caméras (depuis Phasage caméras)">Caméras</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT)">SA 1.5</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT)">SA 2.1</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT)">SA 2.1 frz</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info)">SA magasin</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, allees: [] };
+                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, sa_inst_15: 0, sa_inst_21: 0, sa_inst_freezer: 0, sa_mag: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
                                         const color = nightColor(n, weeks);
                                         // En magasin 2 : bonus rails NON inclus dans EEG nuit
@@ -743,6 +753,7 @@ export default function PhasageTab({ uploadId }) {
                                         // Flèches comptées en ES 1.5 noir, magasin 1 et 2
                                         const flechesForNight = t.fleches || 0;
                                         const sa15ForNight = isMagasin2 ? (t.sa_15 || 0) : 0;
+                                        const saInstNuit = (t.sa_inst_15 || 0) + (t.sa_inst_21 || 0) + (t.sa_inst_freezer || 0);
                                         return (
                                             <tr
                                                 key={n}
@@ -762,18 +773,21 @@ export default function PhasageTab({ uploadId }) {
                                                     {t.allees.length ? t.allees.map((u) => alleeIndex[u]?.allee || u).join(", ") : <span className="text-gray-400">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900"
-                                                    title={`ES brut (${fmt(Math.round(totalES))})${bonusForNight > 0 ? ` + Bonus rails (${fmt(bonusForNight)})` : ""}${flechesForNight > 0 ? ` + Flèches (${fmt(flechesForNight)})` : ""}${sa15ForNight > 0 ? ` + SA 1.5 (${fmt(sa15ForNight)})` : ""}${t.seasonal > 0 ? ` + Zone saisonnier (${fmt(t.seasonal)})` : ""}`}>
-                                                    {fmt(eegPerNight(totalES, t.seasonal, bonusForNight, flechesForNight, sa15ForNight))}
+                                                    title={`ES brut (${fmt(Math.round(totalES))})${bonusForNight > 0 ? ` + Bonus rails (${fmt(bonusForNight)})` : ""}${flechesForNight > 0 ? ` + Flèches (${fmt(flechesForNight)})` : ""}${sa15ForNight > 0 ? ` + SA 1.5 (${fmt(sa15ForNight)})` : ""}${saInstNuit > 0 ? ` + SA à installer (${fmt(saInstNuit)})` : ""}${t.seasonal > 0 ? ` + Zone saisonnier (${fmt(t.seasonal)})` : ""}`}>
+                                                    {fmt(eegPerNight(totalES, t.seasonal, bonusForNight, flechesForNight, sa15ForNight, saInstNuit))}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
-                                                {isMagasin2 && (
-                                                    <td className="px-2 py-1 text-right font-mono-data text-purple-700 font-semibold">{fmt(t.sa_15 || 0)}</td>
-                                                )}
-                                                <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">
-                                                    {fmt(isMagasin2 ? (t.sa_21 || 0) : (t.sa || 0))}
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {t.sa_inst_15 > 0 ? fmt(t.sa_inst_15) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-purple-700 font-semibold">
-                                                    {t.cameras > 0 ? fmt(t.cameras) : <span className="text-gray-300">—</span>}
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {t.sa_inst_21 > 0 ? fmt(t.sa_inst_21) : <span className="text-gray-300">—</span>}
+                                                </td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {t.sa_inst_freezer > 0 ? fmt(t.sa_inst_freezer) : <span className="text-gray-300">—</span>}
+                                                </td>
+                                                <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">
+                                                    {t.sa_mag > 0 ? fmt(t.sa_mag) : <span className="text-gray-300">—</span>}
                                                 </td>
                                             </tr>
                                         );
@@ -786,21 +800,22 @@ export default function PhasageTab({ uploadId }) {
                                             {grandTotals.nbAllees} allées
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal))}
+                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal + grandTotals.sa_inst_15 + grandTotals.sa_inst_21 + grandTotals.sa_inst_freezer))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}
                                         </td>
-                                        {isMagasin2 && (
-                                            <td className="px-2 py-1 text-right font-mono-data text-purple-700">
-                                                {fmt(grandTotals.sa_15)}
-                                            </td>
-                                        )}
-                                        <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
-                                            {fmt(isMagasin2 ? grandTotals.sa_21 : grandTotals.sa)}
+                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                            {fmt(grandTotals.sa_inst_15)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data text-purple-700">
-                                            {fmt(grandTotals.cameras)}
+                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                            {fmt(grandTotals.sa_inst_21)}
+                                        </td>
+                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                            {fmt(grandTotals.sa_inst_freezer)}
+                                        </td>
+                                        <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
+                                            {fmt(grandTotals.sa_mag)}
                                         </td>
                                     </tr>
                                 </tbody>
@@ -808,6 +823,47 @@ export default function PhasageTab({ uploadId }) {
                         </div>
                     </div>
                 </div>
+                {/* ----- Tableau caméras par nuit (séparé des EEG) ----- */}
+                <div className="mt-4" data-testid="phasage-cameras-table">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-2">Récap caméras par nuit</h3>
+                    <div className="border border-gray-200 rounded overflow-hidden max-w-md">
+                        <table className="w-full text-xs">
+                            <thead className="bg-gray-50 text-gray-700">
+                                <tr>
+                                    <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
+                                    <th className="px-2 py-1.5 text-left font-semibold whitespace-nowrap">Date</th>
+                                    <th className="px-2 py-1.5 text-right font-semibold text-purple-700">Caméras</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(() => {
+                                    const camNights = Array.from({ length: nbNuits }, (_, i) => i + 1).filter((n) => (nightTotals[n]?.cameras || 0) > 0);
+                                    if (camNights.length === 0) {
+                                        return (
+                                            <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-500 italic">Aucune caméra affectée (voir l&apos;onglet Phasage caméras).</td></tr>
+                                        );
+                                    }
+                                    return camNights.map((n) => (
+                                        <tr key={n} className="border-t border-gray-100" data-testid={`recap-cam-nuit-${n}`}>
+                                            <td className="px-2 py-1 font-medium text-gray-900">Nuit {n}</td>
+                                            <td className="px-2 py-1 text-[10.5px] text-gray-700 whitespace-nowrap font-mono-data">
+                                                {dates[String(n)] ? new Date(dates[String(n)] + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : <span className="text-gray-300">—</span>}
+                                            </td>
+                                            <td className="px-2 py-1 text-right font-mono-data text-purple-700 font-semibold">{fmt(nightTotals[n].cameras)}</td>
+                                        </tr>
+                                    ));
+                                })()}
+                                {grandTotals.cameras > 0 && (
+                                    <tr className="border-t-2 border-yellow-300 bg-yellow-50 font-semibold">
+                                        <td className="px-2 py-1 text-gray-900" colSpan={2}>TOTAL</td>
+                                        <td className="px-2 py-1 text-right font-mono-data text-purple-700">{fmt(grandTotals.cameras)}</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
             </div>
         </div>
     );

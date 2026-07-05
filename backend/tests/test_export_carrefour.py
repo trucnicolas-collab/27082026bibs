@@ -22,7 +22,7 @@ load_dotenv("/app/frontend/.env")
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 ADMIN_EMAIL = "admin@vusion.local"
 ADMIN_PASS = "admin123"
-DATASET_ID = "aa7d9aa6-ec7d-4f27-968e-b2a5228b0065"
+DATASET_ID = "fd15443f-6d2a-4cef-bd72-c56bb29e9c42"
 
 
 @pytest.fixture(scope="module")
@@ -123,6 +123,8 @@ EXPECTED_CARREFOUR_TABS = [
     "Récap caméra par nuit",
     "Caméra par élément",
     "Récap complet",
+    "Recap par secteur",
+    "Recap par secteur (global)",
 ]
 
 
@@ -155,8 +157,9 @@ class TestExcelCarrefour:
     def test_recap_complet_columns_and_nuit_white(self, carrefour_bytes):
         wb = load_workbook(io.BytesIO(carrefour_bytes), data_only=False)
         ws = wb["Récap complet"]
-        # Find the row with the 10 column headers; expected:
-        #   Allées | ES | Rails ES | SA | Secteur/Rayon EEG | Nuit | Date | Secteur/Rayon Cam | Allées | Caméras
+        # Find the row with the column headers. Récap complet now has 13 cols:
+        #   Allées | ES | Rails ES | SA 1.5 | SA 2.1 | SA 2.1 frz | SA magasin |
+        #   Secteur/Rayon EEG | Nuit | Date | Secteur/Rayon Cam | Allées | Caméras
         header_row = None
         for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 10)):
             vals = [str(c.value).strip().lower() if c.value is not None else "" for c in row]
@@ -165,23 +168,24 @@ class TestExcelCarrefour:
                 break
         assert header_row is not None, "Could not find header row in Récap complet"
 
-        # Collect 10 visible header values
+        # Collect all header values across the full width
         headers = [
             ws.cell(row=header_row, column=c).value
-            for c in range(1, 11)
+            for c in range(1, 14)
         ]
         joined = "|".join(str(h or "") for h in headers).lower()
-        for kw in ["allées", "es", "rails es", "sa", "secteur", "nuit", "date", "caméras"]:
+        for kw in ["allées", "es", "rails es", "sa 1.5", "sa 2.1", "sa magasin",
+                   "secteur", "nuit", "date", "caméras"]:
             assert kw in joined, f"Missing keyword '{kw}' in Récap complet headers: {headers}"
 
-        # Find Nuit column (within first 10 cols)
+        # Find Nuit column (within first 13 cols)
         nuit_col = None
-        for c in range(1, 11):
+        for c in range(1, 14):
             v = ws.cell(row=header_row, column=c).value
             if v and str(v).strip().lower() == "nuit":
                 nuit_col = c
                 break
-        assert nuit_col is not None, f"'Nuit' column not in first 10 cols. Headers={headers}"
+        assert nuit_col is not None, f"'Nuit' column not found. Headers={headers}"
 
         # Check at least one data row has white fill on Nuit column
         white_found = False

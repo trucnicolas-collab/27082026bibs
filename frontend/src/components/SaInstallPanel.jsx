@@ -30,6 +30,38 @@ export function computeSaToInstall(breakdown, cfg) {
     return res;
 }
 
+// SA à installer POUR UNE ALLÉE (node) selon la config du panneau.
+// Retourne { sa_15, sa_21, freezer } = quantités que NOUS posons en VT.
+// La clé secteur|||rayon doit matcher le breakdown backend (défauts "(Sans …)").
+export function computeNodeSaInstall(node, cfg) {
+    const res = { sa_15: 0, sa_21: 0, freezer: 0 };
+    if (!node || node.is_seasonal || !cfg || !cfg.enabled) return res;
+    const n15 = node.sa_15 || 0;
+    const n21 = node.sa_21_std != null
+        ? node.sa_21_std
+        : Math.max(0, (node.sa_21 || 0) - (node.sa_21_freezer || 0));
+    const nfz = node.sa_21_freezer || 0;
+    if (cfg.toutes) return { sa_15: n15, sa_21: n21, freezer: nfz };
+    const sec = node.secteur || "(Sans secteur)";
+    const ray = node.rayon || "(Sans rayon)";
+    const k = key(sec, ray);
+    const sel15 = new Set(cfg.selection?.sa_15 || []);
+    const sel21 = new Set(cfg.selection?.sa_21 || []);
+    if (cfg.sa_15 && sel15.has(k)) res.sa_15 = n15;
+    if (cfg.sa_21 && sel21.has(k)) res.sa_21 = n21;
+    if (cfg.freezer) res.freezer = nfz;
+    return res;
+}
+
+// SA totales d'une allée (toutes variantes) — sert à calculer le reste "par le magasin".
+export function nodeSaTotal(node) {
+    if (!node || node.is_seasonal) return 0;
+    const n21 = node.sa_21_std != null
+        ? node.sa_21_std
+        : Math.max(0, (node.sa_21 || 0) - (node.sa_21_freezer || 0));
+    return (node.sa_15 || 0) + n21 + (node.sa_21_freezer || 0);
+}
+
 const fmt = (n) => (n || 0).toLocaleString("fr-FR");
 
 // Sélection en cascade secteur → rayon pour un type de SA donné.

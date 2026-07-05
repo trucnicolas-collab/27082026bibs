@@ -1,0 +1,31 @@
+{
+  "summary": "Test frontend de l'étape 3 (Phasage) après refonte des colonnes SA et sortie des caméras dans un tableau dédié. Connexion admin OK, ouverture de la session sample_full.xlsx, remplissage de la surface (+10000) et des dongles (2) sur l'étape 2, puis navigation vers l'étape 3. Panneau 'Installer des EEG SA' configuré (Oui + SA 1.5 + SA 2.1 + Freezer, secteur A coché pour sa_15 et sa_21_std), enregistrement OK. Chip 'EEG SA à installer : +60 (1.5 30 / 2.1 20 / frz 10)' bien affiché. Sur le tableau gauche 'Plan d'attribution par allée' : colonnes SA 1.5 / SA 2.1 / SA 2.1 frz / SA magasin (italique) OK, PAS de colonne Caméras. Allée 1 (A·R1) affiche EEG=215, SA 1.5=30, SA 2.1=20, SA 2.1 frz=10, SA magasin=—. Allée 2 (B·R2) affiche EEG=80, SA 1.5/2.1/frz=— (tirets) et SA magasin=40. Le tableau droite 'Récap par nuit' a les 4 mêmes colonnes SA (1.5/2.1/frz/magasin) SANS colonne caméras. Nuit 1 : SA 1.5=30 / 2.1=20 / frz=10 / magasin=—. Nuit 2 : SA magasin=40. Un tableau séparé 'Récap caméras par nuit' (data-testid=phasage-cameras-table) apparaît sous les 2 tableaux et liste Nuit 1 → 2 caméras, TOTAL=2 (recap-cam-nuit-1 présent). Aucun crash JS. TOUS les points de la review request sont VÉRIFIÉS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Phasage step 3", "issues": ["Warning React hydratation dans la console : 'In HTML, <span> cannot be a child of <option>'. Origine probable : un <span> inséré dans une <option> de select. Non bloquant mais à corriger pour éviter les warnings en console. Piste : dans PhasageTab.jsx (row-allee select) ou ailleurs, s'assurer qu'aucune <option> ne contient un <span> (juste des chaînes ou du texte)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONNEL — Enlever le warning React 'In HTML, <span> cannot be a child of <option>' (probablement dans un select du wizard) pour un rendu propre en dev.",
+    "OPTIONNEL — Le header contient encore un bouton 'PowerPoint' visible alors que l'endpoint PPTX a été supprimé en iteration 6. À vérifier : soit retirer le bouton, soit rebrancher l'endpoint. (Hors scope de cette task mais visible.)"
+  ],
+  "critical_code_review_comments": [
+    "BON : PhasageTab.jsx utilise correctement computeNodeSaInstall + nodeSaTotal (SaInstallPanel) pour dériver les 4 colonnes SA par allée et par nuit, avec l'italique 'SA magasin' bien différencié.",
+    "BON : le tableau caméras est isolé (data-testid=phasage-cameras-table) et n'apparaît que si nightTotals[n].cameras>0. La colonne 'Caméras' a bien été retirée du récap EEG droit.",
+    "BON : le total EEG inclut désormais saInstallTotal (grand total corrigé), la chip 'EEG SA à installer' est bien visible.",
+    "NIT : useMemo/useCallback pour nightTotals est bon mais le Set 'secteur_rayon' est reconstruit à chaque render sans dédoublonnage entre nuits. Non bloquant.",
+    "NIT : le composant PhasageTab.jsx fait 870 lignes — dépasse le seuil des 700 lignes de la guideline, à découper (par ex. NightRecapTable, AlleePlanTable, CamerasRecap)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100% (tous les critères de la review request vérifiés visuellement + via Playwright)"},
+  "test_credentials": "admin@vusion.local / admin123 — session sample_full.xlsx (upload_id fd15443f-6d2a-4cef-bd72-c56bb29e9c42 confirmé présent dans le menu Sessions)",
+  "seed_data_creation": "Aucune. Surface +10000m² et dongles=2 ont été renseignés sur l'étape 2 pour pouvoir naviguer vers l'étape 3 (ces valeurs sont persistées côté session).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pour tester l'étape 3 Phasage sur une nouvelle session, il faut d'abord renseigner sur l'étape 2 : SURFACE MAGASIN (bouton '+ 10 000 m²' ou '− 10 000 m²') et DONGLES (input data-testid='dongles-quantity', type=text, à remplir avec un nombre > 0) sinon un dialog 'Impossible de continuer' bloque la navigation. Le panneau SA install (data-testid='sa-install-panel') s'ouvre/ferme via 'sa-install-toggle', puis 'sa-enabled-oui' active, cases 'sa-type-15/21/freezer', cascade 'sa-sec-{sa_15|sa_21_std}-{secteur}' + 'sa-ray-...' pour ajouter des rayons, puis 'sa-install-save'.",
+  "rca of the issue": "N/A — aucune régression fonctionnelle constatée sur l'étape Phasage. Le refactor de la colonne SA (éclatement en 4 colonnes) et la sortie du tableau caméras dédié sont correctement implémentés."
+}
