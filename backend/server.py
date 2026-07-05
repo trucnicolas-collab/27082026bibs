@@ -304,7 +304,7 @@ MOQ_BY_REF: dict[str, int] = {
 # Référence utilisée pour la ligne « Support individuel alu SA » créée
 # automatiquement quand le fichier importé ne la contient pas (sinon la ligne
 # aurait une référence vide et bloquerait l'export). Modifiable ici si besoin.
-SUPPORT_ALU_SA_REF = "16000"
+SUPPORT_ALU_SA_REF = "16808"
 
 
 
@@ -1811,8 +1811,21 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
     elif delta_sa15 > 0:
         _create_surface_added("SA 1.5 (noir)", delta_sa15)
 
+    def _find_by_ref(ref: str) -> Optional[dict]:
+        ref = str(ref or "").strip()
+        for r in rows:
+            if r.get("kind") in ("section", "header", "empty"):
+                continue
+            if str(r.get("reference") or "").strip() == ref:
+                return r
+        return None
+
     # 3) Support individuel alu SA
+    #    On cherche d'abord par désignation, sinon par référence 16808 (évite
+    #    de créer une 2e ligne si la même réf existe déjà sous un autre libellé).
     t_support = _find_product(lambda d: "support individuel alu sa" in d)
+    if t_support is None:
+        t_support = _find_by_ref(SUPPORT_ALU_SA_REF)
     if t_support is not None:
         _apply_delta_to_row(t_support, delta_support, "supports", "Support individuel alu SA")
     elif delta_support > 0:
