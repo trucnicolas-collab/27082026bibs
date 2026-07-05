@@ -1914,6 +1914,7 @@ WEEK_NIGHT_PALETTE = [
     "#FEF3C7",  # 2 jaune doux
     "#FEE2E2",  # 3 rouge doux
     "#DCFCE7",  # 4 vert doux
+    "#EDE9FE",  # 5 violet doux (semaines de 5 nuits, jusqu'à 20 nuits)
 ]
 
 

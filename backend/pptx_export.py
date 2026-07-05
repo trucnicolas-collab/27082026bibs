@@ -34,7 +34,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 __PPTX_VERSION__ = "2026-02-27-v18-inclineur-short"
 
 # Palette par position dans la semaine (alignée Excel)
-WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
+WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5", "#EDE9FE"]
 WHITE = "#FFFFFF"
 HEADER_BG = "#1F2937"
 SUBHEADER_BG = "#F3F4F6"
@@ -578,6 +578,9 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         last_tr.getparent().remove(last_tr)
 
     # === Tableau date (5 × N) ===
+    # Étend le nb de colonnes pour couvrir toutes les nuits de la semaine
+    # (jusqu'à 5 nuits/semaine possible avec 20 nuits max).
+    _ensure_table_cols(t_date, 1 + n_data, label_cols=1)
     cur_cols = len(t_date.columns)
     nights_in_date = week_nights[: cur_cols - 1]
     _set_cell_text(t_date.cell(0, 0), "", size=10)

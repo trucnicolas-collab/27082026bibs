@@ -16,11 +16,12 @@ function newRowId() {
     return `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// === Suggestion automatique nb_nuits + semaines (16/06/2026) ===
-// Règle métier : MAX 4 900 EEG par nuit. Nuits autorisées = 10/12/14/16.
+// === Suggestion automatique nb_nuits + semaines (16/06/2026, MAJ 05/07/2026) ===
+// Règle métier : MAX 4 900 EEG par nuit. Nuits autorisées = 10/12/14/16/18/20.
 // On prend la plus petite valeur qui respecte la limite.
-const ALLOWED_ES_NIGHTS = [10, 12, 14, 16];
+const ALLOWED_ES_NIGHTS = [10, 12, 14, 16, 18, 20];
 const ES_MAX_PER_NIGHT = 4900;
+const MAX_ES_NIGHTS = 20;
 function suggestEsConfig(totalEEG) {
     if (!totalEEG || totalEEG <= 0) return { nb_nuits: 12, weeks: [4, 4, 4] };
     // Cherche le plus petit nb dans ALLOWED tel que totalEEG / nb <= MAX
@@ -31,13 +32,22 @@ function suggestEsConfig(totalEEG) {
             break;
         }
     }
-    // Aucune valeur ne respecte la limite (très gros magasin) → on garde 16
-    if (best === null) best = 16;
-    // Répartition en semaines de 4 nuits + reste
-    const full = Math.floor(best / 4);
-    const rest = best % 4;
-    const weeks = Array(full).fill(4);
-    if (rest > 0) weeks.push(rest);
+    // Aucune valeur ne respecte la limite (très gros magasin) → on garde 20 (max)
+    if (best === null) best = MAX_ES_NIGHTS;
+    // Répartition en semaines. Jusqu'à 16 nuits : semaines de 4 + reste.
+    // 17-20 nuits : réparties sur 4 semaines (4-5 nuits/semaine) pour rester sur
+    // les 4 slides "semaine" du PPTX.
+    let weeks;
+    if (best <= 16) {
+        const full = Math.floor(best / 4);
+        const rest = best % 4;
+        weeks = Array(full).fill(4);
+        if (rest > 0) weeks.push(rest);
+    } else {
+        const base = Math.floor(best / 4);
+        const rem = best % 4;
+        weeks = Array.from({ length: 4 }, (_, i) => base + (i < rem ? 1 : 0));
+    }
     return { nb_nuits: best, weeks };
 }
 function isStandardEsNightCount(n) {
@@ -52,6 +62,7 @@ const WEEK_COLORS = [
     { bg: "#FEF3C7", border: "#F59E0B" }, // 2 jaune doux
     { bg: "#FEE2E2", border: "#EF4444" }, // 3 rouge doux
     { bg: "#DCFCE7", border: "#22C55E" }, // 4 vert doux
+    { bg: "#EDE9FE", border: "#8B5CF6" }, // 5 violet doux (semaines de 5 nuits)
 ];
 
 /**
@@ -255,17 +266,17 @@ export default function PhasageTab({ uploadId }) {
 
     // Validation : ajuster nuits si nb_nuits diminue
     const onChangeNbNuits = useCallback((n) => {
-        const v = Math.max(1, Math.min(30, Number(n) || 1));
+        const v = Math.max(1, Math.min(MAX_ES_NIGHTS, Number(n) || 1));
         setNbNuits(v);
         setRows((prev) => prev.map((r) => r.nuit && r.nuit > v ? { ...r, nuit: null } : r));
-        // Alerte non bloquante si valeur non standard (11/13/15) ou hors fourchette
-        if (v >= 10 && v <= 16 && !isStandardEsNightCount(v)) {
-            toast.warning(`⚠️ ${v} nuits non standard. Les valeurs recommandées sont 10, 12, 14 ou 16 nuits (~4500-5000 EEG/nuit).`, {
+        // Alerte non bloquante si valeur non standard (11/13/15/17/19) ou hors fourchette
+        if (v >= 10 && v <= MAX_ES_NIGHTS && !isStandardEsNightCount(v)) {
+            toast.warning(`⚠️ ${v} nuits non standard. Les valeurs recommandées sont 10, 12, 14, 16, 18 ou 20 nuits (~4500-5000 EEG/nuit).`, {
                 id: "es-night-warning",
                 duration: 5000,
             });
-        } else if (v < 10 || v > 16) {
-            toast.warning(`⚠️ ${v} nuits hors fourchette recommandée (10 à 16 nuits). Vérifiez la charge par nuit.`, {
+        } else if (v < 10 || v > MAX_ES_NIGHTS) {
+            toast.warning(`⚠️ ${v} nuits hors fourchette recommandée (10 à ${MAX_ES_NIGHTS} nuits). Vérifiez la charge par nuit.`, {
                 id: "es-night-warning",
                 duration: 5000,
             });
@@ -411,7 +422,7 @@ export default function PhasageTab({ uploadId }) {
                 <input
                     type="number"
                     min={1}
-                    max={30}
+                    max={MAX_ES_NIGHTS}
                     value={nbNuits}
                     onChange={(e) => onChangeNbNuits(e.target.value)}
                     data-testid="phasage-nb-nuits"
