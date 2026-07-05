@@ -202,6 +202,19 @@ backend:
             Stockage collection Mongo wifi_plans (Binary). Export PPTX : build_pptx accepte
             wifi_plans=[bytes] et insere chaque plan PLEIN CADRE dans la slide "Plan wifi magasin".
             Si 2 plans -> duplication de la slide (2 diapos). Teste en local : 0/1/2 plans OK.
+        - working: "NA"
+          agent: "main"
+          comment: >
+            CORRECTION du bug remonté par l'agent de test (2 plans creaient 3 slides wifi).
+            Cause racine : _delete_slide (suppression des slides semaine non utilisees) laissait
+            des parties orphelines, et add_slide (duplication a l'execution) choisissait un nom de
+            partie en collision (warning 'Duplicate name slide18.xml') -> slide fantome au reopen.
+            Fix : le template contient desormais 2 slides "Plan wifi magasin" (principale + reserve
+            appended en fin, index 21 -> aucun decalage des index 0..20). A l'export, on ne cree
+            plus aucune slide : on REMPLIT la principale, et selon le nombre de plans on REMPLIT+DEPLACE
+            la reserve juste apres (2 plans) ou on la SUPPRIME (0/1 plan). Verifie en live :
+            2 plans -> slides wifi [7,8] (1 image chacune), 1 plan -> [7], 0 plan -> [7] vide,
+            slide Commandes intacte, PLUS AUCUN warning 'Duplicate name'.
         - working: true
           agent: "testing"
           comment: >
@@ -243,6 +256,44 @@ backend:
             - All endpoints return 404 for non-existent upload_id ✓
             
             All core functionality working correctly. The wifi plan feature is production-ready.
+        - working: true
+          agent: "testing"
+          comment: >
+            RE-TESTED AFTER BUG FIX - ALL TESTS PASS ✓✓✓
+            
+            PRIMARY VERIFICATION (the fix for phantom slide bug):
+            
+            Case 1 - 2 wifi plans uploaded:
+            - OBSERVED: EXACTLY 2 "Plan wifi" slides (positions 7, 8) ✓
+            - Each slide has EXACTLY 1 picture ✓
+            - Slides are CONSECUTIVE (no gaps) ✓
+            - NO third phantom slide anywhere in deck ✓
+            - Total slide count: 18 (reasonable) ✓
+            - Commandes slide intact at position 9 ✓
+            
+            Case 2 - 1 wifi plan (after deleting one):
+            - OBSERVED: EXACTLY 1 "Plan wifi" slide (position 7) ✓
+            - Slide has EXACTLY 1 picture ✓
+            - Total slide count: 17 (reasonable) ✓
+            - Commandes slide intact at position 8 ✓
+            
+            Case 3 - 0 wifi plans (all deleted):
+            - OBSERVED: EXACTLY 1 "Plan wifi" slide (position 7) ✓
+            - Slide has 0 pictures (empty, as expected) ✓
+            - Export returns 200 (no crash) ✓
+            - Total slide count: 17 (reasonable) ✓
+            - Commandes slide intact at position 8 ✓
+            
+            SECONDARY VERIFICATION (CRUD regression):
+            - POST wifi-plan: PNG ✓, JPG ✓, 3rd rejected (400) ✓, non-image rejected (400) ✓
+            - GET /wifi-plans: Lists 2 plans with correct metadata (plan_id, filename, content_type, position) ✓
+            - GET /wifi-plan/{id}: Returns correct image binary with proper Content-Type ✓
+            - DELETE /wifi-plan/{id}: Returns 200, remaining plans re-indexed correctly ✓
+            - All endpoints with non-existent upload_id: Return 404 ✓
+            
+            THE BUG IS FIXED. The phantom slide issue is completely resolved. The template-based
+            approach (2 pre-existing slides, fill/move/delete only) works perfectly. No slide
+            name collisions, no orphaned parts, no phantom slides after save/reopen.
 
 metadata:
   created_by: "main_agent"
@@ -251,8 +302,7 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Plan wifi: upload/liste/preview/suppression + insertion PPTX (2 diapos)"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -352,3 +402,57 @@ agent_communication:
         be optimized in a future iteration.
         
         The wifi plan feature is PRODUCTION-READY and all critical functionality is working.
+    - agent: "main"
+      message: >
+        RE-TEST PLAN WIFI apres correction du bug "3 slides au lieu de 2". Le template a ete
+        modifie pour contenir 2 slides "Plan wifi magasin" (principale + reserve en fin). A
+        l'export on ne cree plus de slide (remplir/deplacer/supprimer uniquement). Merci de
+        RE-VERIFIER en priorite via export PPTX + python-pptx :
+        - 2 plans -> EXACTEMENT 2 slides dont le texte contient "Plan wifi", chacune avec
+          EXACTEMENT 1 image (shape_type PICTURE), et elles doivent etre ADJACENTES (positions
+          consecutives). Le reste du deck intact (slide "Commandes"/titre "8" present).
+        - 1 plan -> EXACTEMENT 1 slide "Plan wifi" avec 1 image.
+        - 0 plan -> EXACTEMENT 1 slide "Plan wifi" avec 0 image (export 200, pas de crash).
+        - IMPORTANT : ouvrir les bytes du pptx avec Presentation(BytesIO(...)) et compter les
+          slides "Plan wifi" APRES reouverture (c'est la ou le bug se manifestait). Il ne doit
+          PAS y avoir de slide "Plan wifi" fantome ailleurs dans le deck.
+        Re-tester aussi rapidement les endpoints CRUD (upload max 2, format refuse, liste,
+        preview binaire, delete re-indexe, 404 sur upload_id inexistant). Credentials admin :
+        admin@vusion.local / admin123. Uploader d'abord un Excel (colonnes: Secteur, Rayon,
+        "N° allée", Type, Référence, Désignation, Quantité).
+    - agent: "testing"
+      message: >
+        ✓✓✓ RE-TEST COMPLETE - BUG FIXED ✓✓✓
+        
+        PRIMARY VERIFICATION (the phantom slide bug fix):
+        
+        ✅ Case 1 - 2 wifi plans:
+           - EXACTLY 2 "Plan wifi" slides found (positions 7, 8)
+           - Each slide has EXACTLY 1 picture
+           - Slides are CONSECUTIVE (no gaps)
+           - NO third phantom slide anywhere
+           - Commandes slide intact, total slide count reasonable (18)
+        
+        ✅ Case 2 - 1 wifi plan:
+           - EXACTLY 1 "Plan wifi" slide found (position 7)
+           - Slide has EXACTLY 1 picture
+           - Commandes slide intact, total slide count reasonable (17)
+        
+        ✅ Case 3 - 0 wifi plans:
+           - EXACTLY 1 "Plan wifi" slide found (position 7, empty)
+           - Slide has 0 pictures (as expected)
+           - Export returns 200 (no crash)
+           - Commandes slide intact, total slide count reasonable (17)
+        
+        SECONDARY VERIFICATION (CRUD regression):
+        ✅ All wifi-plan endpoints working correctly:
+           - POST: PNG ✓, JPG ✓, 3rd rejected (400) ✓, non-image rejected (400) ✓
+           - GET list: Returns correct metadata ✓
+           - GET single: Returns correct image binary ✓
+           - DELETE: Re-indexes correctly ✓
+           - Error handling: 404 for non-existent IDs ✓
+        
+        THE BUG IS COMPLETELY FIXED. The template-based approach (2 pre-existing slides,
+        fill/move/delete only) works perfectly. No slide name collisions, no orphaned parts,
+        no phantom slides after save/reopen. All tests pass with exact counts as specified.
+

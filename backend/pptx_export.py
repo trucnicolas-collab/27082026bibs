@@ -768,16 +768,20 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
 # Plans wifi — insertion d'images plein cadre dans la/les slide(s)
 # "Plan wifi magasin" (jusqu'à 2 plans → 2 slides).
 # ===================================================================
-def _find_wifi_slide_index(prs) -> int | None:
-    """Retourne l'index de la slide dont un texte contient 'plan wifi'."""
+def _find_wifi_slide_indices(prs) -> list[int]:
+    """Retourne les index de TOUTES les slides dont un texte contient 'plan wifi'.
+    Le template contient 2 telles slides : la principale + une slide de réserve
+    (en fin de deck) qui sera soit remplie (2e plan), soit supprimée."""
+    out: list[int] = []
     for i, s in enumerate(prs.slides):
         for sh in s.shapes:
             try:
                 if sh.has_text_frame and "plan wifi" in sh.text_frame.text.strip().lower():
-                    return i
+                    out.append(i)
+                    break
             except Exception:
                 continue
-    return None
+    return out
 
 
 def _fit_contain(img_w: int, img_h: int, box_w: int, box_h: int) -> tuple[int, int]:
@@ -807,44 +811,40 @@ def _add_picture_fullframe(slide, image_bytes: bytes, slide_w: int, slide_h: int
     slide.shapes.add_picture(BytesIO(image_bytes), left, top, width=w, height=h)
 
 
-def _duplicate_slide(prs, index: int):
-    """Duplique la slide `index` (titre + n° uniquement, pas de média) et la
-    place juste après la slide source. Retourne la nouvelle slide."""
-    source = prs.slides[index]
-    new_slide = prs.slides.add_slide(source.slide_layout)
-    # Retire les placeholders par défaut hérités du layout
-    for shp in list(new_slide.shapes):
-        shp._element.getparent().remove(shp._element)
-    # Copie les shapes de la source (titre, n° de slide, etc.)
-    for shp in source.shapes:
-        new_slide.shapes._spTree.append(copy.deepcopy(shp._element))
-    # Réordonne : la nouvelle slide (ajoutée en fin) est déplacée après la source
+def _move_slide(prs, from_idx: int, to_idx: int) -> None:
+    """Déplace une slide EXISTANTE (par réordonnancement du sldIdLst).
+    N'ajoute aucune partie → aucun risque de collision de nom (contrairement à
+    add_slide après suppression de slides)."""
     xml_slides = prs.slides._sldIdLst
     ids = list(xml_slides)
-    new_id = ids[-1]
-    xml_slides.remove(new_id)
-    xml_slides.insert(index + 1, new_id)
-    return prs.slides[index + 1]
+    el = ids[from_idx]
+    xml_slides.remove(el)
+    xml_slides.insert(to_idx, el)
 
 
 def _insert_wifi_plans(prs, wifi_plans: list | None) -> None:
-    if not wifi_plans:
-        return
-    idx = _find_wifi_slide_index(prs)
-    if idx is None:
+    """Insère 0, 1 ou 2 plans wifi (images) dans la/les slide(s) 'Plan wifi
+    magasin'. Le template fournit 2 slides wifi (principale + réserve en fin) :
+      - 0 plan  → supprime la réserve (slide principale laissée vide)
+      - 1 plan  → remplit la principale, supprime la réserve
+      - 2 plans → remplit les deux, la réserve est déplacée juste après la principale
+    On ne crée JAMAIS de slide à l'exécution (uniquement remplir/déplacer/supprimer)."""
+    plans = [p for p in (wifi_plans or []) if p][:2]
+    idxs = _find_wifi_slide_indices(prs)
+    if not idxs:
         return
     slide_w, slide_h = int(prs.slide_width), int(prs.slide_height)
-    plans = [p for p in wifi_plans if p][:2]
-    if not plans:
-        return
-    if len(plans) >= 2:
-        # IMPORTANT : dupliquer la slide AVANT d'y ajouter une image, sinon le
-        # clone hérite de la 1ère image (relation d'image alors invalide).
-        dup = _duplicate_slide(prs, idx)
-        _add_picture_fullframe(prs.slides[idx], plans[0], slide_w, slide_h)
-        _add_picture_fullframe(dup, plans[1], slide_w, slide_h)
-    else:
-        _add_picture_fullframe(prs.slides[idx], plans[0], slide_w, slide_h)
+    primary = idxs[0]
+    reserve = idxs[-1] if len(idxs) >= 2 else None
+    n = len(plans)
+    if n >= 1:
+        _add_picture_fullframe(prs.slides[primary], plans[0], slide_w, slide_h)
+    if n >= 2 and reserve is not None:
+        _add_picture_fullframe(prs.slides[reserve], plans[1], slide_w, slide_h)
+        _move_slide(prs, reserve, primary + 1)
+    elif reserve is not None:
+        # 0 ou 1 plan → on retire la slide de réserve inutilisée
+        _delete_slide(prs, reserve)
 
 
 

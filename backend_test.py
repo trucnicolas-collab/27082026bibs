@@ -286,7 +286,16 @@ def test_wifi_plan_delete(cookies, upload_id, plan_id):
 
 
 def test_pptx_export_with_plans(cookies, upload_id, num_plans_expected):
-    """Test 5: Export PPTX and verify wifi plan slides."""
+    """Test 5: Export PPTX and verify wifi plan slides.
+    
+    CRITICAL VERIFICATION (per review request):
+    - Count ALL slides whose ANY shape text contains "plan wifi" (case-insensitive)
+    - For each such slide, count PICTURE shapes (shape.shape_type == 13)
+    - 2 plans → EXACTLY 2 "Plan wifi" slides, EACH with EXACTLY 1 picture, CONSECUTIVE positions
+    - 1 plan → EXACTLY 1 "Plan wifi" slide with EXACTLY 1 picture
+    - 0 plans → EXACTLY 1 "Plan wifi" slide with 0 pictures
+    - NO third "Plan wifi" slide anywhere (this was the bug)
+    """
     print(f"\n=== TEST 5: EXPORT PPTX (expecting {num_plans_expected} wifi plan slides) ===")
     
     resp = requests.get(
@@ -304,16 +313,16 @@ def test_pptx_export_with_plans(cookies, upload_id, num_plans_expected):
     
     # Check body is non-empty
     body = resp.content
-    print(f"PPTX size: {len(body)} bytes")
+    print(f"PPTX size: {len(body) / (1024*1024):.1f} MB")
     assert len(body) > 10000, f"PPTX too small: {len(body)} bytes"
     
-    # Load PPTX with python-pptx
+    # Load PPTX with python-pptx and verify after reopen (this is where the bug manifested)
     try:
         prs = Presentation(io.BytesIO(body))
-        print(f"Total slides: {len(prs.slides)}")
+        print(f"Total slides in deck: {len(prs.slides)}")
         
-        # Find "Plan wifi" slides
-        wifi_slides = []
+        # Find ALL "Plan wifi" slides (ANY shape text contains "plan wifi", case-insensitive)
+        wifi_slides_info = []
         for i, slide in enumerate(prs.slides):
             has_wifi_text = False
             for shape in slide.shapes:
@@ -322,43 +331,59 @@ def test_pptx_export_with_plans(cookies, upload_id, num_plans_expected):
                     if "plan wifi" in text:
                         has_wifi_text = True
                         break
+            
             if has_wifi_text:
+                # Count PICTURE shapes (shape_type == 13)
                 pictures = [s for s in slide.shapes if s.shape_type == 13]
+                wifi_slides_info.append({
+                    "position": i,
+                    "num_pictures": len(pictures)
+                })
                 print(f"  Slide {i}: 'Plan wifi' text found, {len(pictures)} picture(s)")
-                wifi_slides.append((i, slide))
         
-        print(f"Found {len(wifi_slides)} 'Plan wifi' slides")
+        num_wifi_slides = len(wifi_slides_info)
+        print(f"\n>>> OBSERVED: {num_wifi_slides} 'Plan wifi' slide(s) in deck")
         
-        # Count slides with pictures (actual wifi plan slides)
-        wifi_slides_with_pictures = []
-        for idx, (slide_num, slide) in enumerate(wifi_slides):
-            pictures = [s for s in slide.shapes if s.shape_type == 13]  # 13 = PICTURE
-            if len(pictures) > 0:
-                wifi_slides_with_pictures.append((slide_num, slide, pictures))
+        # PRIMARY VERIFICATION: Exact count based on num_plans_expected
+        if num_plans_expected == 2:
+            # 2 plans → EXACTLY 2 "Plan wifi" slides
+            assert num_wifi_slides == 2, \
+                f"FAIL: Expected EXACTLY 2 'Plan wifi' slides for 2 plans, found {num_wifi_slides}"
+            print("✓ PASS: Exactly 2 'Plan wifi' slides (no phantom slide)")
+            
+            # Each slide must have EXACTLY 1 picture
+            for info in wifi_slides_info:
+                assert info["num_pictures"] == 1, \
+                    f"FAIL: Slide {info['position']} has {info['num_pictures']} pictures, expected 1"
+            print("✓ PASS: Each 'Plan wifi' slide has exactly 1 picture")
+            
+            # Slides must be CONSECUTIVE
+            positions = [info["position"] for info in wifi_slides_info]
+            assert positions[1] == positions[0] + 1, \
+                f"FAIL: 'Plan wifi' slides not consecutive: positions {positions}"
+            print(f"✓ PASS: 'Plan wifi' slides are consecutive (positions {positions})")
+            
+        elif num_plans_expected == 1:
+            # 1 plan → EXACTLY 1 "Plan wifi" slide with EXACTLY 1 picture
+            assert num_wifi_slides == 1, \
+                f"FAIL: Expected EXACTLY 1 'Plan wifi' slide for 1 plan, found {num_wifi_slides}"
+            print("✓ PASS: Exactly 1 'Plan wifi' slide")
+            
+            assert wifi_slides_info[0]["num_pictures"] == 1, \
+                f"FAIL: 'Plan wifi' slide has {wifi_slides_info[0]['num_pictures']} pictures, expected 1"
+            print("✓ PASS: 'Plan wifi' slide has exactly 1 picture")
+            
+        elif num_plans_expected == 0:
+            # 0 plans → EXACTLY 1 "Plan wifi" slide with 0 pictures (empty slide, no crash)
+            assert num_wifi_slides == 1, \
+                f"FAIL: Expected EXACTLY 1 'Plan wifi' slide for 0 plans, found {num_wifi_slides}"
+            print("✓ PASS: Exactly 1 'Plan wifi' slide (empty)")
+            
+            assert wifi_slides_info[0]["num_pictures"] == 0, \
+                f"FAIL: 'Plan wifi' slide has {wifi_slides_info[0]['num_pictures']} pictures, expected 0"
+            print("✓ PASS: 'Plan wifi' slide has 0 pictures (empty)")
         
-        print(f"Found {len(wifi_slides_with_pictures)} 'Plan wifi' slides WITH pictures")
-        
-        # NOTE: There appears to be a bug where 3 wifi slides are created instead of 2
-        # when 2 plans are uploaded. All 3 slides have pictures. This needs investigation
-        # in the pptx_export.py _duplicate_slide or _insert_wifi_plans function.
-        # For now, we verify that AT LEAST the expected number of slides exist.
-        if len(wifi_slides_with_pictures) != num_plans_expected:
-            print(f"⚠️  WARNING: Expected {num_plans_expected} wifi slides, found {len(wifi_slides_with_pictures)}")
-            print(f"    This may indicate a bug in the slide duplication logic.")
-        
-        # Verify we have at least the expected number
-        assert len(wifi_slides_with_pictures) >= num_plans_expected, \
-            f"Expected at least {num_plans_expected} 'Plan wifi' slides with pictures, found {len(wifi_slides_with_pictures)}"
-        
-        # Verify each wifi slide with pictures contains exactly 1 picture
-        for idx, (slide_num, slide, pictures) in enumerate(wifi_slides_with_pictures):
-            print(f"\nChecking 'Plan wifi' slide {idx+1} (slide #{slide_num}):")
-            print(f"  Pictures found: {len(pictures)}")
-            assert len(pictures) == 1, \
-                f"Expected exactly 1 picture in wifi slide {idx+1}, found {len(pictures)}"
-            print(f"  ✓ Contains exactly 1 picture")
-        
-        # Verify the "Commandes" slide (slide 8, title "8") still exists
+        # Verify the "Commandes" slide (title "8") still exists
         print("\nVerifying rest of deck is intact:")
         commandes_found = False
         for i, slide in enumerate(prs.slides):
@@ -372,10 +397,17 @@ def test_pptx_export_with_plans(cookies, upload_id, num_plans_expected):
             if commandes_found:
                 break
         
-        assert commandes_found, "Could not find 'Commandes' slide - deck may be corrupted"
+        assert commandes_found, "FAIL: Could not find 'Commandes' slide - deck may be corrupted"
         
-        print(f"\n✓ PPTX export with {num_plans_expected} wifi plan(s) verified successfully")
+        # Verify total slide count is reasonable (~18 slides for a typical deck)
+        assert 15 <= len(prs.slides) <= 25, \
+            f"FAIL: Total slide count {len(prs.slides)} seems unreasonable (expected ~18)"
+        print(f"  ✓ Total slide count reasonable: {len(prs.slides)}")
         
+        print(f"\n✓✓✓ PPTX export with {num_plans_expected} wifi plan(s) VERIFIED SUCCESSFULLY ✓✓✓")
+        
+    except AssertionError:
+        raise
     except Exception as e:
         raise AssertionError(f"Failed to parse PPTX: {e}")
     
@@ -480,17 +512,8 @@ def main():
         assert data["count"] == 0, f"Expected count=0, got {data['count']}"
         print("✓ All plans deleted")
         
-        # Test 5c: Export PPTX with 0 plans (should still work)
-        print("\n=== TEST 5c: EXPORT PPTX WITH 0 PLANS ===")
-        resp = requests.get(
-            f"{API_BASE}/export-pptx/{upload_id}",
-            cookies=cookies,
-            timeout=60
-        )
-        print(f"Status: {resp.status_code}")
-        assert resp.status_code == 200, f"Export with 0 plans failed: {resp.text}"
-        print(f"PPTX size: {len(resp.content)} bytes")
-        print("✓ Export works with 0 wifi plans (no crash)")
+        # Test 5c: Export PPTX with 0 plans (should still work, 1 empty wifi slide)
+        pptx_0plans = test_pptx_export_with_plans(cookies, upload_id, num_plans_expected=0)
         
         # Test 6: Error cases
         test_error_cases(cookies)
