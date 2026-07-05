@@ -33,7 +33,7 @@ export default function ForgotPasswordScreen({ onBack }) {
                         <FileSpreadsheet className="w-7 h-7 text-white" strokeWidth={2} />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">VT/Phasage Carrefour</h1>
+                        <h1 className="text-2xl font-bold text-gray-900">phasage_crf</h1>
                         <p className="text-sm text-gray-500">Mot de passe oublié</p>
                     </div>
                 </div>
