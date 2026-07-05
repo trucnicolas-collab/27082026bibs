@@ -328,6 +328,14 @@ def _compute_total_moq(total_plus_spare, ref) -> int | str:
     return rounded
 
 
+def _norm_match(d: str) -> str:
+    """Normalise une désignation pour un matching tolérant aux variantes de
+    saisie : retire les parenthèses et compresse les espaces.
+    « SA 2.1 (noir) », « SA 2.1 noir », « SA 2.1  noir » → « sa 2.1 noir »."""
+    return re.sub(r"\s+", " ", (d or "").replace("(", " ").replace(")", " ")).strip().lower()
+
+
+
 def _apply_total_moq_and_bonuses(rows: list[dict]) -> list[dict]:
     """Pour chaque ligne du recap, expose les bonus dans des champs dédiés
     (`fleche`, `signaletique`, `saisonnier`) et calcule `total_moq` à partir
@@ -362,15 +370,15 @@ def _apply_total_moq_and_bonuses(rows: list[dict]) -> list[dict]:
             r.setdefault("saisonnier", "")
             continue
         # Détecte la ligne pour savoir si Flèche/Signalétique/Saisonnier s'appliquent
-        d_norm = (r.get("designation") or "").strip().lower()
+        d_match = _norm_match(r.get("designation"))  # tolérant parenthèses/espaces
         # Flèche : ES 1.5 (noir) ou SA 1.5 (noir)
-        if d_norm in ("es 1.5 (noir)", "sa 1.5 (noir)"):
+        if d_match in ("es 1.5 noir", "sa 1.5 noir"):
             fb = r.get("_fleche_bonus")
             r["fleche"] = int(fb) if (fb and fb > 0) else ""
         else:
             r["fleche"] = ""
         # Signalétique : ES 1.5 (noir) ou ES 1.5 (blanc)
-        if d_norm in ("es 1.5 (noir)", "es 1.5 (blanc)"):
+        if d_match in ("es 1.5 noir", "es 1.5 blanc"):
             rb = r.get("_rail_bonus")
             r["signaletique"] = int(rb) if (rb and rb > 0) else ""
         else:
@@ -378,8 +386,8 @@ def _apply_total_moq_and_bonuses(rows: list[dict]) -> list[dict]:
         # Saisonnier (sans spare) : SA 2.1 (noir), SA 1.5 (noir) ET
         # Support individuel alu SA — rajout lié à la surface +/- 10000 m².
         is_saison_row = (
-            d_norm in ("sa 2.1 (noir)", "sa 1.5 (noir)")
-            or "support individuel alu sa" in d_norm
+            d_match in ("sa 2.1 noir", "sa 1.5 noir")
+            or "support individuel alu sa" in d_match
         )
         if is_saison_row and kind == "surface_added":
             # Ligne créée de toutes pièces : tout le total est du saisonnier.
@@ -1784,6 +1792,9 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
                 return r
         return None
 
+    def _norm_desig(d: str) -> str:
+        return _norm_match(d)
+
     def _create_surface_added(designation: str, delta: int, where_type: str = "SA",
                                reference: str = "") -> None:
         last_empty_idx = next((i for i, r in enumerate(rows) if r.get("kind") == "empty"), len(rows))
@@ -1798,14 +1809,14 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
         })
 
     # 1) SA 2.1 (noir)
-    t_sa21 = _find_product(lambda d: d == "sa 2.1 (noir)")
+    t_sa21 = _find_product(lambda d: _norm_desig(d) == "sa 2.1 noir")
     if t_sa21 is not None:
         _apply_delta_to_row(t_sa21, delta_sa21, "SA", "SA 2.1 (noir)")
     elif delta_sa21 > 0:
         _create_surface_added("SA 2.1 (noir)", delta_sa21)
 
     # 2) SA 1.5 (noir) — règle ajoutée 23/06/2026
-    t_sa15 = _find_product(lambda d: d == "sa 1.5 (noir)")
+    t_sa15 = _find_product(lambda d: _norm_desig(d) == "sa 1.5 noir")
     if t_sa15 is not None:
         _apply_delta_to_row(t_sa15, delta_sa15, "SA", "SA 1.5 (noir)")
     elif delta_sa15 > 0:

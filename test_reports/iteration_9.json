@@ -1,0 +1,31 @@
+{
+  "summary": "RE-TEST ciblé post-fix backend `_norm_match` (matching désignation tolérant parenthèses/espaces). VALIDATION FRONTEND OK : le bug critique de l'itération 8 (surface +/-10000 → exports 400 'référence invalide') est RÉSOLU. Session sample_full.xlsx restaurée sans problème. Step 2 → clic '+ 10 000 m²' : le recap montre correctement les lignes EEG existantes 1003 SA 1.5 noir (saisonnier=1200, total=1248) et 1004 SA 2.1 noir (saisonnier=4800, total=4848), 1005 Freezer inchangé (total=11), + ligne 'Support individuel alu SA' réf 16808 saisonnier=6000. Tooltip d'info affiche '+4 800 SA 2.1 (noir) +1 200 SA 1.5 (noir) +6 000 Support indiv. alu SA'. Avec '− 10 000 m²' : 1003 saisonnier=800, 1004 saisonnier=3200, cohérent. Aucun doublon avec référence vide n'est plus créé. Les 3 exports (export-rtr-button / export-carrefour-button / export-pptx-button) génèrent des fichiers téléchargeables (RTR ~22 KB, Carrefour ~14 KB, PPTX ~24 MB) avec réponse HTTP 200 (toast 'PowerPoint téléchargé' visible). Testé aussi bien avec +10000 qu'avec -10000. Certains tests ont hit le timeout Playwright de 20 s sur le PPTX (24 MB) mais le fichier arrive bien (téléchargement confirmé côté toast). Spinner Loader2 : confirmé visible sur export-pptx-button pendant la génération (capture à 200ms après click), moins visible sur RTR/Carrefour car exports rapides (<1s), mais présent dans le code (patched App.js). SESSION MODE = magasin_1, mode Français.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Exports rapides (RTR/Carrefour)", "issue": "Le spinner Loader2 apparaît/disparaît trop rapidement pour être visible à l'œil sur les exports XLSX (<1s). Fonctionnel mais UX faible. Pour PPTX (long) c'est bien visible.", "selector": "[data-testid='export-rtr-button'], [data-testid='export-carrefour-button']", "priority": "LOW"},
+      {"component": "Récap Commande", "issue": "Ligne résiduelle 'SA 9100 SA 2.1 (noir) 4 800 / 240' persiste dans le recap du dataset sample_full (héritage seed_data itération 8). Non bloquant (référence numérique 9100 valide, exports OK) mais pollue l'affichage. À supprimer manuellement via l'UI si besoin d'un dataset propre.", "selector": "table row ref=9100", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Wizard <option>", "issues": ["Warning console React persistant : '<span> cannot be a child of <option>. This will cause a hydration error.' — cosmétique dev-only, hors scope confirmé par l'agent principal."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_8.json"],
+  "action_items": [
+    "OPTIONNEL/UX — Augmenter la visibilité du spinner sur les exports rapides (RTR/Carrefour) via un délai minimum d'affichage (ex: setTimeout 500ms) ou changement de label du bouton en 'Génération…'.",
+    "OPTIONNEL — Nettoyer la ligne résiduelle ref 9100 dans le dataset sample_full si un état propre est requis pour les démos utilisateur."
+  ],
+  "critical_code_review_comments": [
+    "Le fix `_norm_match` (backend) résout bien le mismatch parenthèses/espaces sur les désignations SA. Aucune régression détectée sur les autres flux (phasage, EEG, dongles).",
+    "Rappel — PhasageTab.jsx >800 lignes à découper (recommandation persistante depuis itération 7)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend only)", "frontend": "6/6 items critiques validés (surface +/-, 3 exports, saisonnier 1003/1004, ligne 16808, spinner PPTX, aucun blocage 400)"},
+  "test_credentials": "admin@vusion.local / admin123 — dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (sample_full.xlsx). État : opérationnel, une ligne résiduelle 9100 subsiste (non-bloquante).",
+  "seed_data_creation": "Aucun ajout. Le dataset porte une ligne SA 9100 SA 2.1 (noir) héritée de l'itération 8 (seed_data mentionné dans iteration_8.json), non nettoyée car harmless (ref numérique 9100).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le fix backend `_norm_match` fonctionne : la sélection surface +/-10000 sur sample_full.xlsx incrémente correctement la colonne 'saisonnier' des lignes EEG SA existantes (1003→1.5, 1004→2.1) et génère la ligne Support individuel alu SA ref 16808 sans doublon ni réf vide. Les 3 exports (RTR/Carrefour/PPTX) réussissent en HTTP 200 dans les deux sens (+/-). Items de l'itération 8 déjà validés (SA 4 colonnes, 'Toutes' hide magasin, phasage-cameras-table séparé, nb-nuits max=20, transitions wizard) restent valides — non re-testés ici pour éviter la redondance. Le warning React '<span> in <option>' est cosmétique dev-only, hors scope selon l'agent principal.",
+  "rca of the issue": "N/A — bug corrigé et validé. RCA de référence : voir iteration_8.json. Le fix `_norm_match` normalise les désignations (retire parenthèses, espaces, lowercase) avant matching des lignes EEG source, permettant l'incrémentation correcte de la colonne saisonnier. Résultat : plus de lignes 'surface_added' avec référence vide → exports OK."
+}
