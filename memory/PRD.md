@@ -516,3 +516,19 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Backfill automatique** : les sessions créées avant l'ajout du bloc VCare reçoivent le bloc à la volée lors de la lecture (`get_dataset`) et de l'export (RTR + Carrefour) — sans persistance, pour rester idempotent
 - Refs des fonctions clés : `VCARE_MAPPING`, `_build_vcare_rows()`, `_refresh_vcare_block()` dans `/app/backend/server.py`
 
+
+
+## Feature (05/07/2026) — Éclatement colonnes SA + isolation caméras (étape Phasage)
+- [x] **3 colonnes SA à installer** dans les 2 tableaux du step Phasage (plan par allée + récap par nuit) : `SA 1.5`, `SA 2.1`, `SA 2.1 frz` (vertes) — affichent UNIQUEMENT les SA à poser selon la config du panneau "Installer des EEG SA" (par secteur/rayon), pas toutes les SA.
+- [x] **Colonne italique "SA magasin"** (info) = SA restantes installées par le magasin (total SA allée − SA à installer). Vaut 0 si "Toutes" cochées.
+- [x] **SA à installer comptées dans l'EEG à poser** (par allée + par nuit + total) — cohérence App ↔ Excel.
+- [x] **Tableau caméras dédié** `Récap caméras par nuit` (data-testid=phasage-cameras-table), colonne Caméras retirée du récap EEG.
+- [x] **Helpers** : `computeNodeSaInstall` + `nodeSaTotal` (frontend SaInstallPanel.jsx) et miroir Python `compute_node_sa_install` + `node_sa_total` (server.py). Clé secteur/rayon = "secteur|||rayon" (défauts "(Sans secteur)"/"(Sans rayon)").
+- [x] **Exports mis à jour** :
+  - Carrefour "Récap EEG par nuit" : 10 col (ajout SA 1.5/2.1/frz/magasin).
+  - Carrefour "Récap complet" : 13 col (bloc EEG élargi + caméras isolées, Nuit reste blanche).
+  - RTR "Phasage full" : 13 col (même structure, CF par nuit ajustée sur col Nuit=I).
+  - RTR "Phasage de pose" : EEG (col B _Phasage_data + Total EEG) inclut désormais les SA à installer.
+- [x] Validé : pytest test_export_carrefour.py 8/8 + e2e manuel + testing agent frontend 100% (iteration_7.json).
+- Fichiers : `frontend/src/components/PhasageTab.jsx`, `SaInstallPanel.jsx`, `backend/server.py` (`_aggregate_phasage_for_export`, `_write_phasage_full_sheet`, `_build_carrefour_export`, `_Phasage_data`), `backend/tests/test_export_carrefour.py`.
+- Backlog connu (hors scope) : bouton "PowerPoint" encore visible dans le header alors que l'endpoint PPTX a été retiré (iteration 6) ; warning React `<span> in <option>` non bloquant ; PhasageTab.jsx > 700 lignes à découper.
