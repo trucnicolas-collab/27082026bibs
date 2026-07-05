@@ -375,6 +375,9 @@ export default function PhasageTab({ uploadId }) {
     const { totals, rails_es_patterns } = summary;
     const storeMode = summary?.store_mode || "magasin_1";
     const isMagasin2 = storeMode === "magasin_2";
+    // Masque la colonne info "SA magasin" quand on installe TOUTES les SA
+    // (elle vaudrait toujours 0 → inutile).
+    const hideSaMagasin = !!(saInstall?.enabled && saInstall?.toutes);
 
     // SA 2.1 saisonnier (vient de la catégorie surface du magasin)
     // → désormais sélectionnable explicitement via les "Zones saisonnières"
@@ -603,7 +606,9 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT) — selon la config du panneau">SA 1.5</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT) — selon la config du panneau">SA 2.1</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT) — selon la config du panneau">SA 2.1 frz</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info, non incluses dans EEG)">SA magasin</th>
+                                        {!hideSaMagasin && (
+                                            <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info, non incluses dans EEG)">SA magasin</th>
+                                        )}
                                         <th className="px-2 py-1.5 text-left font-semibold">Nuit</th>
                                         <th className="px-2 py-1.5 w-8"></th>
                                     </tr>
@@ -611,7 +616,7 @@ export default function PhasageTab({ uploadId }) {
                                 <tbody>
                                     {rows.length === 0 && (
                                         <tr>
-                                            <td colSpan={9} className="px-3 py-6 text-center text-gray-500 italic">
+                                            <td colSpan={hideSaMagasin ? 8 : 9} className="px-3 py-6 text-center text-gray-500 italic">
                                                 Cliquez sur « Ajouter une allée » pour commencer
                                             </td>
                                         </tr>
@@ -684,10 +689,12 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
                                                     {node && inst.freezer > 0 ? fmt(inst.freezer) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data italic text-gray-500"
-                                                    title="SA restantes installées par le magasin (info)">
-                                                    {node && saMag > 0 ? fmt(saMag) : <span className="text-gray-300">—</span>}
-                                                </td>
+                                                {!hideSaMagasin && (
+                                                    <td className="px-2 py-1 text-right font-mono-data italic text-gray-500"
+                                                        title="SA restantes installées par le magasin (info)">
+                                                        {node && saMag > 0 ? fmt(saMag) : <span className="text-gray-300">—</span>}
+                                                    </td>
+                                                )}
                                                 <td className="px-1 py-1">
                                                     <select
                                                         value={r.nuit ?? ""}
@@ -740,7 +747,9 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT)">SA 1.5</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT)">SA 2.1</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT)">SA 2.1 frz</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info)">SA magasin</th>
+                                        {!hideSaMagasin && (
+                                            <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info)">SA magasin</th>
+                                        )}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -786,9 +795,11 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
                                                     {t.sa_inst_freezer > 0 ? fmt(t.sa_inst_freezer) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">
-                                                    {t.sa_mag > 0 ? fmt(t.sa_mag) : <span className="text-gray-300">—</span>}
-                                                </td>
+                                                {!hideSaMagasin && (
+                                                    <td className="px-2 py-1 text-right font-mono-data italic text-gray-500">
+                                                        {t.sa_mag > 0 ? fmt(t.sa_mag) : <span className="text-gray-300">—</span>}
+                                                    </td>
+                                                )}
                                             </tr>
                                         );
                                     })}
@@ -814,9 +825,11 @@ export default function PhasageTab({ uploadId }) {
                                         <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
                                             {fmt(grandTotals.sa_inst_freezer)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
-                                            {fmt(grandTotals.sa_mag)}
-                                        </td>
+                                        {!hideSaMagasin && (
+                                            <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
+                                                {fmt(grandTotals.sa_mag)}
+                                            </td>
+                                        )}
                                     </tr>
                                 </tbody>
                             </table>
