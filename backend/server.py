@@ -301,6 +301,13 @@ MOQ_BY_REF: dict[str, int] = {
 }
 
 
+# Référence utilisée pour la ligne « Support individuel alu SA » créée
+# automatiquement quand le fichier importé ne la contient pas (sinon la ligne
+# aurait une référence vide et bloquerait l'export). Modifiable ici si besoin.
+SUPPORT_ALU_SA_REF = "16000"
+
+
+
 def _compute_total_moq(total_plus_spare, ref) -> int | str:
     """Calcule Total+MOQ pour une ligne. Si la référence n'a pas de MOQ
     déclaré, retourne "—" (tiret cadratin) — l'UI affichera tel quel.
@@ -1777,12 +1784,13 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
                 return r
         return None
 
-    def _create_surface_added(designation: str, delta: int, where_type: str = "SA") -> None:
+    def _create_surface_added(designation: str, delta: int, where_type: str = "SA",
+                               reference: str = "") -> None:
         last_empty_idx = next((i for i, r in enumerate(rows) if r.get("kind") == "empty"), len(rows))
         rows.insert(last_empty_idx, {
             "kind": "surface_added",
             "type": where_type,
-            "reference": "",
+            "reference": reference,
             "designation": designation,
             "quantite": delta,
             "spare": "",
@@ -1808,7 +1816,8 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
     if t_support is not None:
         _apply_delta_to_row(t_support, delta_support, "supports", "Support individuel alu SA")
     elif delta_support > 0:
-        _create_surface_added("Support individuel alu SA", delta_support, where_type="Support")
+        _create_surface_added("Support individuel alu SA", delta_support,
+                              where_type="Support", reference=SUPPORT_ALU_SA_REF)
 
     # Recalcule batterie + software caméra + VCare (les changements de surface
     # ajoutent/retirent des SA → VCare doit suivre).
