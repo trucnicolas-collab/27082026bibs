@@ -3,7 +3,9 @@ import axios from "axios";
 import { Toaster, toast } from "sonner";
 import UploadZone from "./components/UploadZone";
 import Header from "./components/Header";
-import BottomTabs from "./components/BottomTabs";
+import WizardSteps from "./components/WizardSteps";
+import WifiPlanUpload from "./components/WifiPlanUpload";
+import BlockingModal from "./components/BlockingModal";
 import RawTable from "./components/RawTable";
 import RecapTable from "./components/RecapTable";
 import ParSecteurTable from "./components/ParSecteurTable";
@@ -65,11 +67,60 @@ export default function App() {
     return <MainApp />;
 }
 
+// Configuration du parcours guidé (5 étapes)
+const WIZARD_STEPS = [
+    { n: 1, key: "import", label: "Import" },
+    { n: 2, key: "commande", label: "Commande" },
+    { n: 3, key: "phasage", label: "Phasage" },
+    { n: 4, key: "dates", label: "Dates" },
+    { n: 5, key: "export", label: "Export" },
+];
+
+// Sous-onglets disponibles pour chaque étape (selon le dataset)
+function stepSubTabs(step, dataset) {
+    if (!dataset) return [];
+    switch (step) {
+        case 1:
+            return [
+                { id: "import_home", label: "Fichier & Plan wifi" },
+                { id: "raw", label: "Données brutes", count: dataset.row_count || 0 },
+            ];
+        case 2: {
+            const t = [{ id: "recap", label: "Commandes", count: dataset.data.recap.length }];
+            if (dataset.has_autre) t.push({ id: "autre", label: "Autre", count: dataset.autre_count || 0 });
+            t.push({ id: "parsecteur", label: "Recap par secteur" });
+            return t;
+        }
+        case 3:
+            return [
+                { id: "pose", label: "Phasage de pose" },
+                { id: "pose_cam", label: "Phasage caméras" },
+                { id: "pose_full", label: "Phasage full" },
+            ];
+        case 4:
+            return [
+                { id: "tableau_date", label: "Tableau date" },
+                { id: "suivi", label: "Suivi phasage" },
+            ];
+        case 5:
+            return [
+                { id: "export_home", label: "Exports" },
+                { id: "comment", label: "Commentaire" },
+            ];
+        default:
+            return [];
+    }
+}
+
 function MainApp() {
     const { user, logout } = useAuth();
     const [dataset, setDataset] = useState(null);
     const [phasageVersion, setPhasageVersion] = useState(0);
-    const [activeTab, setActiveTab] = useState("recap");
+    const [activeTab, setActiveTab] = useState("import_home");
+    const [currentStep, setCurrentStep] = useState(1);
+    const [showBlocking, setShowBlocking] = useState(false);
+    const [blockingIssues, setBlockingIssues] = useState([]);
+    const [validatingStep2, setValidatingStep2] = useState(false);
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
     const [rawLoading, setRawLoading] = useState(false);
@@ -93,7 +144,8 @@ function MainApp() {
                 data: { ...d.data, raw: null },
             };
             setDataset(ds);
-            setActiveTab("recap");
+            setActiveTab("import_home");
+            setCurrentStep(1);
             setSearch("");
             try { localStorage.setItem(LS_KEY, uploadId); } catch (_) {}
             if (!silent) {
@@ -148,7 +200,8 @@ function MainApp() {
                 data: { ...res.data.data, raw: null },
             };
             setDataset(ds);
-            setActiveTab("recap");
+            setActiveTab("import_home");
+            setCurrentStep(1);
             try { localStorage.setItem(LS_KEY, res.data.upload_id); } catch (_) {}
             toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
         } catch (err) {
@@ -178,14 +231,6 @@ function MainApp() {
             setRawLoading(false);
         }
     }, [dataset, rawLoading]);
-
-    const handleTabChange = useCallback(
-        (tabId) => {
-            setActiveTab(tabId);
-            if (tabId === "raw" || tabId === "parsecteur") ensureRawLoaded();
-        },
-        [ensureRawLoaded]
-    );
 
     const [exportingRTR, setExportingRTR] = useState(false);
     const [exportingCarrefour, setExportingCarrefour] = useState(false);
@@ -275,7 +320,8 @@ function MainApp() {
     const handleReset = useCallback(() => {
         setDataset(null);
         setSearch("");
-        setActiveTab("recap");
+        setActiveTab("import_home");
+        setCurrentStep(1);
         try { localStorage.removeItem(LS_KEY); } catch (_) {}
     }, []);
 
@@ -295,7 +341,8 @@ function MainApp() {
         if (dataset?.upload_id === uploadId) {
             setDataset(null);
             setSearch("");
-            setActiveTab("recap");
+            setActiveTab("import_home");
+            setCurrentStep(1);
             try { localStorage.removeItem(LS_KEY); } catch (_) {}
         }
     }, [dataset]);
@@ -416,25 +463,59 @@ function MainApp() {
         }
     }, [dataset]);
 
-    const tabs = useMemo(() => {
-        if (!dataset) return [];
-        const t = [
-            { id: "raw", label: "Données Brutes", count: dataset.row_count || 0 },
-            { id: "recap", label: "Commandes", count: dataset.data.recap.length },
-        ];
-        // Onglet "Autre" : seulement si le fichier contient des fixations AUTRE*
-        if (dataset.has_autre) {
-            t.push({ id: "autre", label: "Autre", count: dataset.autre_count || 0 });
+    const subTabs = useMemo(() => stepSubTabs(currentStep, dataset), [currentStep, dataset]);
+
+    const applyStep = useCallback((target) => {
+        const subs = stepSubTabs(target, dataset);
+        const first = subs[0]?.id;
+        setCurrentStep(target);
+        if (first) setActiveTab(first);
+        if (first === "raw" || first === "parsecteur") ensureRawLoaded();
+    }, [dataset, ensureRawLoaded]);
+
+    const validateStep2 = useCallback(async () => {
+        if (!dataset?.upload_id) return false;
+        setValidatingStep2(true);
+        try {
+            const res = await axios.get(`${API}/dataset/${dataset.upload_id}/step2-validation`, {
+                headers: { "Cache-Control": "no-cache" },
+                params: { _t: Date.now() },
+            });
+            if (res.data.ok) return true;
+            setBlockingIssues(res.data.issues || []);
+            setShowBlocking(true);
+            return false;
+        } catch (err) {
+            toast.error(`Validation impossible : ${err.response?.data?.detail || err.message}`);
+            return false;
+        } finally {
+            setValidatingStep2(false);
         }
-        t.push({ id: "parsecteur", label: "Recap par secteur", count: dataset.row_count || 0 });
-        t.push({ id: "pose", label: "Phasage de pose", count: 0 });
-        t.push({ id: "tableau_date", label: "Tableau date", count: 0 });
-        t.push({ id: "pose_cam", label: "Phasage caméras", count: 0 });
-        t.push({ id: "pose_full", label: "Phasage full", count: 0 });
-        t.push({ id: "suivi", label: "Suivi phasage", count: 0 });
-        t.push({ id: "comment", label: "Commentaire", count: (dataset.data.comment_table?.rows?.length) || 0 });
-        return t;
     }, [dataset]);
+
+    // Navigation vers une étape : bloque le passage vers l'étape 3+ tant que
+    // l'étape 2 (Commande) n'est pas valide (lignes Autre traitées, surface, dongles).
+    const goToStep = useCallback(async (target) => {
+        if (!dataset || target === currentStep) return;
+        if (target >= 3 && currentStep <= 2) {
+            const ok = await validateStep2();
+            if (!ok) return;
+        }
+        applyStep(target);
+    }, [dataset, currentStep, validateStep2, applyStep]);
+
+    const handleNext = useCallback(() => {
+        if (currentStep < WIZARD_STEPS.length) goToStep(currentStep + 1);
+    }, [currentStep, goToStep]);
+
+    const handlePrev = useCallback(() => {
+        if (currentStep > 1) applyStep(currentStep - 1);
+    }, [currentStep, applyStep]);
+
+    const onSubTab = useCallback((id) => {
+        setActiveTab(id);
+        if (id === "raw" || id === "parsecteur") ensureRawLoaded();
+    }, [ensureRawLoaded]);
 
     return (
         <div className="app-root" data-testid="app-root">
@@ -478,7 +559,37 @@ function MainApp() {
                             <UploadZone onUpload={handleUpload} loading={loading} />
                         ) : (
                     <>
+                        <WizardSteps
+                            steps={WIZARD_STEPS}
+                            current={currentStep}
+                            onGoStep={goToStep}
+                            subTabs={subTabs}
+                            activeSubTab={activeTab}
+                            onSubTab={onSubTab}
+                            onPrev={handlePrev}
+                            onNext={handleNext}
+                            prevDisabled={currentStep <= 1}
+                            nextDisabled={currentStep >= WIZARD_STEPS.length || validatingStep2}
+                            nextLabel={currentStep === 2 ? "Valider et continuer" : "Suivant"}
+                        />
                         <div className="flex-1 overflow-hidden">
+                            {activeTab === "import_home" && (
+                                <div className="p-6 overflow-auto h-full">
+                                    <div className="max-w-3xl mx-auto space-y-4">
+                                        <div className="border border-gray-200 rounded-lg bg-white p-4">
+                                            <h3 className="text-sm font-semibold text-gray-800 mb-2">Fichier importé</h3>
+                                            <div className="text-sm text-gray-600 space-y-0.5">
+                                                <div><span className="text-gray-400">Nom : </span>{dataset.filename}</div>
+                                                <div><span className="text-gray-400">Lignes : </span>{(dataset.row_count || 0).toLocaleString("fr-FR")}</div>
+                                            </div>
+                                            <button onClick={handleReset} className="mt-3 text-xs text-gray-500 underline hover:text-gray-700" data-testid="import-reset">
+                                                Importer un autre fichier
+                                            </button>
+                                        </div>
+                                        <WifiPlanUpload uploadId={dataset.upload_id} />
+                                    </div>
+                                </div>
+                            )}
                             {activeTab === "raw" && (
                                 dataset.data.raw === null || rawLoading ? (
                                     <div className="flex-1 flex items-center justify-center h-full text-sm text-gray-500" data-testid="raw-loading">
@@ -543,11 +654,39 @@ function MainApp() {
                             {activeTab === "tableau_date" && (
                                 <TableauDateTab uploadId={dataset.upload_id} />
                             )}
+                            {activeTab === "export_home" && (
+                                <div className="p-6 overflow-auto h-full">
+                                    <div className="max-w-3xl mx-auto space-y-4">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-gray-800">Exports</h3>
+                                            <p className="text-xs text-gray-500 mt-1">Générez les livrables finaux. Le PowerPoint inclut automatiquement les plans wifi importés à l’étape 1.</p>
+                                        </div>
+                                        <div className="grid sm:grid-cols-3 gap-3">
+                                            <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-sm disabled:opacity-50 text-left" data-testid="export-rtr">
+                                                <span className="text-sm font-semibold" style={{ color: "#056839" }}>Excel RTR</span>
+                                                <span className="text-xs text-gray-500">Fichier de commande RTR (toutes feuilles)</span>
+                                            </button>
+                                            <button onClick={handleExportCarrefour} disabled={exportingCarrefour} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-sm disabled:opacity-50 text-left" data-testid="export-carrefour">
+                                                <span className="text-sm font-semibold text-red-600">Excel Carrefour</span>
+                                                <span className="text-xs text-gray-500">Format Carrefour</span>
+                                            </button>
+                                            <button onClick={handleExportPPTX} disabled={exportingPPTX} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-sm disabled:opacity-50 text-left" data-testid="export-pptx">
+                                                <span className="text-sm font-semibold text-purple-700">PowerPoint</span>
+                                                <span className="text-xs text-gray-500">CR VT + plans wifi</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <BottomTabs tabs={tabs} active={activeTab} onChange={handleTabChange} />
                     </>
                 )}
             </main>
+            <BlockingModal
+                open={showBlocking}
+                issues={blockingIssues}
+                onClose={() => setShowBlocking(false)}
+            />
                 </>
             )}
         </div>

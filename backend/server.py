@@ -4792,6 +4792,48 @@ async def delete_wifi_plan(upload_id: str, plan_id: str,
     return await _list_wifi_plans(upload_id)
 
 
+@api_router.get("/dataset/{upload_id}/step2-validation")
+async def step2_validation(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Valide l'étape 2 (Traitement commande) avant de passer au phasage.
+    Bloque tant que : (a) des lignes « Autre » ne sont pas traitées (réf. vide ou
+    non numérique), (b) la surface n'est pas +/-10000 m², (c) dongles <= 0."""
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    recap = d.get("recap_rows") or []
+    bad_refs = _validate_missing_refs(recap)
+    surface = d.get("surface_category")
+    surface_ok = surface in ("plus_10000", "moins_10000")
+    dongles = int(d.get("dongles_quantity") or 0)
+    dongles_ok = dongles > 0
+    issues = []
+    if bad_refs:
+        issues.append({
+            "code": "unprocessed_refs",
+            "count": len(bad_refs),
+            "designations": bad_refs[:30],
+            "message": f"{len(bad_refs)} ligne(s) « Autre » à traiter : supprimez-les ou saisissez une référence numérique.",
+        })
+    if not surface_ok:
+        issues.append({
+            "code": "surface_missing",
+            "message": "Surface non renseignée : choisissez +10000 m² ou −10000 m².",
+        })
+    if not dongles_ok:
+        issues.append({
+            "code": "dongles_missing",
+            "message": "Nombre de dongles non renseigné (doit être supérieur à 0).",
+        })
+    return {
+        "ok": len(issues) == 0,
+        "issues": issues,
+        "surface_category": surface,
+        "dongles_quantity": dongles,
+        "unprocessed_count": len(bad_refs),
+    }
+
+
+
 
 def _aggregate_phasage_for_export(d: dict) -> dict:
     """Agrégation par nuit pour les onglets de l'export Carrefour.
