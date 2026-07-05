@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 const BRAND = "#056839";
 
@@ -7,7 +7,7 @@ const BRAND = "#056839";
 export default function WizardSteps({
     steps, current, onGoStep,
     subTabs = [], activeSubTab, onSubTab,
-    onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "Suivant",
+    onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "Suivant", nextLoading = false,
 }) {
     return (
         <div className="bg-white border-b border-gray-200" data-testid="wizard-steps">
@@ -60,7 +60,7 @@ export default function WizardSteps({
                             <button
                                 key={t.id}
                                 onClick={() => onSubTab(t.id)}
-                                className="px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors"
+                                className="px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition-colors hover:bg-gray-100"
                                 style={on ? { backgroundColor: "#e6f2ec", color: BRAND } : { color: "#6b7280" }}
                                 data-testid={`wizard-subtab-${t.id}`}
                             >
@@ -84,11 +84,13 @@ export default function WizardSteps({
                     <button
                         onClick={onNext}
                         disabled={nextDisabled}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110"
                         style={{ backgroundColor: BRAND }}
                         data-testid="wizard-next"
                     >
-                        {nextLabel} <ChevronRight className="w-4 h-4" />
+                        {nextLoading
+                            ? <><Loader2 className="w-4 h-4 animate-spin" /> Validation…</>
+                            : <>{nextLabel} <ChevronRight className="w-4 h-4" /></>}
                     </button>
                 </div>
             </div>

@@ -17,6 +17,7 @@ import SuiviPhasageTab from "./components/SuiviPhasageTab";
 import AutreTab from "./components/AutreTab";
 import TableauDateTab from "./components/TableauDateTab";
 import AuthScreen from "./components/AuthScreen";
+import LoadingState from "./components/LoadingState";
 import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
 import ResetPasswordScreen from "./components/ResetPasswordScreen";
 import SharedView from "./components/SharedView";
@@ -552,9 +553,7 @@ function MainApp() {
 
                     <main className="flex-1 overflow-hidden flex flex-col">
                         {restoring ? (
-                            <div className="flex-1 flex items-center justify-center text-sm text-gray-500" data-testid="session-restoring">
-                                Restauration de la session précédente…
-                            </div>
+                            <LoadingState message="Restauration de la session précédente…" testId="session-restoring" />
                         ) : !dataset ? (
                             <UploadZone onUpload={handleUpload} loading={loading} />
                         ) : (
@@ -571,8 +570,9 @@ function MainApp() {
                             prevDisabled={currentStep <= 1}
                             nextDisabled={currentStep >= WIZARD_STEPS.length || validatingStep2}
                             nextLabel={currentStep === 2 ? "Valider et continuer" : "Suivant"}
+                            nextLoading={validatingStep2}
                         />
-                        <div className="flex-1 overflow-hidden">
+                        <div key={activeTab} className="flex-1 overflow-hidden eeg-fade-in">
                             {activeTab === "import_home" && (
                                 <div className="p-6 overflow-auto h-full">
                                     <div className="max-w-3xl mx-auto space-y-4">
@@ -592,9 +592,7 @@ function MainApp() {
                             )}
                             {activeTab === "raw" && (
                                 dataset.data.raw === null || rawLoading ? (
-                                    <div className="flex-1 flex items-center justify-center h-full text-sm text-gray-500" data-testid="raw-loading">
-                                        Chargement des {(dataset.row_count || 0).toLocaleString("fr-FR")} lignes brutes...
-                                    </div>
+                                    <LoadingState message={`Chargement des ${(dataset.row_count || 0).toLocaleString("fr-FR")} lignes brutes…`} testId="raw-loading" />
                                 ) : (
                                     <RawTable
                                         rows={dataset.data.raw}
@@ -618,9 +616,7 @@ function MainApp() {
                             )}
                             {activeTab === "parsecteur" && (
                                 dataset.data.raw === null || rawLoading ? (
-                                    <div className="flex-1 flex items-center justify-center h-full text-sm text-gray-500" data-testid="parsecteur-loading">
-                                        Chargement des {(dataset.row_count || 0).toLocaleString("fr-FR")} lignes...
-                                    </div>
+                                    <LoadingState message={`Chargement des ${(dataset.row_count || 0).toLocaleString("fr-FR")} lignes…`} testId="parsecteur-loading" />
                                 ) : (
                                     <ParSecteurTable
                                         rows={dataset.data.raw}
@@ -662,16 +658,22 @@ function MainApp() {
                                             <p className="text-xs text-gray-500 mt-1">Générez les livrables finaux. Le PowerPoint inclut automatiquement les plans wifi importés à l’étape 1.</p>
                                         </div>
                                         <div className="grid sm:grid-cols-3 gap-3">
-                                            <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-sm disabled:opacity-50 text-left" data-testid="export-rtr">
-                                                <span className="text-sm font-semibold" style={{ color: "#056839" }}>Excel RTR</span>
+                                            <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-rtr">
+                                                <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: "#056839" }}>
+                                                    {exportingRTR && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Excel RTR
+                                                </span>
                                                 <span className="text-xs text-gray-500">Fichier de commande RTR (toutes feuilles)</span>
                                             </button>
-                                            <button onClick={handleExportCarrefour} disabled={exportingCarrefour} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-sm disabled:opacity-50 text-left" data-testid="export-carrefour">
-                                                <span className="text-sm font-semibold text-red-600">Excel Carrefour</span>
+                                            <button onClick={handleExportCarrefour} disabled={exportingCarrefour} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-carrefour">
+                                                <span className="text-sm font-semibold text-red-600 flex items-center gap-1.5">
+                                                    {exportingCarrefour && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Excel Carrefour
+                                                </span>
                                                 <span className="text-xs text-gray-500">Format Carrefour</span>
                                             </button>
-                                            <button onClick={handleExportPPTX} disabled={exportingPPTX} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-sm disabled:opacity-50 text-left" data-testid="export-pptx">
-                                                <span className="text-sm font-semibold text-purple-700">PowerPoint</span>
+                                            <button onClick={handleExportPPTX} disabled={exportingPPTX} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-pptx">
+                                                <span className="text-sm font-semibold text-purple-700 flex items-center gap-1.5">
+                                                    {exportingPPTX && <Loader2 className="w-3.5 h-3.5 animate-spin" />}PowerPoint
+                                                </span>
                                                 <span className="text-xs text-gray-500">CR VT + plans wifi</span>
                                             </button>
                                         </div>
