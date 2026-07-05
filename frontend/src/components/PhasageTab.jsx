@@ -111,7 +111,10 @@ export default function PhasageTab({ uploadId }) {
         if (!uploadId) return;
         let mounted = true;
         setLoading(true);
-        axios.get(`${API}/dataset/${uploadId}/phasage-summary`)
+        axios.get(`${API}/dataset/${uploadId}/phasage-summary`, {
+                headers: { "Cache-Control": "no-cache" },
+                params: { _t: Date.now() },
+            })
             .then((res) => {
                 if (!mounted) return;
                 setSummary(res.data);

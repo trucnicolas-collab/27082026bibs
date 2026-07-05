@@ -5138,6 +5138,26 @@ async def _build_carrefour_export(d: dict):
 api_router.include_router(build_auth_router(db))
 app.include_router(api_router)
 
+
+# --- Anti-cache pour les GET dynamiques /api ---
+# Empêche le navigateur (ou un proxy intermédiaire) de servir une réponse
+# périmée lors d'un changement d'onglet (ex: /phasage-summary), ce qui pouvait
+# faire "changer" le Total EEG affiché sans raison — corrigé seulement par un
+# rafraîchissement complet. On force la revalidation systématique.
+@app.middleware("http")
+async def _no_store_for_api_get(request, call_next):
+    response = await call_next(request)
+    try:
+        if request.method == "GET" and request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+    except Exception:
+        pass
+    return response
+
+
+
 # CORS : on doit autoriser explicitement l'origin frontend (FRONTEND_URL) car
 # allow_credentials=True est incompatible avec allow_origins=["*"]
 _frontend_url = os.environ.get('FRONTEND_URL', '').strip()
