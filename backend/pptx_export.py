@@ -765,10 +765,95 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
 
 
 # ===================================================================
+# Plans wifi — insertion d'images plein cadre dans la/les slide(s)
+# "Plan wifi magasin" (jusqu'à 2 plans → 2 slides).
+# ===================================================================
+def _find_wifi_slide_index(prs) -> int | None:
+    """Retourne l'index de la slide dont un texte contient 'plan wifi'."""
+    for i, s in enumerate(prs.slides):
+        for sh in s.shapes:
+            try:
+                if sh.has_text_frame and "plan wifi" in sh.text_frame.text.strip().lower():
+                    return i
+            except Exception:
+                continue
+    return None
+
+
+def _fit_contain(img_w: int, img_h: int, box_w: int, box_h: int) -> tuple[int, int]:
+    """Dimensions (w, h) pour contenir l'image dans la box en gardant le ratio."""
+    if img_w <= 0 or img_h <= 0:
+        return box_w, box_h
+    scale = min(box_w / img_w, box_h / img_h)
+    return int(img_w * scale), int(img_h * scale)
+
+
+def _add_picture_fullframe(slide, image_bytes: bytes, slide_w: int, slide_h: int) -> None:
+    """Ajoute l'image centrée, mise à l'échelle pour occuper au maximum la zone
+    sous le titre (plein cadre, ratio préservé)."""
+    try:
+        from PIL import Image
+        with Image.open(BytesIO(image_bytes)) as im:
+            iw, ih = im.size
+    except Exception:
+        iw, ih = 0, 0
+    margin = 228600           # ~0.25 pouce
+    top_area = 1737360        # sous le titre "Plan wifi magasin"
+    box_w = int(slide_w - 2 * margin)
+    box_h = int(slide_h - top_area - margin)
+    w, h = _fit_contain(iw, ih, box_w, box_h)
+    left = int((slide_w - w) / 2)
+    top = int(top_area + (box_h - h) / 2)
+    slide.shapes.add_picture(BytesIO(image_bytes), left, top, width=w, height=h)
+
+
+def _duplicate_slide(prs, index: int):
+    """Duplique la slide `index` (titre + n° uniquement, pas de média) et la
+    place juste après la slide source. Retourne la nouvelle slide."""
+    source = prs.slides[index]
+    new_slide = prs.slides.add_slide(source.slide_layout)
+    # Retire les placeholders par défaut hérités du layout
+    for shp in list(new_slide.shapes):
+        shp._element.getparent().remove(shp._element)
+    # Copie les shapes de la source (titre, n° de slide, etc.)
+    for shp in source.shapes:
+        new_slide.shapes._spTree.append(copy.deepcopy(shp._element))
+    # Réordonne : la nouvelle slide (ajoutée en fin) est déplacée après la source
+    xml_slides = prs.slides._sldIdLst
+    ids = list(xml_slides)
+    new_id = ids[-1]
+    xml_slides.remove(new_id)
+    xml_slides.insert(index + 1, new_id)
+    return prs.slides[index + 1]
+
+
+def _insert_wifi_plans(prs, wifi_plans: list | None) -> None:
+    if not wifi_plans:
+        return
+    idx = _find_wifi_slide_index(prs)
+    if idx is None:
+        return
+    slide_w, slide_h = int(prs.slide_width), int(prs.slide_height)
+    plans = [p for p in wifi_plans if p][:2]
+    if not plans:
+        return
+    if len(plans) >= 2:
+        # IMPORTANT : dupliquer la slide AVANT d'y ajouter une image, sinon le
+        # clone hérite de la 1ère image (relation d'image alors invalide).
+        dup = _duplicate_slide(prs, idx)
+        _add_picture_fullframe(prs.slides[idx], plans[0], slide_w, slide_h)
+        _add_picture_fullframe(dup, plans[1], slide_w, slide_h)
+    else:
+        _add_picture_fullframe(prs.slides[idx], plans[0], slide_w, slide_h)
+
+
+
+# ===================================================================
 # Public entry point
 # ===================================================================
 def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None = None,
-               detail_cam_rows: list[tuple[int, str, str]] | None = None) -> bytes:
+               detail_cam_rows: list[tuple[int, str, str]] | None = None,
+               wifi_plans: list | None = None) -> bytes:
     """Génère le PowerPoint complet à partir des données.
 
     aggregate_fn(d) → dict avec clés : nuit_es (n -> {date, sr, allees_str, eeg, rails_es, sa, cam}),
@@ -842,6 +927,13 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     for idx in unused:
         if idx < len(slides):
             _delete_slide(prs, idx)
+    # Insertion des plans wifi (0, 1 ou 2 images) dans la/les slide(s)
+    # "Plan wifi magasin". Fait EN DERNIER pour ne pas décaler les index des
+    # slides remplies ci-dessus.
+    try:
+        _insert_wifi_plans(prs, wifi_plans)
+    except Exception:
+        pass
     # Sauvegarde en bytes
     buf = BytesIO()
     prs.save(buf)
