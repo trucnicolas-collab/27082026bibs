@@ -252,6 +252,8 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
         payload["surface_category"] = doc["surface_category"]
     if "dongles_quantity" in doc:
         payload["dongles_quantity"] = doc["dongles_quantity"]
+    if "sa_install" in doc:
+        payload["sa_install"] = doc["sa_install"]
     for fld in ("vt_start_date", "vt_end_date", "store_name", "store_city",
                 "store_code", "store_address", "participants",
                 "responsable_magasin", "responsable_vusion",
@@ -1651,6 +1653,7 @@ async def update_dongles(upload_id: str, payload: DonglesUpdate, current_user: d
     if "recap_rows" not in d:
         raise HTTPException(status_code=404, detail="Recap rows not found")
     qty = int(payload.quantity or 0)
+    d["dongles_quantity"] = qty
     rows = d["recap_rows"]
     for r in rows:
         if r.get("kind") == "dongle":
@@ -2007,6 +2010,12 @@ def _is_sa_21(desig: str) -> bool:
     return "sa 2.1" in d or "sa 2,1" in d
 
 
+def _is_sa_freezer(desig: str) -> bool:
+    """Détecte les étiquettes SA 2.1 Freezer (sous-ensemble des SA 2.1)."""
+    d = _norm_desig(desig)
+    return ("sa 2.1" in d or "sa 2,1" in d) and "freezer" in d
+
+
 def _is_rail_es(desig: str) -> bool:
     """Vérifie si la désignation contient une des longueurs de rail ES."""
     d = _norm_desig(desig)
@@ -2050,6 +2059,7 @@ def compute_phasage_summary(d: dict) -> dict:
     # Agrégation par allée (clé = str de l'allée)
     by_allee: dict[str, dict] = {}
     totals = {"es_15": 0.0, "es_21": 0.0, "sa": 0.0, "sa_15": 0.0, "sa_21": 0.0,
+              "sa_21_freezer": 0.0,
               "rails_es": 0.0, "cameras": 0.0,
               "es_15_bonus_noir": 0.0, "es_15_bonus_blanc": 0.0,  # legacy (toujours 0 désormais)
               "fleches": 0.0,
@@ -2092,6 +2102,7 @@ def compute_phasage_summary(d: dict) -> dict:
             "sa": 0.0,         # Toutes SA confondues (legacy)
             "sa_15": 0.0,      # SA 1.5 (noir + blanc)
             "sa_21": 0.0,      # SA 2.1 (toutes variantes)
+            "sa_21_freezer": 0.0,  # sous-ensemble freezer des SA 2.1
             "rails_es": 0.0,
             "cameras": 0.0,
             "camera_elems": [],
@@ -2120,6 +2131,9 @@ def compute_phasage_summary(d: dict) -> dict:
             elif _is_sa_21(desig):
                 node["sa_21"] += qty
                 totals["sa_21"] += qty
+                if _is_sa_freezer(desig):
+                    node["sa_21_freezer"] += qty
+                    totals["sa_21_freezer"] += qty
         elif is_camera and _is_valid_camera_desig(desig):
             node["cameras"] += qty
             totals["cameras"] += qty
@@ -2204,6 +2218,9 @@ def compute_phasage_summary(d: dict) -> dict:
         a["sa"] = _r(a["sa"])
         a["sa_15"] = _r(a.get("sa_15", 0))
         a["sa_21"] = _r(a.get("sa_21", 0))
+        a["sa_21_freezer"] = _r(a.get("sa_21_freezer", 0))
+        # SA 2.1 hors freezer (colonne dédiée côté phasage)
+        a["sa_21_std"] = _r(max(0, (a["sa_21"] or 0) - (a["sa_21_freezer"] or 0)))
         a["rails_es"] = _r(a["rails_es"])
         a["cameras"] = _r(a.get("cameras", 0))
         a["es_15_bonus_noir"] = _r(a.get("es_15_bonus_noir", 0))
@@ -2223,6 +2240,8 @@ def compute_phasage_summary(d: dict) -> dict:
         "sa": _r(totals["sa"]),
         "sa_15": _r(totals.get("sa_15", 0)),
         "sa_21": _r(totals.get("sa_21", 0)),
+        "sa_21_freezer": _r(totals.get("sa_21_freezer", 0)),
+        "sa_21_std": _r(max(0, (totals.get("sa_21", 0) or 0) - (totals.get("sa_21_freezer", 0) or 0))),
         "rails_es": _r(totals["rails_es"]),
         "cameras": _r(totals.get("cameras", 0)),
         "es_15_bonus_noir": _r(totals.get("es_15_bonus_noir", 0)),
@@ -2230,6 +2249,31 @@ def compute_phasage_summary(d: dict) -> dict:
         "fleches": _r(totals.get("fleches", 0)),
         "rails_es_by_desig": {k: _r(v) for k, v in totals["rails_es_by_desig"].items()},
     }
+
+    # Découpage SA par secteur / rayon (pour la sélection "installer des EEG SA"
+    # à l'étape Phasage). On agrège les allées par (secteur, rayon).
+    sa_by_secteur: dict[str, dict] = {}
+    for a in allees:
+        sec = a.get("secteur") or "(Sans secteur)"
+        ray = a.get("rayon") or "(Sans rayon)"
+        s = sa_by_secteur.setdefault(sec, {"secteur": sec, "sa_15": 0, "sa_21_std": 0, "sa_21_freezer": 0, "rayons": {}})
+        rnode = s["rayons"].setdefault(ray, {"rayon": ray, "sa_15": 0, "sa_21_std": 0, "sa_21_freezer": 0})
+        for k in ("sa_15", "sa_21_std", "sa_21_freezer"):
+            v = a.get(k, 0) or 0
+            rnode[k] += v
+            s[k] += v
+    sa_breakdown = []
+    for sec in sorted(sa_by_secteur.keys()):
+        s = sa_by_secteur[sec]
+        rayons = [s["rayons"][r] for r in sorted(s["rayons"].keys())]
+        rayons = [r for r in rayons if (r["sa_15"] + r["sa_21_std"] + r["sa_21_freezer"]) > 0]
+        if not rayons:
+            continue
+        sa_breakdown.append({
+            "secteur": sec,
+            "sa_15": s["sa_15"], "sa_21_std": s["sa_21_std"], "sa_21_freezer": s["sa_21_freezer"],
+            "rayons": rayons,
+        })
 
     # Total SA 2.1 (noir) saisonnier issu de la catégorie surface du magasin
     surface_cat = d.get("surface_category") if isinstance(d, dict) else None
@@ -2255,6 +2299,7 @@ def compute_phasage_summary(d: dict) -> dict:
         "allees": allees,
         "totals": totals,
         "rails_es_patterns": RAILS_ES_PATTERNS,
+        "sa_breakdown": sa_breakdown,
         "sa_21_saisonnier": sa_21_saisonnier,
         "surface_category": surface_cat,
         "seasonal_zones": seasonal_zones,
@@ -2298,6 +2343,7 @@ async def get_phasage_summary(upload_id: str, current_user: dict = Depends(get_c
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     summary = compute_phasage_summary(d)
     summary["phasage"] = _normalize_phasage(d.get("phasage"))
+    summary["sa_install"] = d.get("sa_install") or {"enabled": False, "toutes": False, "sa_15": False, "sa_21": False, "freezer": False, "selection": {}}
     summary["vt_start_date"] = d.get("vt_start_date") or ""
     summary["store_name"] = d.get("store_name") or ""
     summary["store_code"] = d.get("store_code") or ""
@@ -4792,6 +4838,31 @@ async def delete_wifi_plan(upload_id: str, plan_id: str,
     return await _list_wifi_plans(upload_id)
 
 
+class SaInstallConfig(BaseModel):
+    """Config 'installer des EEG SA hors zone saisonnière' (étape Phasage)."""
+    enabled: bool = False
+    toutes: bool = False           # ajouter TOUTES les SA
+    sa_15: bool = False            # inclure SA 1.5
+    sa_21: bool = False            # inclure SA 2.1 (hors freezer)
+    freezer: bool = False          # inclure SA 2.1 freezer (toutes)
+    # Sélection par secteur/rayon pour sa_15 / sa_21 (clés "secteur|||rayon")
+    selection: dict = {}
+
+
+@api_router.patch("/dataset/{upload_id}/sa-install")
+async def update_sa_install(upload_id: str, payload: SaInstallConfig,
+                            current_user: dict = Depends(get_current_user)):
+    """Enregistre la config d'installation des EEG SA (hors saisonnier)."""
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    cfg = payload.dict()
+    d["sa_install"] = cfg
+    await db.datasets.update_one({"upload_id": upload_id}, {"$set": {"sa_install": cfg}})
+    await log_audit(upload_id, current_user, "sa_install_changed", details={"enabled": cfg.get("enabled")})
+    return {"sa_install": cfg}
+
+
 @api_router.get("/dataset/{upload_id}/step2-validation")
 async def step2_validation(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Valide l'étape 2 (Traitement commande) avant de passer au phasage.
@@ -4801,18 +4872,32 @@ async def step2_validation(upload_id: str, current_user: dict = Depends(get_curr
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     recap = d.get("recap_rows") or []
-    bad_refs = _validate_missing_refs(recap)
+    # Lignes "Autre"/utilisateur avec référence invalide (vide ou non numérique).
+    # On EXCLUT les lignes générées par le système (surface_added, dongle) que
+    # l'utilisateur ne peut pas référencer.
+    _SYS_KINDS = {"surface_added", "dongle", "bonus"}
+    bad_refs = []
+    for r in recap:
+        if r.get("kind") in _SYS_KINDS:
+            continue
+        desig = (str(r.get("designation") or "")).strip()
+        if not desig:
+            continue
+        ref = str(r.get("reference") or "").strip()
+        if not ref or not ref.isdigit():
+            bad_refs.append(desig)
     surface = d.get("surface_category")
     surface_ok = surface in ("plus_10000", "moins_10000")
     dongles = int(d.get("dongles_quantity") or 0)
     dongles_ok = dongles > 0
     issues = []
     if bad_refs:
+        preview = ", ".join(bad_refs[:5]) + ("…" if len(bad_refs) > 5 else "")
         issues.append({
             "code": "unprocessed_refs",
             "count": len(bad_refs),
             "designations": bad_refs[:30],
-            "message": f"{len(bad_refs)} ligne(s) « Autre » à traiter : supprimez-les ou saisissez une référence numérique.",
+            "message": f"{len(bad_refs)} ligne(s) avec une référence invalide (vide ou non numérique) : supprimez-les ou saisissez une référence numérique — {preview}",
         })
     if not surface_ok:
         issues.append({

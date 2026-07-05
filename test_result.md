@@ -295,6 +295,104 @@ backend:
             approach (2 pre-existing slides, fill/move/delete only) works perfectly. No slide
             name collisions, no orphaned parts, no phantom slides after save/reopen.
 
+  - task: "SA phasage breakdown: totals (sa_15, sa_21, sa_21_std, sa_21_freezer) + sa_breakdown par secteur/rayon"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: >
+            TESTED AND VERIFIED. Created comprehensive test suite at /app/backend_test_sa_phasage.py.
+            Uploaded Excel with SA rows across multiple sectors/rayons (NAL/Conserves, NAL/Liquides,
+            NAL/Bazar, PGC/Épicerie, PGC/Frais, PGC/Frozen) with SA 1.5, SA 2.1, and SA 2.1 Freezer.
+            
+            TEST 1 - Totals structure and coherence: PASS ✓
+            - totals contains sa_15, sa_21, sa_21_std, sa_21_freezer as expected
+            - Coherence verified: sa_21 == sa_21_std + sa_21_freezer (420 == 300 + 120) ✓
+            - Expected values match uploaded data: sa_15=280, sa_21=420, sa_21_std=300, sa_21_freezer=120 ✓
+            
+            TEST 2 - sa_breakdown structure: PASS ✓
+            - sa_breakdown is a list of sectors with correct structure (secteur, sa_15, sa_21_std, sa_21_freezer, rayons)
+            - Each sector contains rayons array with same fields (rayon, sa_15, sa_21_std, sa_21_freezer)
+            - Sum of rayons == sector totals verified for all sectors ✓
+            - Sum of sectors == global totals verified ✓
+            - Sectors/rayons with zero SA are correctly excluded ✓
+            - Found 2 sectors (NAL, PGC) with correct breakdown by rayon
+            
+            TEST 3 - allees[] structure: PASS ✓
+            - All allees contain sa_21_freezer and sa_21_std fields as expected
+            - Values correctly split between standard and freezer SA 2.1
+            
+            TEST 4 - sa_install default: PASS ✓
+            - sa_install present in phasage-summary response
+            - Default enabled=False as expected
+
+  - task: "SA install config: PATCH /sa-install + persistence en base"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: >
+            TESTED AND VERIFIED. Test suite at /app/backend_test_sa_phasage.py.
+            
+            TEST 5 - SA-install config and persistence: PASS ✓
+            - PATCH /api/dataset/{id}/sa-install with config (enabled:true, sa_21:true, freezer:true,
+              selection:{sa_21:["PGC|||Épicerie"]}) returns 200 with correct sa_install object ✓
+            - Called GET /phasage-summary 3 times consecutively to verify persistence
+            - All 3 calls returned IDENTICAL sa_install config (enabled:true, sa_21:true, freezer:true,
+              selection:{sa_21:["PGC|||Épicerie"]}) ✓
+            - Persistence in MongoDB working correctly, no cache issues ✓
+
+  - task: "Step2-validation: surface_missing + dongles_missing + unprocessed_refs (exclusion lignes système)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: >
+            TESTED AND VERIFIED. Test suite at /app/backend_test_sa_phasage.py.
+            
+            TEST 6 - Initial validation (no surface, no dongles): PASS ✓
+            - GET /api/dataset/{id}/step2-validation on fresh dataset returns ok:false
+            - issues array contains BOTH "surface_missing" AND "dongles_missing" as expected ✓
+            
+            TEST 7 - Dongles cache fix: PASS ✓
+            - PATCH /api/dataset/{id}/dongles with quantity:10 returns 200 ✓
+            - Immediately called GET /step2-validation (testing cache refresh fix)
+            - "dongles_missing" NO LONGER present in issues ✓
+            - dongles_quantity correctly reflects 10 immediately (cache fix working) ✓
+            
+            TEST 8 - Surface fix + system rows exclusion: PASS ✓
+            - PATCH /api/dataset/{id}/surface with category:"plus_10000" returns 200 ✓
+            - GET /step2-validation shows "surface_missing" gone ✓
+            - CRITICAL: Auto-generated "Support individuel alu SA" line (kind:surface_added, empty reference)
+              does NOT trigger "unprocessed_refs" (system rows correctly excluded) ✓
+            - After surface+dongles set (no bad user refs), ok:true as expected ✓
+            
+            TEST 9 - Manual rows with bad refs: PASS ✓
+            - POST /api/dataset/{id}/recap-row to add manual row, then PATCH to set reference:"AUTRE1" (non-numeric)
+            - GET /step2-validation shows "unprocessed_refs" in issues with count:1 and designation:"Test Manual Row" ✓
+            - PATCH reference back to "88888" (numeric)
+            - GET /step2-validation shows "unprocessed_refs" gone, ok:true ✓
+            
+            REGRESSION TEST - Totals stability: PASS ✓
+            - Called GET /phasage-summary 5 times consecutively
+            - All totals (es_15, es_21, sa_15, sa_21, sa_21_std, sa_21_freezer) IDENTICAL across all 5 fetches ✓
+            - NO DRIFT detected, determinism confirmed ✓
+
 metadata:
   created_by: "main_agent"
   version: "1.2"
@@ -302,7 +400,9 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Backend logique SA phasage : breakdown secteur/rayon + freezer, config sa-install, step2-validation"
+  stuck_tasks: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -595,3 +695,98 @@ agent_communication:
         
         The 5-step wizard UI is PRODUCTION-READY. All critical functionality verified including
         the key blocking modal feature which correctly prevents navigation when validation fails.
+    - agent: "main"
+      message: >
+        TESTER BACKEND (logique SA phasage additive + fixes). Login admin :
+        admin@vusion.local / admin123. Uploader un Excel (colonnes exactes : Secteur, Rayon,
+        "N° allée", Type, Référence, Désignation, Quantité) avec des lignes SA variées :
+        "SA 1.5 (noir)", "SA 2.1 (noir)", "SA 2.1 Freezer noir" réparties sur >=2 secteurs/rayons.
+        À VÉRIFIER via GET /api/dataset/{id}/phasage-summary :
+        1) totals contient sa_15, sa_21 (= toutes 2.1 freezer inclus), sa_21_freezer (sous-ensemble),
+           sa_21_std (= sa_21 - freezer, >=0). Cohérence : sa_21 == sa_21_std + sa_21_freezer.
+        2) "sa_breakdown" est une liste de secteurs -> chacun {secteur, sa_15, sa_21_std,
+           sa_21_freezer, rayons:[{rayon, sa_15, sa_21_std, sa_21_freezer}]}. Somme des rayons ==
+           total secteur ; somme des secteurs == totals. Les secteurs/rayons sans SA sont exclus.
+        3) allees[] contient désormais sa_21_freezer et sa_21_std par allée.
+        4) "sa_install" présent (défaut enabled:false).
+        CONFIG SA : PATCH /api/dataset/{id}/sa-install avec
+           {"enabled":true,"sa_21":true,"freezer":true,"selection":{"sa_21":["<secteur>|||<rayon>"]}}
+           -> 200 {sa_install:{...}}. Re-GET summary -> sa_install persiste (même après un autre GET,
+           tester la persistance en base : refaire GET plusieurs fois).
+        STEP2-VALIDATION (fixes) : GET /api/dataset/{id}/step2-validation.
+        5) Sans surface ni dongles -> ok:false, issues contient surface_missing et dongles_missing.
+        6) PATCH /dongles {"quantity":10} PUIS GET step2-validation -> dongles_missing DISPARAÎT
+           (test du fix de cache : le dongles doit être pris en compte immédiatement, dongles_quantity=10).
+        7) PATCH /surface {"category":"plus_10000"} -> surface_missing disparaît. IMPORTANT : la ligne
+           auto "Support individuel alu SA" (kind surface_added, sans réf) ne doit PAS déclencher
+           unprocessed_refs (les lignes système sont exclues). 
+        8) Ajouter une ligne recap avec réf non numérique (ex via POST recap-row puis PATCH reference="AUTRE1")
+           -> unprocessed_refs apparaît ; remettre une réf numérique -> disparaît.
+        Après surface=plus_10000 + dongles=10 + refs OK -> step2-validation ok:true.
+        Vérifier aussi qu'aucune régression : summary["totals"] reste stable sur GET répétés.
+        Ne pas modifier le code.
+
+    - agent: "testing"
+      message: >
+        ✅✅✅ ALL SA PHASAGE + STEP2-VALIDATION TESTS PASSED ✅✅✅
+        
+        Created comprehensive test suite at /app/backend_test_sa_phasage.py. Uploaded Excel with
+        SA rows across multiple sectors/rayons (NAL/Conserves, NAL/Liquides, NAL/Bazar, PGC/Épicerie,
+        PGC/Frais, PGC/Frozen) with SA 1.5 (noir/blanc), SA 2.1 (noir), and SA 2.1 Freezer noir.
+        
+        TEST RESULTS (ALL PASS):
+        
+        ✅ TEST 1 - Totals structure and coherence: PASS
+           - totals contains sa_15, sa_21, sa_21_std, sa_21_freezer ✓
+           - Coherence: sa_21 == sa_21_std + sa_21_freezer (420 == 300 + 120) ✓
+           - Values match data: sa_15=280, sa_21=420, sa_21_std=300, sa_21_freezer=120 ✓
+        
+        ✅ TEST 2 - sa_breakdown structure: PASS
+           - sa_breakdown is list of sectors with correct structure ✓
+           - Sum of rayons == sector totals for all sectors ✓
+           - Sum of sectors == global totals ✓
+           - Sectors/rayons with zero SA correctly excluded ✓
+           - Found 2 sectors (NAL, PGC) with correct breakdown by rayon ✓
+        
+        ✅ TEST 3 - allees[] structure: PASS
+           - All allees contain sa_21_freezer and sa_21_std fields ✓
+           - Values correctly split between standard and freezer SA 2.1 ✓
+        
+        ✅ TEST 4 - sa_install default: PASS
+           - sa_install present with default enabled=False ✓
+        
+        ✅ TEST 5 - SA-install config and persistence: PASS
+           - PATCH /sa-install with config returns 200 with correct sa_install ✓
+           - Called GET /phasage-summary 3 times consecutively ✓
+           - All 3 calls returned IDENTICAL sa_install config (persistence working) ✓
+        
+        ✅ TEST 6 - step2-validation initial (no surface, no dongles): PASS
+           - Returns ok:false with "surface_missing" AND "dongles_missing" ✓
+        
+        ✅ TEST 7 - Dongles cache fix: PASS
+           - PATCH /dongles quantity:10 returns 200 ✓
+           - Immediately GET /step2-validation: "dongles_missing" NO LONGER present ✓
+           - dongles_quantity=10 reflected immediately (cache fix working) ✓
+        
+        ✅ TEST 8 - Surface fix + system rows exclusion: PASS
+           - PATCH /surface category:"plus_10000" returns 200 ✓
+           - "surface_missing" gone from issues ✓
+           - CRITICAL: Auto-generated "Support individuel alu SA" (kind:surface_added, empty ref)
+             does NOT trigger "unprocessed_refs" (system rows correctly excluded) ✓
+           - After surface+dongles set (no bad user refs), ok:true ✓
+        
+        ✅ TEST 9 - Manual rows with bad refs: PASS
+           - POST /recap-row + PATCH reference:"AUTRE1" (non-numeric) ✓
+           - GET /step2-validation shows "unprocessed_refs" with count:1 ✓
+           - PATCH reference:"88888" (numeric) ✓
+           - GET /step2-validation shows "unprocessed_refs" gone, ok:true ✓
+        
+        ✅ REGRESSION TEST - Totals stability: PASS
+           - Called GET /phasage-summary 5 times consecutively ✓
+           - All totals (es_15, es_21, sa_15, sa_21, sa_21_std, sa_21_freezer) IDENTICAL ✓
+           - NO DRIFT detected, determinism confirmed ✓
+        
+        ALL BACKEND FUNCTIONALITY WORKING CORRECTLY. All 10 test requirements from the review
+        request verified and passing. The SA phasage breakdown logic, sa-install config persistence,
+        and step2-validation fixes (including cache refresh and system row exclusion) are all
+        working as specified. Ready for main agent to summarize and finish.

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Plus, Trash2, Download } from "lucide-react";
 import { toast } from "sonner";
+import SaInstallPanel, { computeSaToInstall } from "./SaInstallPanel";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -105,6 +106,7 @@ export default function PhasageTab({ uploadId }) {
     const [storeName, setStoreName] = useState("");
     const [storeCode, setStoreCode] = useState("");
     const [storeInfoLoaded, setStoreInfoLoaded] = useState(false);
+    const [saInstall, setSaInstall] = useState(null);
 
     // Charger summary
     useEffect(() => {
@@ -118,6 +120,7 @@ export default function PhasageTab({ uploadId }) {
             .then((res) => {
                 if (!mounted) return;
                 setSummary(res.data);
+                setSaInstall(res.data.sa_install || null);
                 const ph = res.data.phasage || {};
                 const p = ph.es || { nb_nuits: 0, rows: [], weeks: null };
                 // Calcule le TOTAL EEG complet (même formule que la moyenne affichée)
@@ -378,7 +381,10 @@ export default function PhasageTab({ uploadId }) {
     // EEG par nuit = ES brut + bonus rails (mag1) + flèches + SA 1.5 (mag2) + saisonnier
     const eegPerNight = (esBrutNuit, seasonalNuit, bonusNuit, flechesNuit, sa15Nuit) =>
         Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0));
-    const totalEEG = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Saisonnier;
+    // SA à installer (hors saisonnier) selon la config utilisateur — ajouté aux EEG à poser
+    const saToInstall = computeSaToInstall(summary?.sa_breakdown, saInstall);
+    const saInstallTotal = (saToInstall.sa_15 || 0) + (saToInstall.sa_21 || 0) + (saToInstall.freezer || 0);
+    const totalEEG = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Saisonnier + saInstallTotal;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
     return (
@@ -478,6 +484,14 @@ export default function PhasageTab({ uploadId }) {
                 )}
             </div>
 
+            {/* Config : installer des EEG SA (hors saisonnier) */}
+            <SaInstallPanel
+                uploadId={uploadId}
+                breakdown={summary?.sa_breakdown}
+                initialConfig={saInstall}
+                onSaved={(cfg) => setSaInstall(cfg)}
+            />
+
             {/* Totaux globaux */}
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap items-start gap-2 text-xs flex-shrink-0">
                 <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded">
@@ -515,6 +529,16 @@ export default function PhasageTab({ uploadId }) {
                     <div className="px-3 py-1.5 bg-purple-50 border border-purple-200 rounded" title="SA 1.5 à poser (inclus dans Total EEG)">
                         <span className="text-gray-600">SA 1.5 (à poser) :</span>{" "}
                         <span className="font-mono-data font-bold text-purple-900">+{fmt(totalSA15)}</span>
+                    </div>
+                )}
+                {saInstallTotal > 0 && (
+                    <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-300 rounded" data-testid="sa-install-chip"
+                        title={`SA à installer — SA 1.5 ${fmt(saToInstall.sa_15)} / SA 2.1 ${fmt(saToInstall.sa_21)} / Freezer ${fmt(saToInstall.freezer)}`}>
+                        <span className="text-gray-600">EEG SA à installer :</span>{" "}
+                        <span className="font-mono-data font-bold" style={{ color: "#056839" }}>+{fmt(saInstallTotal)}</span>
+                        <span className="text-gray-400 text-[10px] ml-1">
+                            (1.5 {fmt(saToInstall.sa_15)} / 2.1 {fmt(saToInstall.sa_21)} / frz {fmt(saToInstall.freezer)})
+                        </span>
                     </div>
                 )}
                 <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded">
