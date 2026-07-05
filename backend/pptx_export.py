@@ -16,6 +16,7 @@ Style : couleurs par position de la nuit dans la semaine (cf. night_color_hex).
 from __future__ import annotations
 import copy
 import re
+import copy
 from datetime import datetime
 from pathlib import Path
 from io import BytesIO
@@ -34,7 +35,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 __PPTX_VERSION__ = "2026-02-27-v18-inclineur-short"
 
 # Palette par position dans la semaine (alignée Excel)
-WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5", "#EDE9FE"]
+WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
 WHITE = "#FFFFFF"
 HEADER_BG = "#1F2937"
 SUBHEADER_BG = "#F3F4F6"
@@ -528,14 +529,12 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     tables = _get_tables(slide)
     if len(tables) < 2:
         return
-    # Identifie laquelle est la grande (8 cols) vs la petite (5 cols)
-    t_phasage = None
-    t_date = None
-    for sh in tables:
-        if len(sh.table.columns) == 8:
-            t_phasage = sh.table
-        elif len(sh.table.columns) <= 7:
-            t_date = sh.table
+    # Identifie la grande table (phasage, 8→10 cols) vs la petite (date, ≤7 cols).
+    # On trie par nb de colonnes : phasage a toujours plus de colonnes que date.
+    # (Robuste même si la slide a déjà été élargie — cas des slides semaine clonées.)
+    tabs = sorted((sh.table for sh in tables), key=lambda t: len(t.columns), reverse=True)
+    t_phasage = tabs[0]
+    t_date = tabs[1]
     if t_phasage is None or t_date is None:
         return
 
@@ -970,6 +969,23 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     if len(slides) >= 21:
         _fill_slide_20(slides[20], agg["nuit_es"], agg["nuit_cam"],
                        agg["dates_map"], weeks_list)
+    # Semaines au-delà de 4 (jusqu'à 20 nuits = 5 semaines de 4) : on clone la
+    # dernière slide semaine du template (index 16) pour créer les slides
+    # manquantes, insérées juste après. Fait APRÈS les fills à index fixe pour
+    # ne pas décaler les slides caméras/full déjà remplies.
+    if len(weeks_list) > 4 and len(slides) >= 17:
+        cursor2 = sum(int(w or 0) for w in weeks_list[:4]) + 1
+        for j, w in enumerate(weeks_list[4:]):
+            ww = int(w or 0)
+            if ww <= 0:
+                continue
+            week_nights = list(range(cursor2, cursor2 + ww))
+            cursor2 += ww
+            new_slide = _duplicate_slide(prs, 16, 17 + j)
+            _fill_slide_week(new_slide, 5 + j, week_nights,
+                             agg["nuit_es"], agg["totals_by_nuit"],
+                             agg["dates_map"], weeks_list,
+                             hide_sa_mag=agg.get("hide_sa_mag", False))
     # Suppression des slides semaines non utilisées (en ordre décroissant pour
     # préserver les indices). Si magasin = 3 semaines → slide S4 supprimée.
     # Si 2 semaines → S3 et S4 supprimées. Etc.
@@ -988,6 +1004,27 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
+
+
+def _duplicate_slide(prs, src_index: int, dest_index: int):
+    """Clone la slide `src_index` (deep-copy des formes) et la déplace en
+    position `dest_index`. Utilisé pour créer une 5e slide "semaine" quand le
+    phasage dépasse 4 semaines (jusqu'à 20 nuits = 5 semaines de 4)."""
+    src = prs.slides[src_index]
+    new_slide = prs.slides.add_slide(src.slide_layout)
+    # Retire les placeholders hérités du layout
+    for shp in list(new_slide.shapes):
+        shp._element.getparent().remove(shp._element)
+    # Deep-copy des formes de la slide source (tables + textes ; pas d'images)
+    for shp in src.shapes:
+        new_slide.shapes._spTree.append(copy.deepcopy(shp._element))
+    # Réordonne : déplace la nouvelle slide (en dernier) vers dest_index
+    xml_slides = prs.slides._sldIdLst
+    ids = list(xml_slides)
+    new_id = ids[-1]
+    xml_slides.remove(new_id)
+    xml_slides.insert(dest_index, new_id)
+    return new_slide
 
 
 def _delete_slide(prs, slide_idx: int):

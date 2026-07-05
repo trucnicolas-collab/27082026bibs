@@ -34,20 +34,11 @@ function suggestEsConfig(totalEEG) {
     }
     // Aucune valeur ne respecte la limite (très gros magasin) → on garde 20 (max)
     if (best === null) best = MAX_ES_NIGHTS;
-    // Répartition en semaines. Jusqu'à 16 nuits : semaines de 4 + reste.
-    // 17-20 nuits : réparties sur 4 semaines (4-5 nuits/semaine) pour rester sur
-    // les 4 slides "semaine" du PPTX.
-    let weeks;
-    if (best <= 16) {
-        const full = Math.floor(best / 4);
-        const rest = best % 4;
-        weeks = Array(full).fill(4);
-        if (rest > 0) weeks.push(rest);
-    } else {
-        const base = Math.floor(best / 4);
-        const rem = best % 4;
-        weeks = Array.from({ length: 4 }, (_, i) => base + (i < rem ? 1 : 0));
-    }
+    // Répartition en semaines de 4 nuits + reste (ex : 20 → 5 semaines de 4).
+    const full = Math.floor(best / 4);
+    const rest = best % 4;
+    const weeks = Array(full).fill(4);
+    if (rest > 0) weeks.push(rest);
     return { nb_nuits: best, weeks };
 }
 function isStandardEsNightCount(n) {
@@ -62,7 +53,6 @@ const WEEK_COLORS = [
     { bg: "#FEF3C7", border: "#F59E0B" }, // 2 jaune doux
     { bg: "#FEE2E2", border: "#EF4444" }, // 3 rouge doux
     { bg: "#DCFCE7", border: "#22C55E" }, // 4 vert doux
-    { bg: "#EDE9FE", border: "#8B5CF6" }, // 5 violet doux (semaines de 5 nuits)
 ];
 
 /**
