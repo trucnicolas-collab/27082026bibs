@@ -5013,6 +5013,31 @@ async def step2_validation(upload_id: str, current_user: dict = Depends(get_curr
     }
 
 
+@api_router.get("/dataset/{upload_id}/wizard-status")
+async def wizard_status(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """État de complétude des étapes 3 (Phasage) et 4 (Dates) pour l'affichage
+    des badges de progression dans le stepper.
+      • step3_ready : au moins une ligne ES assignée à une nuit (phasage démarré).
+      • step4_ready : toutes les nuits du plan (union ES + Cam) ont une date saisie."""
+    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    ph = _normalize_phasage(d.get("phasage"))
+    es = ph.get("es") or {}
+    cam = ph.get("cam") or {}
+    es_rows = es.get("rows") or []
+    step3_ready = any(bool(r.get("nuit")) for r in es_rows)
+    start_at = int(cam.get("start_at_nuit") or 5)
+    max_nuit = max(int(es.get("nb_nuits") or 0), start_at + int(cam.get("nb_nuits") or 0) - 1)
+    dates = ph.get("dates") or {}
+    step4_ready = max_nuit > 0 and all(
+        str(dates.get(str(n)) or "").strip() for n in range(1, max_nuit + 1)
+    )
+    return {"step3_ready": step3_ready, "step4_ready": step4_ready}
+
+
+
+
 
 
 def _sa_install_key(sec, ray):

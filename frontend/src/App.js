@@ -122,6 +122,7 @@ function MainApp() {
     const [showBlocking, setShowBlocking] = useState(false);
     const [blockingIssues, setBlockingIssues] = useState([]);
     const [validatingStep2, setValidatingStep2] = useState(false);
+    const [wizardStatus, setWizardStatus] = useState({ step3_ready: false, step4_ready: false });
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(false);
     const [rawLoading, setRawLoading] = useState(false);
@@ -483,6 +484,24 @@ function MainApp() {
         return surfaceOk && donglesOk && !hasBadRef;
     }, [dataset]);
 
+    // Statut des étapes 3 (Phasage) et 4 (Dates) — récupéré côté backend
+    // (les données phasage/dates ne sont pas chargées dans le state front).
+    const refreshWizardStatus = useCallback(async () => {
+        if (!dataset?.upload_id) return;
+        try {
+            const res = await axios.get(`${API}/dataset/${dataset.upload_id}/wizard-status`, {
+                params: { _t: Date.now() },
+            });
+            setWizardStatus(res.data || { step3_ready: false, step4_ready: false });
+        } catch (_) { /* silencieux : badge non affiché en cas d'échec */ }
+    }, [dataset]);
+
+    // Rafraîchit le statut à chaque changement d'onglet/étape (les éditions de
+    // phasage/dates sont auto-sauvegardées côté backend → statut à jour à la nav).
+    useEffect(() => {
+        refreshWizardStatus();
+    }, [refreshWizardStatus, activeTab, currentStep, phasageVersion]);
+
     const applyStep = useCallback((target) => {
         const subs = stepSubTabs(target, dataset);
         const first = subs[0]?.id;
@@ -580,6 +599,8 @@ function MainApp() {
                             current={currentStep}
                             onGoStep={goToStep}
                             step2Ready={step2Ready}
+                            step3Ready={wizardStatus.step3_ready}
+                            step4Ready={wizardStatus.step4_ready}
                             subTabs={subTabs}
                             activeSubTab={activeTab}
                             onSubTab={onSubTab}

@@ -5,10 +5,12 @@ const BRAND = "#056839";
 
 // Barre de progression (stepper) + sous-onglets de l'étape + navigation Précédent/Suivant.
 export default function WizardSteps({
-    steps, current, onGoStep, step2Ready = false,
+    steps, current, onGoStep, step2Ready = false, step3Ready = false, step4Ready = false,
     subTabs = [], activeSubTab, onSubTab,
     onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "Suivant", nextLoading = false,
 }) {
+    const readyMap = { 2: step2Ready, 3: step3Ready, 4: step4Ready };
+    const readyLabel = { 2: "Complète", 3: "Prêt", 4: "Dates OK" };
     return (
         <div className="bg-white border-b border-gray-200" data-testid="wizard-steps">
             {/* Stepper */}
@@ -16,7 +18,7 @@ export default function WizardSteps({
                 {steps.map((s, idx) => {
                     const done = s.n < current;
                     const active = s.n === current;
-                    const showReadyBadge = s.n === 2 && step2Ready;
+                    const showReadyBadge = !!readyMap[s.n];
                     return (
                         <React.Fragment key={s.n}>
                             <button
@@ -47,10 +49,10 @@ export default function WizardSteps({
                                     <span
                                         className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap step-ready-badge"
                                         style={{ backgroundColor: "#e6f2ec", color: BRAND }}
-                                        data-testid="step2-ready-badge"
-                                        title="Surface, dongles et références OK — vous pouvez continuer"
+                                        data-testid={`step${s.n}-ready-badge`}
+                                        title="Étape complète — vous pouvez continuer"
                                     >
-                                        <Check className="w-3 h-3" /> Complète
+                                        <Check className="w-3 h-3" /> {readyLabel[s.n]}
                                     </span>
                                 )}
                             </button>
