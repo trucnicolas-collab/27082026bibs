@@ -2403,7 +2403,7 @@ async def get_phasage_summary(upload_id: str, current_user: dict = Depends(get_c
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     summary = compute_phasage_summary(d)
     summary["phasage"] = _normalize_phasage(d.get("phasage"))
-    summary["sa_install"] = d.get("sa_install") or {"enabled": False, "toutes": False, "sa_15": False, "sa_21": False, "freezer": False, "selection": {}}
+    summary["sa_install"] = d.get("sa_install") or {"enabled": False, "toutes": False, "sa_15": False, "sa_21": False, "freezer": False, "selection": {}, "answered": False}
     summary["vt_start_date"] = d.get("vt_start_date") or ""
     summary["store_name"] = d.get("store_name") or ""
     summary["store_code"] = d.get("store_code") or ""
@@ -4942,6 +4942,8 @@ class SaInstallConfig(BaseModel):
     freezer: bool = False          # inclure SA 2.1 freezer (toutes)
     # Sélection par secteur/rayon pour sa_15 / sa_21 (clés "secteur|||rayon")
     selection: dict = {}
+    # True une fois que l'utilisateur a répondu Oui/Non à l'écran d'intro Phasage
+    answered: bool = False
 
 
 @api_router.patch("/dataset/{upload_id}/sa-install")

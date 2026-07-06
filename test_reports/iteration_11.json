@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend E2E validation of SA-install intro screen + persistence flow on step 3 (Phasage). All specified test scenarios PASSED.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PhasageTab (grid) - table rows", "issues": ["React hydration warning: <span> cannot be child of <option> (dev-only wrapper x-ve-dynamic on <option> value). Harmless in prod but pollutes console."]}
+    ]
+  },
+  "test_scenarios_verified": [
+    "Login admin OK; open sample_full.xlsx session; navigate to wizard-step-3 OK",
+    "After PATCH answered=false: sa-install-intro rendered, phasage-nb-nuits absent",
+    "sa-intro-continue disabled=true before any choice, enabled=false after clicking Non (i.e. becomes enabled)",
+    "Non + Continuer -> grid rendered (phasage-nb-nuits present), phasage-edit-sa button present, no sa-install-chip (expected, enabled=false)",
+    "Click phasage-edit-sa -> returns to sa-install-intro (setIntroDone(false) works)",
+    "Oui + sa-type-toutes -> intro shows '= +100 EEG'; Continue -> grid shows sa-install-chip 'EEG SA à installer : +100 (1.5 45 / 2.1 45 / frz 10)'",
+    "Persistence: navigate to wizard-step-2 then back to wizard-step-3 -> intro NOT shown, grid shown directly (answered=true persisted)",
+    "GET /api/dataset/{id}/phasage-summary returns sa_install.answered=true, enabled=true, toutes=true",
+    "Regression: row-nuit-r1 dropdown value change 1 -> 2 works"
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "(Optional/minor) Investigate React hydration warning about <span> child of <option> in PhasageTab dropdowns (likely dev-instrumentation x-ve-dynamic wrapper). Not blocking."
+  ],
+  "critical_code_review_comments": [
+    "SaInstallPanel intro-mode + PhasageTab introDone gate works correctly and persists via PATCH /sa-install answered field.",
+    "PhasageTab dropdown option elements produce a hydration console warning in dev; verify that production build is unaffected."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not requested)", "frontend": "100%"},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Reset dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42 sa_install to {answered:false, enabled:false} via PATCH to test fresh intro flow. Ended run with enabled=true, toutes=true, answered=true.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The feature works end-to-end. Backend PATCH /api/dataset/{id}/sa-install with {answered:false, enabled:false} can be used to reset the intro gate for retesting.",
+  "rca of the issue": "N/A - feature working as designed"
+}

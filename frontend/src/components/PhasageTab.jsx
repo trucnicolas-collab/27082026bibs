@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
-import { Plus, Trash2, Download } from "lucide-react";
+import { Plus, Trash2, Download, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import SaInstallPanel, { computeSaToInstall, computeNodeSaInstall, nodeSaTotal } from "./SaInstallPanel";
 
@@ -108,6 +108,8 @@ export default function PhasageTab({ uploadId }) {
     const [storeCode, setStoreCode] = useState("");
     const [storeInfoLoaded, setStoreInfoLoaded] = useState(false);
     const [saInstall, setSaInstall] = useState(null);
+    // Écran d'intro « EEG SA à poser » avant la grille de phasage (gate).
+    const [introDone, setIntroDone] = useState(false);
 
     // Charger summary
     useEffect(() => {
@@ -122,6 +124,9 @@ export default function PhasageTab({ uploadId }) {
                 if (!mounted) return;
                 setSummary(res.data);
                 setSaInstall(res.data.sa_install || null);
+                // Si l'utilisateur a déjà répondu Oui/Non (answered), on va
+                // directement à la grille ; sinon on affiche l'écran d'intro.
+                setIntroDone(!!(res.data.sa_install && res.data.sa_install.answered));
                 const ph = res.data.phasage || {};
                 const p = ph.es || { nb_nuits: 0, rows: [], weeks: null };
                 // Calcule le TOTAL EEG complet (même formule que la moyenne affichée)
@@ -402,6 +407,23 @@ export default function PhasageTab({ uploadId }) {
     const totalEEG = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Saisonnier + saInstallTotal;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
+    // Écran d'intro « Étiquettes SA à poser » — bloque la grille tant que
+    // l'utilisateur n'a pas répondu Oui/Non (déplacé avant le phasage).
+    if (!introDone) {
+        return (
+            <div className="h-full flex flex-col bg-white" data-testid="phasage-tab">
+                <SaInstallPanel
+                    mode="intro"
+                    uploadId={uploadId}
+                    breakdown={summary?.sa_breakdown}
+                    initialConfig={saInstall}
+                    onSaved={(cfg) => setSaInstall(cfg)}
+                    onContinue={(cfg) => { setSaInstall(cfg); setIntroDone(true); }}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="h-full flex flex-col bg-white" data-testid="phasage-tab">
             {/* Barre supérieure : nb nuits + moyenne + export */}
@@ -424,9 +446,18 @@ export default function PhasageTab({ uploadId }) {
                     <span className="opacity-80">EEG</span>
                 </div>
                 <button
+                    onClick={() => setIntroDone(false)}
+                    data-testid="phasage-edit-sa"
+                    className="ml-auto h-7 px-2.5 text-xs font-medium bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-100 flex items-center gap-1.5"
+                    title="Modifier les EEG SA à poser"
+                >
+                    <PackagePlus className="w-3.5 h-3.5" />
+                    EEG SA à poser
+                </button>
+                <button
                     onClick={handleExport}
                     data-testid="phasage-export"
-                    className="ml-auto h-7 px-2.5 text-xs font-medium bg-[#056839] text-white rounded hover:bg-[#04502b] flex items-center gap-1.5"
+                    className="h-7 px-2.5 text-xs font-medium bg-[#056839] text-white rounded hover:bg-[#04502b] flex items-center gap-1.5"
                 >
                     <Download className="w-3.5 h-3.5" />
                     Exporter cette vue
@@ -499,13 +530,8 @@ export default function PhasageTab({ uploadId }) {
                 )}
             </div>
 
-            {/* Config : installer des EEG SA (hors saisonnier) */}
-            <SaInstallPanel
-                uploadId={uploadId}
-                breakdown={summary?.sa_breakdown}
-                initialConfig={saInstall}
-                onSaved={(cfg) => setSaInstall(cfg)}
-            />
+            {/* Config : installer des EEG SA (hors saisonnier) — déplacée dans
+                l'écran d'intro. Bouton pour revenir modifier la réponse. */}
 
             {/* Totaux globaux */}
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap items-start gap-2 text-xs flex-shrink-0">
