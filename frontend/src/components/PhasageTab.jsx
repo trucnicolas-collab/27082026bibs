@@ -259,6 +259,26 @@ export default function PhasageTab({ uploadId }) {
         setRows((prev) => prev.filter((r) => r.id !== id));
     }, []);
 
+    // Recalcule le nb de nuits suggéré à partir du total EEG COMPLET (incluant
+    // les SA à installer choisies dans l'intro). Appelé au « Continuer ».
+    const recomputeNightsForSaInstall = useCallback((saCfg) => {
+        if (!summary) return;
+        const t = summary.totals || {};
+        const isMag2 = (summary.store_mode || "magasin_1") === "magasin_2";
+        const totalESBrut = (t.es_15 || 0) + (t.es_21 || 0);
+        const totalES15Bonus = isMag2 ? 0 : ((t.es_15_bonus_noir || 0) + (t.es_15_bonus_blanc || 0));
+        const totalFleches = t.fleches || 0;
+        const totalSA15 = isMag2 ? (t.sa_15 || 0) : 0;
+        const sa21Sais = summary.sa_21_saisonnier || 0;
+        const inst = computeSaToInstall(summary.sa_breakdown, saCfg);
+        const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0);
+        const total = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Sais + instTotal;
+        const sugg = suggestEsConfig(total);
+        setNbNuits(sugg.nb_nuits);
+        setWeeks(sugg.weeks);
+        setRows((prev) => prev.map((r) => (r.nuit && r.nuit > sugg.nb_nuits ? { ...r, nuit: null } : r)));
+    }, [summary]);
+
     // Validation : ajuster nuits si nb_nuits diminue
     const onChangeNbNuits = useCallback((n) => {
         const v = Math.max(1, Math.min(MAX_ES_NIGHTS, Number(n) || 1));
@@ -418,7 +438,7 @@ export default function PhasageTab({ uploadId }) {
                     breakdown={summary?.sa_breakdown}
                     initialConfig={saInstall}
                     onSaved={(cfg) => setSaInstall(cfg)}
-                    onContinue={(cfg) => { setSaInstall(cfg); setIntroDone(true); }}
+                    onContinue={(cfg) => { setSaInstall(cfg); setIntroDone(true); recomputeNightsForSaInstall(cfg); }}
                 />
             </div>
         );
