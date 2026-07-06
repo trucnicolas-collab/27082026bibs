@@ -95,9 +95,20 @@ button:not(:disabled):active,
     border-radius: 6px;
 }
 
+/* Badge « Étape complète » : petit pop à l'apparition */
+@keyframes step-ready-pop {
+    0%   { opacity: 0; transform: scale(0.8); }
+    60%  { opacity: 1; transform: scale(1.06); }
+    100% { opacity: 1; transform: scale(1); }
+}
+.step-ready-badge {
+    animation: step-ready-pop 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+
 /* Respecte la préférence de réduction de mouvement */
 @media (prefers-reduced-motion: reduce) {
-    .eeg-fade-in, .eeg-fade, .eeg-spinner, .eeg-skeleton { animation: none; }
+    .eeg-fade-in, .eeg-fade, .eeg-spinner, .eeg-skeleton, .step-ready-badge { animation: none; }
     button:not(:disabled):active { transform: none; }
 }
 

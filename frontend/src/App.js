@@ -466,6 +466,23 @@ function MainApp() {
 
     const subTabs = useMemo(() => stepSubTabs(currentStep, dataset), [currentStep, dataset]);
 
+    // État "Étape 2 complète" calculé en direct (surface + dongles + refs valides),
+    // pour informer l'utilisateur avant de cliquer « Suivant ». Miroir de la logique
+    // backend /step2-validation (kinds système exclus, désignation vide ignorée).
+    const step2Ready = useMemo(() => {
+        const recap = dataset?.data?.recap || [];
+        const surfaceOk = ["plus_10000", "moins_10000"].includes(dataset?.surface_category);
+        const donglesOk = (dataset?.dongles_quantity || 0) > 0;
+        const hasBadRef = recap.some((r) => {
+            if (["section", "header", "empty", "surface_added", "dongle", "bonus"].includes(r.kind)) return false;
+            const desig = String(r.designation || "").trim();
+            if (!desig) return false;
+            const ref = String(r.reference || "").trim();
+            return !ref || !/^\d+$/.test(ref);
+        });
+        return surfaceOk && donglesOk && !hasBadRef;
+    }, [dataset]);
+
     const applyStep = useCallback((target) => {
         const subs = stepSubTabs(target, dataset);
         const first = subs[0]?.id;
@@ -562,6 +579,7 @@ function MainApp() {
                             steps={WIZARD_STEPS}
                             current={currentStep}
                             onGoStep={goToStep}
+                            step2Ready={step2Ready}
                             subTabs={subTabs}
                             activeSubTab={activeTab}
                             onSubTab={onSubTab}

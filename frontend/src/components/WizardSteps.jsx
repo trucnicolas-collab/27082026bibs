@@ -5,7 +5,7 @@ const BRAND = "#056839";
 
 // Barre de progression (stepper) + sous-onglets de l'étape + navigation Précédent/Suivant.
 export default function WizardSteps({
-    steps, current, onGoStep,
+    steps, current, onGoStep, step2Ready = false,
     subTabs = [], activeSubTab, onSubTab,
     onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "Suivant", nextLoading = false,
 }) {
@@ -16,6 +16,7 @@ export default function WizardSteps({
                 {steps.map((s, idx) => {
                     const done = s.n < current;
                     const active = s.n === current;
+                    const showReadyBadge = s.n === 2 && step2Ready;
                     return (
                         <React.Fragment key={s.n}>
                             <button
@@ -42,6 +43,16 @@ export default function WizardSteps({
                                 >
                                     {s.label}
                                 </span>
+                                {showReadyBadge && (
+                                    <span
+                                        className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap step-ready-badge"
+                                        style={{ backgroundColor: "#e6f2ec", color: BRAND }}
+                                        data-testid="step2-ready-badge"
+                                        title="Surface, dongles et références OK — vous pouvez continuer"
+                                    >
+                                        <Check className="w-3 h-3" /> Complète
+                                    </span>
+                                )}
                             </button>
                             {idx < steps.length - 1 && (
                                 <div className="flex-1 min-w-[16px] h-px mx-1" style={{ backgroundColor: s.n < current ? BRAND : "#e5e7eb" }} />
