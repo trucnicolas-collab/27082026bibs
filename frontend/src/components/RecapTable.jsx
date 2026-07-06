@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Info } from "lucide-react";
 
 function fmtNum(v) {
     if (v === "" || v === null || v === undefined) return "";
@@ -134,6 +134,10 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                     <span className="font-medium text-gray-800">Récapitulatif Produits</span>
                     <span className="ml-2 text-gray-500">
                         Cliquez sur une ligne vide pour saisir vos propres données
+                    </span>
+                    <span className="ml-2 inline-flex items-center gap-1 text-[#056839] font-medium" data-testid="eeg-step3-hint">
+                        <Info className="w-3.5 h-3.5" />
+                        Le choix des EEG à poser se fait à l'étape 3 (Phasage).
                     </span>
                 </div>
                 {/* Toggle surface + bouton ajouter ligne */}

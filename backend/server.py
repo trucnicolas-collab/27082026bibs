@@ -226,8 +226,35 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
     Si user_id est fourni, vérifie que le dataset appartient à cet utilisateur
     (ou est un dataset legacy sans owner — accessible par l'admin uniquement via filtre amont).
     """
+    # Champs éditables légers stockés à plat en Mongo. On les rafraîchit
+    # systématiquement (même sur cache hit) car l'environnement K8s peut avoir
+    # plusieurs réplicas : un PATCH sur le réplica A met à jour Mongo + son cache,
+    # mais un GET (ex. validation étape 2) peut arriver sur le réplica B dont le
+    # cache mémoire est périmé. Relire ces petits champs depuis Mongo garantit la
+    # cohérence sans recharger le gros payload gzippé (raw_records).
+    _EDITABLE_FLAT_FIELDS = (
+        "recap_rows", "comment_table", "phasage", "surface_category",
+        "dongles_quantity", "sa_install", "user_id",
+        "vt_start_date", "vt_end_date", "store_name", "store_city",
+        "store_code", "store_address", "participants",
+        "responsable_magasin", "responsable_vusion",
+        "prestataire_install", "plan_prevention_signe",
+        "doc_version", "date_validation_carrefour",
+    )
     if upload_id in DATASTORE:
         cached = DATASTORE[upload_id]
+        # Rafraîchit les champs éditables depuis Mongo (cross-réplica).
+        try:
+            fresh = await db.datasets.find_one(
+                {"upload_id": upload_id},
+                {"_id": 0, **{f: 1 for f in _EDITABLE_FLAT_FIELDS}},
+            )
+            if fresh:
+                for f in _EDITABLE_FLAT_FIELDS:
+                    if f in fresh:
+                        cached[f] = fresh[f]
+        except Exception as e:
+            logger.warning(f"load_dataset refresh flat fields failed: {e}")
         if user_id is not None:
             owner = cached.get("user_id")
             if owner is not None and owner != user_id:

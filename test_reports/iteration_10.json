@@ -1,0 +1,29 @@
+{
+  "summary": "Validation du fix cache multi-réplicas sur step2-validation. Backend: 6/6 tests pytest passent (test_step2_validation_cache.py) — PATCH /surface et PATCH /dongles sont IMMÉDIATEMENT reflétés dans GET /step2-validation. Cas négatif validé (surface_missing + dongles_missing renvoyés sur dataset vide). Frontend: login admin OK, ouverture du dataset existant sample_full.xlsx (fd15443f...) OK, étape 2 affiche bien le hint 'eeg-step3-hint' avec le texte 'Le choix des EEG à poser se fait à l'étape 3 (Phasage).'. Clic sur data-testid=surface-plus + saisie dongles-quantity=22 + Enter → passage à l'étape 3 (Phasage) RÉUSSI sans aucun modal de blocage. Le bug prod 'Surface non renseignée / Dongles non renseigné' est bien corrigé.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Wizard <option>", "issues": ["Warning React persistant (dev-only): '<span> cannot be a child of <option>. This will cause a hydration error.' — présent dans les <select> avec badge/span dans <option>. Cosmétique, hors scope de ce fix, déjà signalé itération 9."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_step2_validation_cache.py",
+    "/app/test_reports/pytest/step2_cache.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Le refresh des _EDITABLE_FLAT_FIELDS depuis Mongo sur cache hit (load_dataset, backend/server.py ligne ~244-257) résout bien le problème cross-réplica. Le champ 'surface_category' est explicitement listé et écrasé côté cache — testé et validé.",
+    "Note d'archi: le refresh se fait à CHAQUE load_dataset (même sur GET simples). Impact perf: 1 requête Mongo find_one avec projection sur ~15 petits champs → négligeable, mais mesurable sur endpoints très chauds (raw, export). OK pour l'usage actuel, mais surveiller si le trafic augmente. Alternative future: cache TTL court (ex: 2 s) ou invalidation via pub/sub Mongo change stream.",
+    "Rappel: PhasageTab.jsx >800 lignes à découper (persistant depuis itération 7)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "6/6 (100%)", "frontend": "5/5 flows validés"},
+  "test_credentials": "admin@vusion.local / admin123 — dataset existant sample_full.xlsx (fd15443f-6d2a-4cef-bd72-c56bb29e9c42)",
+  "seed_data_creation": "Test backend crée un dataset TEST_step2.xlsx (uploadé puis supprimé automatiquement en fin de fixture).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le fix cache multi-réplicas sur load_dataset() est validé. Les 6 tests dans /app/backend/tests/test_step2_validation_cache.py peuvent être ré-exécutés à tout moment (fixtures auto-nettoyantes). En prod avec plusieurs réplicas K8s, le fix devrait tenir : chaque load_dataset relit les champs légers depuis Mongo (source de vérité). Attention: l'endpoint step2-validation dépend aussi de recap_rows (pour bad_refs) qui est déjà dans _EDITABLE_FLAT_FIELDS → cohérent.",
+  "rca of the issue": "RCA confirmée par le main agent: DATASTORE cache mémoire par pod K8s. En prod multi-réplicas, PATCH /surface sur pod A → Mongo updated + cache A updated, MAIS GET /step2-validation pouvait tomber sur pod B avec cache périmé (surface_category=None) → modal bloquant à tort. Fix: load_dataset refresh les champs éditables légers depuis Mongo sur chaque hit cache (projection légère, pas de re-décompression du payload). Testé PATCH→GET immédiat (surface_category=plus_10000/moins_10000, dongles_quantity=22→0) : les valeurs sont bien lues après chaque PATCH."
+}
