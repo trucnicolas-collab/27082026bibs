@@ -1,5 +1,9 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 25/06/2026
+- [x] **BUG P0 corrigé (validation étape 2 en prod)** : le modal « Surface non renseignée / Dongles non renseigné » s'affichait à tort en production même après saisie. Cause racine : cache mémoire `DATASTORE` par réplica K8s → un PATCH surface/dongles sur le réplica A mettait à jour Mongo + cache A, mais le GET `/step2-validation` pouvait arriver sur le réplica B avec un cache périmé. Fix : `load_dataset()` rafraîchit désormais les champs éditables légers (surface_category, dongles_quantity, recap_rows, phasage, comment_table, sa_install, métadonnées magasin) depuis Mongo à chaque cache hit (projection légère, sans re-décompresser le payload). Validé : backend 6/6 pytest, frontend 5/5 flux (testing_agent iteration_10).
+- [x] **UX étape 2** : ajout d'un texte d'aide (data-testid `eeg-step3-hint`) indiquant « Le choix des EEG à poser se fait à l'étape 3 (Phasage). »
+
 ## Changelog 24/06/2026
 - [x] **Export Carrefour : ajout des 2 feuilles « Recap par secteur »** (par rayon + global) — mêmes données que dans l'export RTR (factorisé via `_write_par_secteur_sheets`).
 - [x] **PPTX : rendu des sections** (séparateurs bleu clair `#DDEBF7` sur la colonne Désignation) directement dans le tableau slide 9 — pas de nouvelles colonnes, mais le contexte des sections est désormais visible.
