@@ -1,6 +1,11 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
 ## Changelog 25/06/2026
+- [x] **Export PPTX — nettoyage des tableaux de phasage** (validé sur fichier généré) :
+  - Slide « Plan de phasage … complet » : affiche désormais TOUTES les nuits (jusqu'à 20, plus de troncature 17-20) ; ligne « Caméra » retirée.
+  - Slides « Récap par nuit » (complète, semaines, caméras) : colonne vide résiduelle de droite supprimée (`_trim_table_cols`) + hauteurs compactes.
+  - Slides par semaine : suppression du petit tableau horizontal redondant (Date/EEG/Caméra/SA posées) et de l'en-tête noir du tableau détaillé restant (les en-têtes de colonnes passent en ligne 0).
+  - Helpers ajoutés dans `pptx_export.py` : `_trim_table_cols`, `_remove_table_row`.
 - [x] **Nb de nuits recalculé automatiquement après la sélection SA** : au clic « Continuer vers le phasage », le nombre de nuits suggéré est recalculé à partir du total EEG COMPLET incluant les EEG SA à installer (auparavant la suggestion ignorait les SA choisies → nb de nuits non aligné sur la moyenne). Vérifié via screenshot (Total 6 335, nb nuits 10, moyenne 634 EEG/nuit).
 - [x] **Questions « Étiquettes SA à poser » déplacées avant la grille de phasage** : à l'étape 3, un écran d'intro (data-testid `sa-install-intro`) pose la question « Devez-vous installer des EEG SA hors zone saisonnière ? » (Oui/Non + cases). Le bouton « Continuer vers le phasage » (data-testid `sa-intro-continue`) est bloqué tant qu'on n'a pas répondu Oui/Non. Champ backend `answered` persisté (SaInstallConfig) → au retour, on accède directement à la grille. Bouton « EEG SA à poser » (data-testid `phasage-edit-sa`) dans la barre du haut pour revenir modifier. Validé testing_agent iteration_11 (frontend 100%).
 - [x] **Fil de progression complet dans le stepper** : badges verts animés par étape — « Complète » (étape 2), « Prêt » (étape 3 Phasage, dès qu'une allée ES est assignée à une nuit), « Dates OK » (étape 4, quand toutes les nuits du plan ont une date). Statut 3/4 via nouvel endpoint `GET /api/dataset/{id}/wizard-status` (calcul backend sur phasage/dates), rafraîchi à chaque navigation d'onglet/étape. Vérifié via curl + screenshot.

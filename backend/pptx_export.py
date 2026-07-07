@@ -209,6 +209,32 @@ def _ensure_table_cols(table, n_cols: int, label_cols: int = 1):
                 gc.set('w', str(new_w))
 
 
+def _trim_table_cols(table, n_cols: int):
+    """Supprime les colonnes au-delà de n_cols (gridCol + tc dans chaque tr).
+    Sert à retirer les colonnes vides résiduelles du template (à droite)."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    tbl = table._tbl
+    grid = tbl.find(f'{{{NS}}}tblGrid')
+    if grid is None:
+        return
+    grid_cols = grid.findall(f'{{{NS}}}gridCol')
+    if len(grid_cols) <= n_cols:
+        return
+    for gc in grid_cols[n_cols:]:
+        grid.remove(gc)
+    for tr in tbl.findall(f'{{{NS}}}tr'):
+        tcs = tr.findall(f'{{{NS}}}tc')
+        for tc in tcs[n_cols:]:
+            tr.remove(tc)
+
+
+def _remove_table_row(table, row_idx: int):
+    """Supprime la ligne d'index row_idx (utile pour retirer un en-tête/bandeau)."""
+    trs = table._tbl.findall(qn('a:tr'))
+    if 0 <= row_idx < len(trs):
+        trs[row_idx].getparent().remove(trs[row_idx])
+
+
 def _fmt_date(iso: str | None) -> str:
     if not iso:
         return ""
@@ -440,23 +466,21 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
     if not tables:
         return
     t = tables[0].table
-    # cols template = 1 + max_nights. On étend si besoin.
+    # Étend/tronque le nb de colonnes pour couvrir TOUTES les nuits (plus de
+    # troncature : les nuits 17-20 étaient perdues auparavant).
     needed_cols = 1 + len(all_nights)
-    cur_cols = len(t.columns)
-    if needed_cols > cur_cols:
-        # Pas de clone de colonne facile dans python-pptx — on tronque à cur_cols-1
-        all_nights = all_nights[: cur_cols - 1]
+    _ensure_table_cols(t, needed_cols, label_cols=1)
+    _trim_table_cols(t, needed_cols)
 
     # Row 0 : header (Nuit X)
     _set_cell_text(t.cell(0, 0), "", bold=True, size=10)
     for i, n in enumerate(all_nights):
         _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=10)
         _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
-    # Vide les colonnes restantes
-    for i in range(len(all_nights) + 1, cur_cols):
-        _set_cell_text(t.cell(0, i), "", size=10)
 
-    labels = ["Date", "EEG", "Caméra", "SA posées"]
+    # Ligne « Caméra » retirée (les caméras ont leurs propres slides).
+    labels = ["Date", "EEG", "SA posées"]
+    _ensure_table_size(t, 1 + len(labels))
     for li, lab in enumerate(labels):
         r = li + 1
         _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=10)
@@ -466,14 +490,16 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
                 val = _fmt_date(dates_map.get(str(n)))
             elif lab == "EEG":
                 val = _num(tot.get("eeg", 0))
-            elif lab == "Caméra":
-                val = _num(tot.get("cam", 0))
             else:
                 val = _num(tot.get("sa", 0))
             _set_cell_text(t.cell(r, i + 1), val, size=10,
                            bold=(lab == "EEG"),
                            align="center")
             _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+    # Supprime les lignes résiduelles (ancienne ligne Caméra / SA en trop)
+    while len(t.rows) > 1 + len(labels):
+        last_tr = t._tbl.findall(qn('a:tr'))[-1]
+        last_tr.getparent().remove(last_tr)
 
 
 # ===================================================================
@@ -491,6 +517,7 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     headers = _phasage_headers(hide_sa_mag)
     ncols = len(headers)
     _ensure_table_cols(t, ncols, label_cols=1)
+    _trim_table_cols(t, ncols)  # retire la colonne vide résiduelle à droite
     _set_col_widths_by_ratio(t, _phasage_ratios(hide_sa_mag))
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=11)
     for ci, h in enumerate(headers):
@@ -527,35 +554,32 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
 def _fill_slide_week(slide, week_index: int, week_nights: list[int],
                      nuit_es_data, totals_by_nuit, dates_map, weeks, hide_sa_mag=False):
     tables = _get_tables(slide)
-    if len(tables) < 2:
+    if not tables:
         return
-    # Identifie la grande table (phasage, 8→10 cols) vs la petite (date, ≤7 cols).
-    # On trie par nb de colonnes : phasage a toujours plus de colonnes que date.
-    # (Robuste même si la slide a déjà été élargie — cas des slides semaine clonées.)
-    tabs = sorted((sh.table for sh in tables), key=lambda t: len(t.columns), reverse=True)
-    t_phasage = tabs[0]
-    t_date = tabs[1]
-    if t_phasage is None or t_date is None:
-        return
+    # La grande table (phasage détaillé) a le plus de colonnes ; on la garde.
+    # Le petit tableau horizontal (Date/EEG/Caméra/SA posées) est SUPPRIMÉ.
+    shapes_sorted = sorted(tables, key=lambda sh: len(sh.table.columns), reverse=True)
+    phasage_shape = shapes_sorted[0]
+    t_phasage = phasage_shape.table
+    for sh in shapes_sorted[1:]:
+        sh._element.getparent().remove(sh._element)
 
-    # === Phasage EEG/Rails (7×8) ===
-    n_data = len(week_nights)
-    needed = 2 + n_data
-    _ensure_table_size(t_phasage, needed)
-    # Le template a déjà un titre fusionné en row 0 — on n'écrase PAS le fond
-    # foncé existant, on écrit juste un titre clair. Si c'était une bandeau noire
-    # involontaire, l'utilisateur peut la supprimer manuellement du template.
-    _set_cell_text(t_phasage.cell(0, 0),
-                   f"Semaine {week_index} (Nuits {week_nights[0]} → {week_nights[-1]})",
-                   bold=True, align="center", size=11)
+    # Retire l'en-tête NOIR (bandeau fusionné en row 0 du template).
+    _remove_table_row(t_phasage, 0)
+
+    # === Phasage EEG/Rails détaillé (en-têtes en row 0, data à partir de row 1) ===
     headers = _phasage_headers(hide_sa_mag)
     ncols = len(headers)
+    n_data = len(week_nights)
+    needed = 1 + n_data
+    _ensure_table_size(t_phasage, needed)
     _ensure_table_cols(t_phasage, ncols, label_cols=1)
+    _trim_table_cols(t_phasage, ncols)  # retire la colonne vide résiduelle
     _set_col_widths_by_ratio(t_phasage, _phasage_ratios(hide_sa_mag))
     for ci, h in enumerate(headers):
-        _set_cell_text(t_phasage.cell(1, ci), h, bold=True, align="center", size=9)
+        _set_cell_text(t_phasage.cell(0, ci), h, bold=True, align="center", size=9)
     for i, n in enumerate(week_nights):
-        r = i + 2
+        r = i + 1
         d = nuit_es_data.get(n, {})
         _set_cell_text(t_phasage.cell(r, 0), f"Nuit {n}", bold=True, size=9)
         _set_cell_text(t_phasage.cell(r, 1), _fmt_date(d.get("date") or dates_map.get(str(n))), size=9)
@@ -571,43 +595,13 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t_phasage.cell(r, ci), color)
-    # Supprime les lignes vides finales (au-delà de 2 + n_data)
+    # Supprime les lignes vides finales (au-delà de 1 + n_data)
     while len(t_phasage.rows) > needed:
         last_tr = t_phasage._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-
-    # === Tableau date (5 × N) ===
-    # Étend le nb de colonnes pour couvrir toutes les nuits de la semaine
-    # (jusqu'à 5 nuits/semaine possible avec 20 nuits max).
-    _ensure_table_cols(t_date, 1 + n_data, label_cols=1)
-    cur_cols = len(t_date.columns)
-    nights_in_date = week_nights[: cur_cols - 1]
-    _set_cell_text(t_date.cell(0, 0), "", size=10)
-    for i, n in enumerate(nights_in_date):
-        _set_cell_text(t_date.cell(0, i + 1), f"Nuit {n}", bold=True, size=10)
-        _set_cell_fill(t_date.cell(0, i + 1), _color_for_night(n, weeks))
-    # Vide colonnes restantes
-    for i in range(len(nights_in_date) + 1, cur_cols):
-        _set_cell_text(t_date.cell(0, i), "", size=10)
-    labels = ["Date", "EEG", "Caméra", "SA posées"]
-    for li, lab in enumerate(labels):
-        r = li + 1
-        _set_cell_text(t_date.cell(r, 0), lab, bold=True, align="left", size=10)
-        for i, n in enumerate(nights_in_date):
-            tot = totals_by_nuit.get(n, {})
-            if lab == "Date":
-                val = _fmt_date(dates_map.get(str(n)))
-            elif lab == "EEG":
-                val = _num(tot.get("eeg", 0))
-            elif lab == "Caméra":
-                val = _num(tot.get("cam", 0))
-            else:
-                val = _num(tot.get("sa", 0))
-            _set_cell_text(t_date.cell(r, i + 1), val,
-                           bold=(lab == "EEG"), size=10)
-            _set_cell_fill(t_date.cell(r, i + 1), _color_for_night(n, weeks))
-        for i in range(len(nights_in_date) + 1, cur_cols):
-            _set_cell_text(t_date.cell(r, i), "", size=10)
+    # Hauteurs compactes (le tableau prend moins de place)
+    for tr in t_phasage._tbl.findall(qn('a:tr')):
+        tr.set('h', '280000')
 
 
 # ===================================================================
@@ -655,6 +649,7 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
     nights = sorted(nuit_cam_data.keys())
     needed = 2 + len(nights)
     _ensure_table_size(t, needed)
+    _trim_table_cols(t, 5)  # retire la colonne vide résiduelle à droite
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=12)
     for ci, h in enumerate(["Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]):
         _set_cell_text(t.cell(1, ci), h, bold=True, size=10)
