@@ -1,6 +1,7 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
 ## Changelog 25/06/2026
+- [x] **Masquage des colonnes SA par semaine** : sur chaque slide/feuille semaine, les colonnes SA (SA 1.5 / SA 2.1 / SA 2.1 frz / SA info) ne s'affichent que si des SA sont posées sur les nuits de CETTE semaine (calcul par semaine et non global). Appliqué au PPTX (`_fill_slide_week`) et aux 2 Excel (`_write_week_sheets`). Vérifié : S1 (avec SA) → colonnes SA visibles ; S2/S3 (sans SA) → colonnes de base uniquement.
 - [x] **Tableaux par semaine détaillés + harmonisation PPTX/Excel** :
   - PPTX slides semaine : remplacement du petit transposé par un tableau détaillé `Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES` + colonnes **SA à installer dynamiques** (SA 1.5 / SA 2.1 / SA 2.1 frz affichées seulement si posées ; « SA » magasin hors phasage en italique si présente) + ligne **« Sous-total S{n} »**.
   - Les 2 exports Excel : feuille « Récap par nuit » enrichie de lignes **Sous-total S{n}** ; ajout de **feuilles par semaine** (`Semaine S1…`) identiques au tableau PPTX (helper `_write_week_sheets`).

@@ -4622,23 +4622,8 @@ def _write_week_sheets(wb, writer, agg):
     if not weeks_es:
         return
     es = agg["es_per_nuit"]
-    tot15 = sum((b.get("sa_inst_15") or 0) for b in es.values())
-    tot21 = sum((b.get("sa_inst_21") or 0) for b in es.values())
-    totfz = sum((b.get("sa_inst_freezer") or 0) for b in es.values())
-    totmag = sum((b.get("sa_mag") or 0) for b in es.values())
-    sa_cols = []  # (header, key(s), italic)
-    if tot15 > 0:
-        sa_cols.append(("SA 1.5", ("sa_inst_15",), False))
-    if tot21 > 0:
-        sa_cols.append(("SA 2.1", ("sa_inst_21",), False))
-    if totfz > 0:
-        sa_cols.append(("SA 2.1 frz", ("sa_inst_freezer",), False))
-    if totmag > 0:
-        sa_cols.append(("SA", ("sa_mag",), True))
     base_cols = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES"]
     base_w = [10, 12, 28, 36, 12, 12]
-    cols = base_cols + [c[0] for c in sa_cols]
-    widths = base_w + [11] * len(sa_cols)
 
     fmt_h = wb.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
                            "border": 1, "align": "center", "valign": "vcenter"})
@@ -4660,6 +4645,19 @@ def _write_week_sheets(wb, writer, agg):
             continue
         nights = list(range(cur, cur + ww))
         cur += ww
+        # Colonnes SA dynamiques PAR SEMAINE (uniquement celles posées cette semaine)
+        wk = [es.get(n, {}) for n in nights]
+        sa_cols = []  # (header, key(s), italic)
+        if sum((b.get("sa_inst_15") or 0) for b in wk) > 0:
+            sa_cols.append(("SA 1.5", ("sa_inst_15",), False))
+        if sum((b.get("sa_inst_21") or 0) for b in wk) > 0:
+            sa_cols.append(("SA 2.1", ("sa_inst_21",), False))
+        if sum((b.get("sa_inst_freezer") or 0) for b in wk) > 0:
+            sa_cols.append(("SA 2.1 frz", ("sa_inst_freezer",), False))
+        if sum((b.get("sa_mag") or 0) for b in wk) > 0:
+            sa_cols.append(("SA", ("sa_mag",), True))
+        cols = base_cols + [c[0] for c in sa_cols]
+        widths = base_w + [11] * len(sa_cols)
         name = f"Semaine S{wi + 1}"
         ws = wb.add_worksheet(name)
         writer.sheets[name] = ws

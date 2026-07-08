@@ -628,13 +628,14 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         sh._element.getparent().remove(sh._element)
     _remove_table_row(t, 0)  # retire l'éventuel bandeau/en-tête noir du template
 
-    # Colonnes SA à installer dynamiques (globales) : on n'affiche que celles
-    # qui ont des SA à poser dans le phasage. « SA » (magasin, hors phasage)
-    # affichée pour info en italique si présente.
-    tot15 = sum((d.get("sa_inst_15") or 0) for d in nuit_es_data.values())
-    tot21 = sum((d.get("sa_inst_21") or 0) for d in nuit_es_data.values())
-    totfz = sum((d.get("sa_inst_freezer") or 0) for d in nuit_es_data.values())
-    totmag = sum((d.get("sa_mag") or 0) for d in nuit_es_data.values())
+    # Colonnes SA à installer dynamiques PAR SEMAINE : on n'affiche que celles
+    # qui ont des SA à poser sur les nuits de CETTE semaine. « SA » (magasin,
+    # hors phasage) affichée pour info en italique si présente cette semaine.
+    _wk = [nuit_es_data.get(n, {}) for n in week_nights]
+    tot15 = sum((d.get("sa_inst_15") or 0) for d in _wk)
+    tot21 = sum((d.get("sa_inst_21") or 0) for d in _wk)
+    totfz = sum((d.get("sa_inst_freezer") or 0) for d in _wk)
+    totmag = sum((d.get("sa_mag") or 0) for d in _wk)
     sa_cols = []  # (header, key, italic)
     if tot15 > 0:
         sa_cols.append(("SA 1.5", "sa_inst_15", False))
