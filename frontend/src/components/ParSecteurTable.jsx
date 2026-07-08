@@ -188,15 +188,6 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
                     </button>
                 </div>
 
-                <button
-                    onClick={handleExport}
-                    data-testid="export-parsecteur"
-                    className="h-7 px-2.5 text-xs font-medium bg-[#056839] text-white rounded hover:bg-[#04502b] flex items-center gap-1.5"
-                    title="Exporter l'onglet Par Secteur en Excel"
-                >
-                    <Download className="w-3.5 h-3.5" />
-                    Exporter cette vue
-                </button>
                 <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">
                     {totalAllees.toLocaleString("fr-FR")} allées
                 </span>

@@ -230,14 +230,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                 <span className="text-[11px] italic text-gray-500">
                     Saisis les nombres réellement posés ; la différence se calcule automatiquement.
                 </span>
-                <button
-                    onClick={handleExport}
-                    data-testid="suivi-export"
-                    className="ml-auto h-7 px-2.5 text-xs font-medium bg-cyan-700 text-white rounded hover:bg-cyan-800 flex items-center gap-1.5"
-                >
-                    <Download className="w-3.5 h-3.5" /> Exporter cette vue
-                </button>
-                {saving && <span className="text-xs text-gray-500">Sauvegarde…</span>}
+                {saving && <span className="ml-auto text-xs text-gray-500">Sauvegarde…</span>}
             </div>
 
             {/* Bandeau d'avancement global */}

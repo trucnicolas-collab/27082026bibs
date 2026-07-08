@@ -128,13 +128,6 @@ export default function PhasageFullTab({ uploadId }) {
             <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-emerald-50/40 flex-shrink-0">
                 <h2 className="text-sm font-semibold text-gray-800">Phasage full — Planning consolidé (ES + Caméras)</h2>
                 <span className="text-[11px] italic text-gray-500">Vue agrégée des nuits planifiées dans « Phasage de pose » et « Phasage caméras »</span>
-                <button
-                    onClick={handleExport}
-                    data-testid="phasagefull-export"
-                    className="ml-auto h-7 px-2.5 text-xs font-medium bg-[#056839] text-white rounded hover:bg-[#04502b] flex items-center gap-1.5"
-                >
-                    <Download className="w-3.5 h-3.5" /> Exporter cette vue
-                </button>
             </div>
 
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap gap-2 text-xs flex-shrink-0">

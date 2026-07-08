@@ -237,14 +237,7 @@ export default function PhasageCamTab({ uploadId }) {
                     <span className="font-mono-data font-bold">{fmt(moyenne)}</span>
                     <span className="opacity-80">caméras</span>
                 </div>
-                <button
-                    onClick={handleExport}
-                    data-testid="phasagecam-export"
-                    className="ml-auto h-7 px-2.5 text-xs font-medium bg-purple-700 text-white rounded hover:bg-purple-800 flex items-center gap-1.5"
-                >
-                    <Download className="w-3.5 h-3.5" /> Exporter cette vue
-                </button>
-                {saving && <span className="text-xs text-gray-500">Sauvegarde…</span>}
+                {saving && <span className="ml-auto text-xs text-gray-500">Sauvegarde…</span>}
             </div>
 
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap items-start gap-2 text-xs flex-shrink-0">
