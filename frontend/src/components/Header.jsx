@@ -63,36 +63,6 @@ export default function Header({
                 {dataset && (
                     <>
                         <button
-                            onClick={onExport}
-                            disabled={exportingRTR}
-                            data-testid="export-rtr-button"
-                            title={exportingRTR ? "Génération en cours…" : "Exporter Excel — version complète pour le RTR"}
-                            className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors font-medium shadow-sm"
-                        >
-                            {exportingRTR ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                            <span className="hidden sm:inline">{exportingRTR ? "Génération…" : "Excel RTR"}</span>
-                        </button>
-                        <button
-                            onClick={onExportCarrefour}
-                            disabled={exportingCarrefour}
-                            data-testid="export-carrefour-button"
-                            title={exportingCarrefour ? "Génération en cours…" : "Exporter Excel — version Carrefour (5 onglets)"}
-                            className="h-8 px-3 bg-[#B91C1C] text-white text-sm rounded hover:bg-[#991B1B] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors font-medium shadow-sm"
-                        >
-                            {exportingCarrefour ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                            <span className="hidden sm:inline">{exportingCarrefour ? "Génération…" : "Excel Carrefour"}</span>
-                        </button>
-                        <button
-                            onClick={onExportPPTX}
-                            disabled={exportingPPTX}
-                            data-testid="export-pptx-button"
-                            title={exportingPPTX ? "Génération en cours…" : "Exporter PowerPoint — CR VT et plan de phasage"}
-                            className="h-8 px-3 bg-[#7C3AED] text-white text-sm rounded hover:bg-[#6D28D9] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors font-medium shadow-sm"
-                        >
-                            {exportingPPTX ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
-                            <span className="hidden sm:inline">{exportingPPTX ? "Génération…" : "PowerPoint"}</span>
-                        </button>
-                        <button
                             onClick={onReset}
                             data-testid="reset-button"
                             className="h-8 px-3 bg-white border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-100 flex items-center gap-1.5 transition-colors"
