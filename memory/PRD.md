@@ -1,6 +1,11 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
 ## Changelog 25/06/2026
+- [x] **Tableaux par semaine détaillés + harmonisation PPTX/Excel** :
+  - PPTX slides semaine : remplacement du petit transposé par un tableau détaillé `Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES` + colonnes **SA à installer dynamiques** (SA 1.5 / SA 2.1 / SA 2.1 frz affichées seulement si posées ; « SA » magasin hors phasage en italique si présente) + ligne **« Sous-total S{n} »**.
+  - Les 2 exports Excel : feuille « Récap par nuit » enrichie de lignes **Sous-total S{n}** ; ajout de **feuilles par semaine** (`Semaine S1…`) identiques au tableau PPTX (helper `_write_week_sheets`).
+  - Mise en page : **titre remonté** (top ~90000 EMU) et **phrase de bas de page réduite à 7 pt** sur toutes les slides où elle apparaît (`_compact_layout`).
+  - Vérifié en générant PPTX + 2 Excel.
 - [x] **Mise en page PPTX compactée (positions/tailles reprises de la maquette de référence)** : ajout d'un helper `_place_table` qui repositionne et dimensionne chaque GraphicFrame (left/top/width), redistribue les colonnes pour remplir la largeur cible et applique une hauteur de ligne compacte (la hauteur totale s'adapte au nb de nuits). Appliqué aux tableaux : transposé complet, Récap par nuit, slides semaine, caméra transposé, caméra récap. Mesures alignées sur la référence, aucun débordement de slide. Vérifié sur fichier généré.
 - [x] **Tableau « Récap par nuit » unifié (PPTX + 2 Excel)** : colonnes Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES · **SA 1.5** · **SA 2.1** · **Caméras**. Règle appliquée : SA 1.5 gardée séparée, SA 2.1 + Freezer fusionnés dans « SA 2.1 » ; colonne Caméras ajoutée ; SA magasin retirée. Helper Excel partagé `_write_recap_par_nuit_sheet` utilisé par l'export Carrefour (remplace « Récap EEG par nuit ») ET l'export traité (nouvelle feuille) → rendu identique au PPTX (`_fill_slide_12`). Vérifié en générant les 3 fichiers. Note : positionnement des titres / mise en page globale des slides inchangés (hérités du template).
 - [x] **Export PPTX aligné sur le rendu de référence fourni par l'utilisateur** (vérifié sur fichier généré, structure comparée à la référence) :

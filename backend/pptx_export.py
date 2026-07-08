@@ -64,7 +64,7 @@ def _color_for_night(n: int, weeks: list | None) -> str:
     return WEEK_COLORS_HEX[(pos - 1) % len(WEEK_COLORS_HEX)]
 
 
-def _set_cell_text(cell, value, *, bold=False, align="center", size=None, color=None, fill_rgb=None):
+def _set_cell_text(cell, value, *, bold=False, italic=False, align="center", size=None, color=None, fill_rgb=None):
     """Remplace le contenu d'une cellule en préservant approximativement le
     style. On garde le premier paragraphe + run existants si présents.
 
@@ -96,6 +96,8 @@ def _set_cell_text(cell, value, *, bold=False, align="center", size=None, color=
             r.text = str(value) if value is not None else ""
         if bold:
             r.font.bold = True
+        if italic:
+            r.font.italic = True
         if size:
             r.font.size = Pt(size)
         if color:
@@ -259,6 +261,36 @@ def _set_col_widths_by_ratio(table, ratios: list[int]):
     for ci, w in enumerate(ratios):
         if ci < len(table.columns):
             table.columns[ci].width = Emu(int(total * w / s))
+
+
+def _compact_layout(prs):
+    """Post-traitement mise en page (gain de place) :
+      - remonte le titre des slides qui contiennent un tableau,
+      - réduit la police de la phrase d'avertissement / mention de bas de page
+        sur toutes les slides où elle apparaît."""
+    FOOT_KEYS = (
+        "allées numérotées", "correspondantes sont à retrouver",
+        "proprietary and confidential", "signalétique du magasin",
+    )
+    for slide in prs.slides:
+        has_table = any(getattr(sh, "has_table", False) for sh in slide.shapes)
+        try:
+            title = slide.shapes.title
+        except Exception:
+            title = None
+        for sh in slide.shapes:
+            if not getattr(sh, "has_text_frame", False):
+                continue
+            low = (sh.text_frame.text or "").lower()
+            if any(k in low for k in FOOT_KEYS):
+                for p in sh.text_frame.paragraphs:
+                    for r in p.runs:
+                        r.font.size = Pt(7)
+            if has_table and title is not None and sh == title:
+                try:
+                    sh.top = Emu(90000)
+                except Exception:
+                    pass
 
 
 def _place_table(shape, left, top, width, row_h):
@@ -579,55 +611,95 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
 
 
 # ===================================================================
-# Slides 13-16 — Par semaine : petit tableau transposé (Date/EEG/SA)
+# Slides 13-16 — Par semaine : tableau détaillé (Nuit/Date/SR/Allées/EEG/
+# Rails ES + colonnes SA à installer dynamiques) + ligne « Sous-total S{n} ».
 # ===================================================================
 def _fill_slide_week(slide, week_index: int, week_nights: list[int],
                      nuit_es_data, totals_by_nuit, dates_map, weeks, hide_sa_mag=False):
     tables = _get_tables(slide)
     if not tables:
         return
-    # Réf. utilisateur : on ne garde QUE le petit tableau transposé
-    # (label + nuits en colonnes, lignes Date / EEG / SA). Le grand tableau
-    # détaillé par semaine est supprimé (le détail complet est sur la slide
-    # « Récap par nuit »).
-    shapes_sorted = sorted(tables, key=lambda sh: len(sh.table.columns))
-    t_shape = shapes_sorted[0]           # le plus PETIT nb de colonnes
+    # On garde la table détaillée (plus de colonnes) et on supprime l'éventuelle
+    # petite table transposée du template.
+    shapes_sorted = sorted(tables, key=lambda sh: len(sh.table.columns), reverse=True)
+    t_shape = shapes_sorted[0]
     t = t_shape.table
     for sh in shapes_sorted[1:]:
         sh._element.getparent().remove(sh._element)
+    _remove_table_row(t, 0)  # retire l'éventuel bandeau/en-tête noir du template
 
+    # Colonnes SA à installer dynamiques (globales) : on n'affiche que celles
+    # qui ont des SA à poser dans le phasage. « SA » (magasin, hors phasage)
+    # affichée pour info en italique si présente.
+    tot15 = sum((d.get("sa_inst_15") or 0) for d in nuit_es_data.values())
+    tot21 = sum((d.get("sa_inst_21") or 0) for d in nuit_es_data.values())
+    totfz = sum((d.get("sa_inst_freezer") or 0) for d in nuit_es_data.values())
+    totmag = sum((d.get("sa_mag") or 0) for d in nuit_es_data.values())
+    sa_cols = []  # (header, key, italic)
+    if tot15 > 0:
+        sa_cols.append(("SA 1.5", "sa_inst_15", False))
+    if tot21 > 0:
+        sa_cols.append(("SA 2.1", "sa_inst_21", False))
+    if totfz > 0:
+        sa_cols.append(("SA 2.1 frz", "sa_inst_freezer", False))
+    if totmag > 0:
+        sa_cols.append(("SA", "sa_mag", True))
+
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES"] + [c[0] for c in sa_cols]
+    ncols = len(headers)
+    ratios = [7, 9, 20, 22, 8, 8] + [7] * len(sa_cols)
     n_data = len(week_nights)
-    _ensure_table_cols(t, 1 + n_data, label_cols=1)
-    _trim_table_cols(t, 1 + n_data)
+    needed = 1 + n_data + 1  # header + nuits + sous-total
+    _ensure_table_size(t, needed)
+    _ensure_table_cols(t, ncols, label_cols=1)
+    _trim_table_cols(t, ncols)
+    _set_col_widths_by_ratio(t, ratios)
 
-    # Row 0 : en-tête (Nuit X)
-    _set_cell_text(t.cell(0, 0), "", size=11)
+    for ci, h in enumerate(headers):
+        _set_cell_text(t.cell(0, ci), h, bold=True, align="center", size=9)
+
+    sub = {"eeg": 0, "rails_es": 0}
+    for c in sa_cols:
+        sub[c[1]] = 0
     for i, n in enumerate(week_nights):
-        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=12)
-        _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
+        r = i + 1
+        d = nuit_es_data.get(n, {})
+        _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=9)
+        _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date") or dates_map.get(str(n))), size=9)
+        _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=8)
+        _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
+        eeg = int(round(d.get("eeg", 0) or 0)); rails = int(round(d.get("rails_es", 0) or 0))
+        _set_cell_text(t.cell(r, 4), _num(eeg), bold=True, size=9)
+        _set_cell_text(t.cell(r, 5), _num(rails), size=9)
+        sub["eeg"] += eeg; sub["rails_es"] += rails
+        for j, (h, key, ital) in enumerate(sa_cols):
+            v = int(round(d.get(key, 0) or 0))
+            sub[key] += v
+            _set_cell_text(t.cell(r, 6 + j), _num(v or ""), size=9, italic=ital,
+                           color=("#6B7280" if ital else None))
+        color = _color_for_night(n, weeks)
+        for ci in range(ncols):
+            _set_cell_fill(t.cell(r, ci), color)
 
-    labels = ["Date", "EEG", "SA"]
-    _ensure_table_size(t, 1 + len(labels))
-    for li, lab in enumerate(labels):
-        r = li + 1
-        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=11)
-        for i, n in enumerate(week_nights):
-            tot = totals_by_nuit.get(n, {})
-            if lab == "Date":
-                val = _fmt_date(dates_map.get(str(n)))
-            elif lab == "EEG":
-                val = _num(tot.get("eeg", 0))
-            else:
-                val = _num(tot.get("sa", 0))
-            _set_cell_text(t.cell(r, i + 1), val, size=11,
-                           bold=(lab == "EEG"), align="center")
-            _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
-    # Supprime les lignes résiduelles du template (au-delà de 1 + labels)
-    while len(t.rows) > 1 + len(labels):
+    # Ligne « Sous-total S{n} »
+    sr = 1 + n_data
+    _set_cell_text(t.cell(sr, 0), f"Sous-total S{week_index}", bold=True, align="left", size=9)
+    _set_cell_text(t.cell(sr, 1), "", size=9)
+    _set_cell_text(t.cell(sr, 2), "", size=9)
+    _set_cell_text(t.cell(sr, 3), "", size=9)
+    _set_cell_text(t.cell(sr, 4), _num(sub["eeg"]), bold=True, size=9)
+    _set_cell_text(t.cell(sr, 5), _num(sub["rails_es"]), bold=True, size=9)
+    for j, (h, key, ital) in enumerate(sa_cols):
+        _set_cell_text(t.cell(sr, 6 + j), _num(sub[key] or ""), bold=True, size=9, italic=ital,
+                       color=("#6B7280" if ital else None))
+    for ci in range(ncols):
+        _set_cell_fill(t.cell(sr, ci), "F3F4F6")
+
+    while len(t.rows) > needed:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-    # Position/dimensions compactes (petit tableau en haut à droite — réf.)
-    _place_table(t_shape, 6752285, 223373, 4762501, 188000)
+    # Position/dimensions : bloc en haut à droite, compact (réf.)
+    _place_table(t_shape, 5850000, 300000, 6050000, 215000)
 
 
 # ===================================================================
@@ -1032,6 +1104,11 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     # slides remplies ci-dessus.
     try:
         _insert_wifi_plans(prs, wifi_plans)
+    except Exception:
+        pass
+    # Titres remontés + phrase de bas de page réduite (sur toutes les slides).
+    try:
+        _compact_layout(prs)
     except Exception:
         pass
     # Sauvegarde en bytes
