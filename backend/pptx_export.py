@@ -514,11 +514,11 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     n_nights = len(nights_sorted)
     needed_rows = 2 + n_nights
     _ensure_table_size(t, needed_rows)
-    # Colonnes cible (réf. utilisateur) : SA regroupée (1.5 + 2.1 + freezer
-    # mélangés) + colonne Caméras. Plus de colonnes SA séparées ni SA magasin.
-    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
+    # Colonnes cible (réf. utilisateur) : SA 1.5 gardée séparée, SA 2.1 + Freezer
+    # fusionnées dans « SA 2.1 » ; colonne Caméras ajoutée. Pas de SA magasin.
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA 1.5", "SA 2.1", "Caméras"]
     ncols = len(headers)
-    ratios = [15, 7, 22, 29, 8, 8, 7, 7]
+    ratios = [13, 7, 20, 27, 7, 7, 6, 6, 7]
     _ensure_table_cols(t, ncols, label_cols=1)
     _trim_table_cols(t, ncols)
     _set_col_widths_by_ratio(t, ratios)
@@ -528,14 +528,16 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     for i, n in enumerate(nights_sorted):
         r = i + 2
         d = nuit_es_data[n]
+        sa_21_mix = (d.get("sa_inst_21", 0) or 0) + (d.get("sa_inst_freezer", 0) or 0)
         _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=9)
         _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date")), size=9)
         _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=8)
         _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
         _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
         _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
-        _set_cell_text(t.cell(r, 6), _num(d.get("sa", 0) or ""), size=9)
-        _set_cell_text(t.cell(r, 7), _num(d.get("cam", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 6), _num(d.get("sa_inst_15", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 7), _num(sa_21_mix or ""), size=9)
+        _set_cell_text(t.cell(r, 8), _num(d.get("cam", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)

@@ -4501,6 +4501,86 @@ def _check_export_refs(d: dict) -> None:
         )
 
 
+def _write_recap_par_nuit_sheet(wb, writer, agg):
+    """Feuille « Récap par nuit » — IDENTIQUE au tableau du PPTX (slide Récap).
+    Colonnes : Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES ·
+    SA 1.5 · SA 2.1 (SA 2.1 + Freezer fusionnés) · Caméras.
+    Utilisée par les 2 exports Excel pour garantir un rendu identique."""
+    ws = wb.add_worksheet("Récap par nuit")
+    writer.sheets["Récap par nuit"] = ws
+    fmt_h = wb.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+                           "border": 1, "align": "center", "valign": "vcenter"})
+    fmt_lbl = wb.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "left"})
+    fmt_date = wb.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy"})
+    fmt_total_lbl = wb.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "center"})
+    fmt_total_n = wb.add_format({"bold": True, "bg_color": "#FEF3C7", "border": 1, "align": "right"})
+
+    weeks_es = agg.get("weeks_es")
+    n_es = agg.get("nb_nuits_es") or 0
+
+    def _pal(n):
+        color = night_color_hex(int(n), weeks_es)
+        return {
+            "right": wb.add_format({"bg_color": color, "border": 1, "align": "right"}),
+            "left": wb.add_format({"bg_color": color, "border": 1, "align": "left"}),
+            "center": wb.add_format({"bg_color": color, "border": 1, "align": "center", "bold": True}),
+            "date": wb.add_format({"bg_color": color, "border": 1, "align": "center", "num_format": "dd/mm/yyyy"}),
+            "sr": wb.add_format({"bg_color": color, "border": 1, "align": "left", "font_size": 9, "text_wrap": True}),
+        }
+
+    cols = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA 1.5", "SA 2.1", "Caméras"]
+    widths = [10, 12, 28, 36, 12, 12, 10, 10, 12]
+    ws.merge_range(0, 0, 0, len(cols) - 1, "Récap par nuit", fmt_h)
+    for ci, (h, w) in enumerate(zip(cols, widths)):
+        ws.write(1, ci, h, fmt_lbl)
+        ws.set_column(ci, ci, w)
+    tot_15 = tot_21 = tot_eeg = tot_rails = tot_cam = 0
+    for i in range(n_es):
+        n = i + 1
+        row = 2 + i
+        b = agg["es_per_nuit"].get(n, {})
+        cam_b = agg["cam_per_nuit"].get(n, {})
+        p = _pal(n)
+        ws.write(row, 0, f"Nuit {n}", p["center"])
+        d_iso = agg["dates"].get(str(n))
+        if d_iso:
+            try:
+                ws.write_datetime(row, 1, datetime.strptime(d_iso, "%Y-%m-%d").date(), p["date"])
+            except Exception:
+                ws.write_string(row, 1, d_iso, p["date"])
+        else:
+            ws.write_blank(row, 1, None, p["date"])
+        ws.write(row, 2, _format_sr_grouped(b.get("secteurs_rayons") or []), p["sr"])
+        ws.write(row, 3, ", ".join(str(a) for a in (b.get("allees") or [])), p["left"])
+        eeg = int(round(b.get("es") or 0))
+        rails = int(round(b.get("rails_es") or 0))
+        sa15 = int(round(b.get("sa_inst_15") or 0))
+        sa21 = int(round((b.get("sa_inst_21") or 0) + (b.get("sa_inst_freezer") or 0)))
+        cam = int(round(cam_b.get("cam") or 0))
+        ws.write(row, 4, eeg, p["right"])
+        ws.write(row, 5, rails, p["right"])
+        ws.write(row, 6, sa15, p["right"])
+        ws.write(row, 7, sa21, p["right"])
+        if cam:
+            ws.write(row, 8, cam, p["right"])
+        else:
+            ws.write_blank(row, 8, None, p["right"])
+        tot_eeg += eeg; tot_rails += rails; tot_15 += sa15; tot_21 += sa21; tot_cam += cam
+    tot_row = 2 + n_es
+    ws.write(tot_row, 0, "TOTAL", fmt_total_lbl)
+    ws.write(tot_row, 1, f"{n_es} nuits", fmt_total_lbl)
+    ws.write(tot_row, 2, "", fmt_total_lbl)
+    n_allees = sum(len(b.get("allees") or []) for b in agg["es_per_nuit"].values())
+    ws.write(tot_row, 3, f"{n_allees} allée{'s' if n_allees != 1 else ''}", fmt_total_lbl)
+    ws.write(tot_row, 4, tot_eeg, fmt_total_n)
+    ws.write(tot_row, 5, tot_rails, fmt_total_n)
+    ws.write(tot_row, 6, tot_15, fmt_total_n)
+    ws.write(tot_row, 7, tot_21, fmt_total_n)
+    ws.write(tot_row, 8, tot_cam, fmt_total_n)
+    ws.freeze_panes(2, 0)
+
+
+
 async def _build_export(d: dict, sheet: str = "all"):
     output = io.BytesIO()
 
@@ -4586,6 +4666,10 @@ async def _build_export(d: dict, sheet: str = "all"):
         # Feuille "Tableau phasage" supprimée (demande utilisateur 04/06/2026) :
         # les données restent disponibles dans la feuille "Recap par secteur" (rayon)
         # qui couvre les mêmes informations de comptage.
+
+        if sheet in ("all", "recap_nuit"):
+            _agg_rn = _aggregate_phasage_for_export(d)
+            _write_recap_par_nuit_sheet(workbook, writer, _agg_rn)
 
         if sheet in ("all", "phasage"):
             _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total)
@@ -5343,59 +5427,8 @@ async def _build_carrefour_export(d: dict):
             ws.autofilter(0, 0, len(recap), 9)
             ws.freeze_panes(1, 0)
 
-        # ===== 2. Récap EEG par nuit =====
-        ws = wb.add_worksheet("Récap EEG par nuit")
-        writer.sheets["Récap EEG par nuit"] = ws
-        ws.merge_range(0, 0, 0, 9, "Récap EEG et rails par nuit", fmt_h)
-        cols2 = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES",
-                 "SA 1.5", "SA 2.1", "SA 2.1 frz", "SA magasin"]
-        widths2 = [10, 12, 28, 36, 12, 12, 10, 10, 11, 12]
-        for ci, (h, w) in enumerate(zip(cols2, widths2)):
-            ws.write(1, ci, h, fmt_lbl)
-            if ci == 9 and hide_sa_mag:
-                ws.set_column(ci, ci, w, None, {"hidden": True})
-            else:
-                ws.set_column(ci, ci, w)
-        for i, n in enumerate(range(1, n_es + 1), start=0):
-            row = 2 + i
-            bucket = agg["es_per_nuit"].get(n, {})
-            p = es_palette.get(n, {})
-            ws.write(row, 0, f"Nuit {n}", p.get("center", fmt_cell))
-            d_iso = agg["dates"].get(str(n))
-            if d_iso:
-                try:
-                    ws.write_datetime(row, 1, datetime.strptime(d_iso, "%Y-%m-%d").date(),
-                                      p.get("date", fmt_date))
-                except Exception:
-                    ws.write_string(row, 1, d_iso, p.get("date", fmt_date))
-            else:
-                ws.write_blank(row, 1, None, p.get("date", fmt_date))
-            ws.write(row, 2, _format_sr_grouped(bucket.get("secteurs_rayons") or []),
-                     p.get("sr", fmt_cell))
-            ws.write(row, 3, ", ".join(str(a) for a in (bucket.get("allees") or [])),
-                     p.get("left", fmt_cell))
-            ws.write(row, 4, int(round(bucket.get("es") or 0)), p.get("right", fmt_num))
-            ws.write(row, 5, int(round(bucket.get("rails_es") or 0)),
-                     p.get("right", fmt_num))
-            ws.write(row, 6, int(round(bucket.get("sa_inst_15") or 0)), p.get("right", fmt_num))
-            ws.write(row, 7, int(round(bucket.get("sa_inst_21") or 0)), p.get("right", fmt_num))
-            ws.write(row, 8, int(round(bucket.get("sa_inst_freezer") or 0)), p.get("right", fmt_num))
-            ws.write(row, 9, int(round(bucket.get("sa_mag") or 0)), p.get("right", fmt_num))
-        # TOTAL
-        tot_row = 2 + n_es
-        ws.write(tot_row, 0, "TOTAL", fmt_total_lbl)
-        ws.write(tot_row, 1, f"{n_es} nuits", fmt_total_lbl)
-        ws.write(tot_row, 2, "", fmt_total_lbl)
-        n_allees_es = sum(len(b.get("allees") or []) for b in agg["es_per_nuit"].values())
-        ws.write(tot_row, 3, f"{n_allees_es} allée{'s' if n_allees_es != 1 else ''}",
-                 fmt_total_lbl)
-        ws.write(tot_row, 4, int(round(agg["totals_es"]["es"])), fmt_total_n)
-        ws.write(tot_row, 5, int(round(agg["totals_es"]["rails_es"])), fmt_total_n)
-        ws.write(tot_row, 6, int(round(agg["totals_es"]["sa_inst_15"])), fmt_total_n)
-        ws.write(tot_row, 7, int(round(agg["totals_es"]["sa_inst_21"])), fmt_total_n)
-        ws.write(tot_row, 8, int(round(agg["totals_es"]["sa_inst_freezer"])), fmt_total_n)
-        ws.write(tot_row, 9, int(round(agg["totals_es"]["sa_mag"])), fmt_total_n)
-        ws.freeze_panes(2, 0)
+        # ===== 2. Récap par nuit (identique au PPTX) =====
+        _write_recap_par_nuit_sheet(wb, writer, agg)
 
         # ===== 3. Récap caméra par nuit =====
         ws = wb.add_worksheet("Récap caméra par nuit")

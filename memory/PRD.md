@@ -1,6 +1,7 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
 ## Changelog 25/06/2026
+- [x] **Tableau « Récap par nuit » unifié (PPTX + 2 Excel)** : colonnes Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES · **SA 1.5** · **SA 2.1** · **Caméras**. Règle appliquée : SA 1.5 gardée séparée, SA 2.1 + Freezer fusionnés dans « SA 2.1 » ; colonne Caméras ajoutée ; SA magasin retirée. Helper Excel partagé `_write_recap_par_nuit_sheet` utilisé par l'export Carrefour (remplace « Récap EEG par nuit ») ET l'export traité (nouvelle feuille) → rendu identique au PPTX (`_fill_slide_12`). Vérifié en générant les 3 fichiers. Note : positionnement des titres / mise en page globale des slides inchangés (hérités du template).
 - [x] **Export PPTX aligné sur le rendu de référence fourni par l'utilisateur** (vérifié sur fichier généré, structure comparée à la référence) :
   - Slide « Récap par nuit » complète : colonnes = Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES · **SA** · **Caméras**. La colonne SA regroupe désormais SA 1.5 + SA 2.1 + SA 2.1 Freezer (règle « mélange SA 2.1 et Freezer ») ; colonnes SA séparées et SA magasin supprimées ; colonne Caméras ajoutée. S'adapte au nombre de nuits.
   - Slide « complet » (transposé) : lignes Date / EEG / SA (label « SA »), texte 6 pt pour tenir jusqu'à 20 nuits.
