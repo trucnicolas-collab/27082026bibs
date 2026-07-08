@@ -473,17 +473,17 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
     _trim_table_cols(t, needed_cols)
 
     # Row 0 : header (Nuit X)
-    _set_cell_text(t.cell(0, 0), "", bold=True, size=10)
+    _set_cell_text(t.cell(0, 0), "", bold=True, size=6)
     for i, n in enumerate(all_nights):
-        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=10)
+        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=6)
         _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
 
-    # Ligne « Caméra » retirée (les caméras ont leurs propres slides).
-    labels = ["Date", "EEG", "SA posées"]
+    # Lignes : Date / EEG / SA (ligne « Caméra » retirée ; label « SA »).
+    labels = ["Date", "EEG", "SA"]
     _ensure_table_size(t, 1 + len(labels))
     for li, lab in enumerate(labels):
         r = li + 1
-        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=10)
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=6)
         for i, n in enumerate(all_nights):
             tot = totals_by_nuit.get(n, {})
             if lab == "Date":
@@ -492,7 +492,7 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
                 val = _num(tot.get("eeg", 0))
             else:
                 val = _num(tot.get("sa", 0))
-            _set_cell_text(t.cell(r, i + 1), val, size=10,
+            _set_cell_text(t.cell(r, i + 1), val, size=6,
                            bold=(lab == "EEG"),
                            align="center")
             _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
@@ -514,11 +514,14 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     n_nights = len(nights_sorted)
     needed_rows = 2 + n_nights
     _ensure_table_size(t, needed_rows)
-    headers = _phasage_headers(hide_sa_mag)
+    # Colonnes cible (réf. utilisateur) : SA regroupée (1.5 + 2.1 + freezer
+    # mélangés) + colonne Caméras. Plus de colonnes SA séparées ni SA magasin.
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA", "Caméras"]
     ncols = len(headers)
+    ratios = [15, 7, 22, 29, 8, 8, 7, 7]
     _ensure_table_cols(t, ncols, label_cols=1)
-    _trim_table_cols(t, ncols)  # retire la colonne vide résiduelle à droite
-    _set_col_widths_by_ratio(t, _phasage_ratios(hide_sa_mag))
+    _trim_table_cols(t, ncols)
+    _set_col_widths_by_ratio(t, ratios)
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=11)
     for ci, h in enumerate(headers):
         _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=9)
@@ -531,11 +534,8 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
         _set_cell_text(t.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
         _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
         _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
-        _set_cell_text(t.cell(r, 6), _num(d.get("sa_inst_15", 0) or ""), size=9)
-        _set_cell_text(t.cell(r, 7), _num(d.get("sa_inst_21", 0) or ""), size=9)
-        _set_cell_text(t.cell(r, 8), _num(d.get("sa_inst_freezer", 0) or ""), size=9)
-        if not hide_sa_mag:
-            _set_cell_text(t.cell(r, 9), _num(d.get("sa_mag", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 6), _num(d.get("sa", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 7), _num(d.get("cam", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
@@ -549,59 +549,53 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
 
 
 # ===================================================================
-# Slides 13-16 — Par semaine (2 tables : phasage 7×8 + tableau date 5×5)
+# Slides 13-16 — Par semaine : petit tableau transposé (Date/EEG/SA)
 # ===================================================================
 def _fill_slide_week(slide, week_index: int, week_nights: list[int],
                      nuit_es_data, totals_by_nuit, dates_map, weeks, hide_sa_mag=False):
     tables = _get_tables(slide)
     if not tables:
         return
-    # La grande table (phasage détaillé) a le plus de colonnes ; on la garde.
-    # Le petit tableau horizontal (Date/EEG/Caméra/SA posées) est SUPPRIMÉ.
-    shapes_sorted = sorted(tables, key=lambda sh: len(sh.table.columns), reverse=True)
-    phasage_shape = shapes_sorted[0]
-    t_phasage = phasage_shape.table
+    # Réf. utilisateur : on ne garde QUE le petit tableau transposé
+    # (label + nuits en colonnes, lignes Date / EEG / SA). Le grand tableau
+    # détaillé par semaine est supprimé (le détail complet est sur la slide
+    # « Récap par nuit »).
+    shapes_sorted = sorted(tables, key=lambda sh: len(sh.table.columns))
+    t_shape = shapes_sorted[0]           # le plus PETIT nb de colonnes
+    t = t_shape.table
     for sh in shapes_sorted[1:]:
         sh._element.getparent().remove(sh._element)
 
-    # Retire l'en-tête NOIR (bandeau fusionné en row 0 du template).
-    _remove_table_row(t_phasage, 0)
-
-    # === Phasage EEG/Rails détaillé (en-têtes en row 0, data à partir de row 1) ===
-    headers = _phasage_headers(hide_sa_mag)
-    ncols = len(headers)
     n_data = len(week_nights)
-    needed = 1 + n_data
-    _ensure_table_size(t_phasage, needed)
-    _ensure_table_cols(t_phasage, ncols, label_cols=1)
-    _trim_table_cols(t_phasage, ncols)  # retire la colonne vide résiduelle
-    _set_col_widths_by_ratio(t_phasage, _phasage_ratios(hide_sa_mag))
-    for ci, h in enumerate(headers):
-        _set_cell_text(t_phasage.cell(0, ci), h, bold=True, align="center", size=9)
+    _ensure_table_cols(t, 1 + n_data, label_cols=1)
+    _trim_table_cols(t, 1 + n_data)
+
+    # Row 0 : en-tête (Nuit X)
+    _set_cell_text(t.cell(0, 0), "", size=11)
     for i, n in enumerate(week_nights):
-        r = i + 1
-        d = nuit_es_data.get(n, {})
-        _set_cell_text(t_phasage.cell(r, 0), f"Nuit {n}", bold=True, size=9)
-        _set_cell_text(t_phasage.cell(r, 1), _fmt_date(d.get("date") or dates_map.get(str(n))), size=9)
-        _set_cell_text(t_phasage.cell(r, 2), d.get("sr", ""), align="left", size=8)
-        _set_cell_text(t_phasage.cell(r, 3), d.get("allees_str", ""), align="left", size=8)
-        _set_cell_text(t_phasage.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
-        _set_cell_text(t_phasage.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
-        _set_cell_text(t_phasage.cell(r, 6), _num(d.get("sa_inst_15", 0) or ""), size=9)
-        _set_cell_text(t_phasage.cell(r, 7), _num(d.get("sa_inst_21", 0) or ""), size=9)
-        _set_cell_text(t_phasage.cell(r, 8), _num(d.get("sa_inst_freezer", 0) or ""), size=9)
-        if not hide_sa_mag:
-            _set_cell_text(t_phasage.cell(r, 9), _num(d.get("sa_mag", 0) or ""), size=9)
-        color = _color_for_night(n, weeks)
-        for ci in range(ncols):
-            _set_cell_fill(t_phasage.cell(r, ci), color)
-    # Supprime les lignes vides finales (au-delà de 1 + n_data)
-    while len(t_phasage.rows) > needed:
-        last_tr = t_phasage._tbl.findall(qn('a:tr'))[-1]
+        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=12)
+        _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
+
+    labels = ["Date", "EEG", "SA"]
+    _ensure_table_size(t, 1 + len(labels))
+    for li, lab in enumerate(labels):
+        r = li + 1
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=11)
+        for i, n in enumerate(week_nights):
+            tot = totals_by_nuit.get(n, {})
+            if lab == "Date":
+                val = _fmt_date(dates_map.get(str(n)))
+            elif lab == "EEG":
+                val = _num(tot.get("eeg", 0))
+            else:
+                val = _num(tot.get("sa", 0))
+            _set_cell_text(t.cell(r, i + 1), val, size=11,
+                           bold=(lab == "EEG"), align="center")
+            _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+    # Supprime les lignes résiduelles du template (au-delà de 1 + labels)
+    while len(t.rows) > 1 + len(labels):
+        last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-    # Hauteurs compactes (le tableau prend moins de place)
-    for tr in t_phasage._tbl.findall(qn('a:tr')):
-        tr.set('h', '280000')
 
 
 # ===================================================================
@@ -615,27 +609,31 @@ def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], week
     # Étend dynamiquement le tableau pour accueillir toutes les nuits caméras
     # (1 colonne label + N colonnes nuits). Avant : tronqué à cur_cols-1 nuits.
     _ensure_table_cols(t, 1 + len(cam_nights))
+    _trim_table_cols(t, 1 + len(cam_nights))
     cur_cols = len(t.columns)
     nights = cam_nights[: cur_cols - 1]
-    _set_cell_text(t.cell(0, 0), "", size=10)
+    _set_cell_text(t.cell(0, 0), "", size=11)
     for i, n in enumerate(nights):
-        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, size=10)
+        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=12)
         _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
-    labels = ["Date", "EEG", "Caméra"]
+    # Lignes : Date / Caméra (ligne « EEG » retirée — réf. utilisateur).
+    labels = ["Date", "Caméra"]
+    _ensure_table_size(t, 1 + len(labels))
     for li, lab in enumerate(labels):
         r = li + 1
-        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=10)
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=11)
         for i, n in enumerate(nights):
             tot = totals_by_nuit.get(n, {})
             if lab == "Date":
                 val = _fmt_date(dates_map.get(str(n)))
-            elif lab == "EEG":
-                val = _num(tot.get("eeg", 0))
             else:
                 val = _num(tot.get("cam", 0))
-            _set_cell_text(t.cell(r, i + 1), val,
-                           bold=(lab == "EEG"), size=10)
+            _set_cell_text(t.cell(r, i + 1), val, align="center", size=11)
             _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+    # Supprime les lignes résiduelles du template (au-delà de 1 + labels)
+    while len(t.rows) > 1 + len(labels):
+        last_tr = t._tbl.findall(qn('a:tr'))[-1]
+        last_tr.getparent().remove(last_tr)
 
 
 # ===================================================================

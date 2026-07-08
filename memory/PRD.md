@@ -1,6 +1,11 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
 ## Changelog 25/06/2026
+- [x] **Export PPTX aligné sur le rendu de référence fourni par l'utilisateur** (vérifié sur fichier généré, structure comparée à la référence) :
+  - Slide « Récap par nuit » complète : colonnes = Nuit · Date · Secteur/Rayon · Allées · EEG · Rails ES · **SA** · **Caméras**. La colonne SA regroupe désormais SA 1.5 + SA 2.1 + SA 2.1 Freezer (règle « mélange SA 2.1 et Freezer ») ; colonnes SA séparées et SA magasin supprimées ; colonne Caméras ajoutée. S'adapte au nombre de nuits.
+  - Slide « complet » (transposé) : lignes Date / EEG / SA (label « SA »), texte 6 pt pour tenir jusqu'à 20 nuits.
+  - Slides par semaine (S1..S5) : n'affichent QUE le petit tableau transposé (Date / EEG / SA) — le grand tableau détaillé par semaine est retiré (⚠️ inverse la demande précédente, conforme au PPTX de référence).
+  - Slide caméra transposé : lignes Date / Caméra (ligne EEG retirée).
 - [x] **Export PPTX — nettoyage des tableaux de phasage** (validé sur fichier généré) :
   - Slide « Plan de phasage … complet » : affiche désormais TOUTES les nuits (jusqu'à 20, plus de troncature 17-20) ; ligne « Caméra » retirée.
   - Slides « Récap par nuit » (complète, semaines, caméras) : colonne vide résiduelle de droite supprimée (`_trim_table_cols`) + hauteurs compactes.
