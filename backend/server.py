@@ -2317,11 +2317,19 @@ def compute_phasage_summary(d: dict) -> dict:
         sec = a.get("secteur") or "(Sans secteur)"
         ray = a.get("rayon") or "(Sans rayon)"
         s = sa_by_secteur.setdefault(sec, {"secteur": sec, "sa_15": 0, "sa_21_std": 0, "sa_21_freezer": 0, "rayons": {}})
-        rnode = s["rayons"].setdefault(ray, {"rayon": ray, "sa_15": 0, "sa_21_std": 0, "sa_21_freezer": 0})
+        rnode = s["rayons"].setdefault(ray, {"rayon": ray, "sa_15": 0, "sa_21_std": 0, "sa_21_freezer": 0, "allees": []})
         for k in ("sa_15", "sa_21_std", "sa_21_freezer"):
             v = a.get(k, 0) or 0
             rnode[k] += v
             s[k] += v
+        a_15 = a.get("sa_15", 0) or 0
+        a_21 = a.get("sa_21_std", 0) or 0
+        a_fz = a.get("sa_21_freezer", 0) or 0
+        if (a_15 + a_21 + a_fz) > 0:
+            rnode["allees"].append({
+                "allee": a.get("allee") or "",
+                "sa_15": a_15, "sa_21_std": a_21, "sa_21_freezer": a_fz,
+            })
     sa_breakdown = []
     for sec in sorted(sa_by_secteur.keys()):
         s = sa_by_secteur[sec]

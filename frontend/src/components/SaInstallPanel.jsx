@@ -64,9 +64,21 @@ export function nodeSaTotal(node) {
 
 const fmt = (n) => (n || 0).toLocaleString("fr-FR");
 
+// Toutes les clés secteur|||rayon ayant ce type de SA (> 0).
+export function allKeysForField(breakdown, field) {
+    const keys = [];
+    for (const s of breakdown || []) {
+        for (const r of s.rayons || []) {
+            if ((r[field] || 0) > 0) keys.push(key(s.secteur, r.rayon));
+        }
+    }
+    return keys;
+}
+
 // Sélection en cascade secteur → rayon pour un type de SA donné.
 function CascadeSelect({ breakdown, field, selected, onChange }) {
     const [openSec, setOpenSec] = useState({});
+    const [openRay, setOpenRay] = useState({});
     // Ne garder que les secteurs/rayons ayant ce type de SA
     const sectors = useMemo(() =>
         (breakdown || [])
@@ -124,18 +136,46 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
                             <div className="pl-7 mt-0.5 space-y-0.5">
                                 {sec.rayons.map((r) => {
                                     const k = key(sec.secteur, r.rayon);
+                                    const rk = `${field}|${k}`;
+                                    const rOpen = openRay[rk];
+                                    const allees = (r.allees || []).filter((a) => (a[field] || 0) > 0);
                                     return (
-                                        <label key={k} className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={selSet.has(k)}
-                                                onChange={() => toggleRayon(k)}
-                                                className="w-3.5 h-3.5 accent-emerald-700"
-                                                data-testid={`sa-ray-${field}-${sec.secteur}-${r.rayon}`}
-                                            />
-                                            <span>{r.rayon}</span>
-                                            <span className="text-gray-400">({fmt(r[field] || 0)})</span>
-                                        </label>
+                                        <div key={k}>
+                                            <div className="flex items-center gap-1.5 text-gray-700">
+                                                <button
+                                                    onClick={() => setOpenRay((p) => ({ ...p, [rk]: !rOpen }))}
+                                                    className="text-gray-400 hover:text-gray-600 disabled:opacity-0"
+                                                    disabled={allees.length === 0}
+                                                    data-testid={`sa-ray-toggle-${field}-${sec.secteur}-${r.rayon}`}
+                                                >
+                                                    {rOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                                </button>
+                                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selSet.has(k)}
+                                                        onChange={() => toggleRayon(k)}
+                                                        className="w-3.5 h-3.5 accent-emerald-700"
+                                                        data-testid={`sa-ray-${field}-${sec.secteur}-${r.rayon}`}
+                                                    />
+                                                    <span>{r.rayon}</span>
+                                                    <span className="text-gray-400">({fmt(r[field] || 0)})</span>
+                                                </label>
+                                            </div>
+                                            {rOpen && allees.length > 0 && (
+                                                <div className="pl-8 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                                                    {allees.map((a, i) => (
+                                                        <span
+                                                            key={`${a.allee}-${i}`}
+                                                            className="text-[11px] text-gray-500"
+                                                            data-testid={`sa-allee-${field}-${sec.secteur}-${r.rayon}-${a.allee}`}
+                                                        >
+                                                            Allée {a.allee || "—"} <span className="text-gray-400">({fmt(a[field] || 0)})</span>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -247,11 +287,17 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
                             <span className="font-medium">Toutes</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
-                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_15} onChange={(e) => set({ sa_15: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-15" />
+                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_15} onChange={(e) => {
+                                const checked = e.target.checked;
+                                setCfg((p) => ({ ...p, sa_15: checked, selection: { ...p.selection, sa_15: checked ? allKeysForField(breakdown, "sa_15") : [] } }));
+                            }} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-15" />
                             <span>SA 1.5</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
-                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_21} onChange={(e) => set({ sa_21: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-21" />
+                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_21} onChange={(e) => {
+                                const checked = e.target.checked;
+                                setCfg((p) => ({ ...p, sa_21: checked, selection: { ...p.selection, sa_21: checked ? allKeysForField(breakdown, "sa_21_std") : [] } }));
+                            }} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-21" />
                             <span>SA 2.1</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
