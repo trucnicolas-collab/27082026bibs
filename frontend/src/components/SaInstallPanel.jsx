@@ -5,27 +5,32 @@ import { ChevronDown, ChevronRight, Save, PackagePlus, ArrowRight } from "lucide
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const BRAND = "#056839";
-const key = (secteur, rayon) => `${secteur}|||${rayon}`;
+const key = (secteur, rayon, allee) =>
+    allee != null && allee !== undefined
+        ? `${secteur}|||${rayon}|||${allee}`
+        : `${secteur}|||${rayon}`;
 
 // Somme des SA à installer selon la config (utilisée aussi par PhasageTab).
 export function computeSaToInstall(breakdown, cfg) {
     const res = { sa_15: 0, sa_21: 0, freezer: 0, sa_42: 0 };
     if (!cfg || !cfg.enabled || !breakdown) return res;
-    const sel15 = cfg.selection?.sa_15 || [];
-    const sel21 = cfg.selection?.sa_21 || [];
+    const sel15 = new Set(cfg.selection?.sa_15 || []);
+    const sel21 = new Set(cfg.selection?.sa_21 || []);
     for (const sec of breakdown) {
         for (const r of sec.rayons || []) {
-            const k = key(sec.secteur, r.rayon);
-            if (cfg.toutes) {
-                res.sa_15 += r.sa_15 || 0;
-                res.sa_21 += r.sa_21_std || 0;
-                res.freezer += r.sa_21_freezer || 0;
-                res.sa_42 += r.sa_42 || 0;
-            } else {
-                if (cfg.sa_15 && sel15.includes(k)) res.sa_15 += r.sa_15 || 0;
-                if (cfg.sa_21 && sel21.includes(k)) res.sa_21 += r.sa_21_std || 0;
-                if (cfg.freezer) res.freezer += r.sa_21_freezer || 0;
-                if (cfg.sa_42) res.sa_42 += r.sa_42 || 0;
+            for (const a of r.allees || []) {
+                const k = key(sec.secteur, r.rayon, a.allee);
+                if (cfg.toutes) {
+                    res.sa_15 += a.sa_15 || 0;
+                    res.sa_21 += a.sa_21_std || 0;
+                    res.freezer += a.sa_21_freezer || 0;
+                    res.sa_42 += a.sa_42 || 0;
+                } else {
+                    if (cfg.sa_15 && sel15.has(k)) res.sa_15 += a.sa_15 || 0;
+                    if (cfg.sa_21 && sel21.has(k)) res.sa_21 += a.sa_21_std || 0;
+                    if (cfg.freezer) res.freezer += a.sa_21_freezer || 0;
+                    if (cfg.sa_42) res.sa_42 += a.sa_42 || 0;
+                }
             }
         }
     }
@@ -47,7 +52,7 @@ export function computeNodeSaInstall(node, cfg) {
     if (cfg.toutes) return { sa_15: n15, sa_21: n21, freezer: nfz, sa_42: n42 };
     const sec = node.secteur || "(Sans secteur)";
     const ray = node.rayon || "(Sans rayon)";
-    const k = key(sec, ray);
+    const k = key(sec, ray, node.allee);
     const sel15 = new Set(cfg.selection?.sa_15 || []);
     const sel21 = new Set(cfg.selection?.sa_21 || []);
     if (cfg.sa_15 && sel15.has(k)) res.sa_15 = n15;
@@ -68,56 +73,58 @@ export function nodeSaTotal(node) {
 
 const fmt = (n) => (n || 0).toLocaleString("fr-FR");
 
-// Toutes les clés secteur|||rayon ayant ce type de SA (> 0).
+// Toutes les clés secteur|||rayon|||allée ayant ce type de SA (> 0).
 export function allKeysForField(breakdown, field) {
     const keys = [];
     for (const s of breakdown || []) {
         for (const r of s.rayons || []) {
-            if ((r[field] || 0) > 0) keys.push(key(s.secteur, r.rayon));
+            for (const a of r.allees || []) {
+                if ((a[field] || 0) > 0) keys.push(key(s.secteur, r.rayon, a.allee));
+            }
         }
     }
     return keys;
 }
 
-// Sélection en cascade secteur → rayon pour un type de SA donné.
+// Sélection en cascade secteur → rayon → allée pour un type de SA donné.
 function CascadeSelect({ breakdown, field, selected, onChange }) {
     const [openSec, setOpenSec] = useState({});
     const [openRay, setOpenRay] = useState({});
-    // Ne garder que les secteurs/rayons ayant ce type de SA
+    // Ne garder que les secteurs/rayons/allées ayant ce type de SA
     const sectors = useMemo(() =>
         (breakdown || [])
-            .map((s) => ({ ...s, rayons: (s.rayons || []).filter((r) => (r[field] || 0) > 0) }))
+            .map((s) => ({
+                ...s,
+                rayons: (s.rayons || [])
+                    .map((r) => ({ ...r, allees: (r.allees || []).filter((a) => (a[field] || 0) > 0) }))
+                    .filter((r) => r.allees.length > 0),
+            }))
             .filter((s) => s.rayons.length > 0)
     , [breakdown, field]);
 
     const selSet = useMemo(() => new Set(selected || []), [selected]);
 
-    const toggleRayon = useCallback((k) => {
-        const next = new Set(selSet);
-        if (next.has(k)) next.delete(k); else next.add(k);
-        onChange([...next]);
-    }, [selSet, onChange]);
+    const rayonKeys = useCallback((sec, r) => r.allees.map((a) => key(sec.secteur, r.rayon, a.allee)), []);
+    const sectorKeys = useCallback((sec) => sec.rayons.flatMap((r) => rayonKeys(sec, r)), [rayonKeys]);
 
-    const toggleSecteur = useCallback((sec) => {
-        const keys = sec.rayons.map((r) => key(sec.secteur, r.rayon));
-        const allOn = keys.every((k) => selSet.has(k));
+    const toggleKeys = useCallback((keys, turnOn) => {
         const next = new Set(selSet);
-        keys.forEach((k) => { if (allOn) next.delete(k); else next.add(k); });
+        keys.forEach((k) => { if (turnOn) next.add(k); else next.delete(k); });
         onChange([...next]);
     }, [selSet, onChange]);
 
     if (sectors.length === 0) {
-        return <div className="text-[11px] text-gray-400 italic pl-6 py-1">Aucun rayon avec ce type de SA.</div>;
+        return <div className="text-[11px] text-gray-400 italic pl-6 py-1">Aucune allée avec ce type de SA.</div>;
     }
 
     return (
         <div className="pl-6 py-1 space-y-1">
             {sectors.map((sec) => {
-                const keys = sec.rayons.map((r) => key(sec.secteur, r.rayon));
-                const on = keys.filter((k) => selSet.has(k)).length;
-                const allOn = on === keys.length;
-                const someOn = on > 0 && !allOn;
-                const total = sec.rayons.reduce((a, r) => a + (r[field] || 0), 0);
+                const skeys = sectorKeys(sec);
+                const sOn = skeys.filter((k) => selSet.has(k)).length;
+                const sAll = sOn === skeys.length;
+                const sSome = sOn > 0 && !sAll;
+                const total = sec.rayons.reduce((acc, r) => acc + r.allees.reduce((x, a) => x + (a[field] || 0), 0), 0);
                 const open = openSec[sec.secteur];
                 return (
                     <div key={sec.secteur} className="text-xs">
@@ -127,9 +134,9 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
                             </button>
                             <input
                                 type="checkbox"
-                                checked={allOn}
-                                ref={(el) => { if (el) el.indeterminate = someOn; }}
-                                onChange={() => toggleSecteur(sec)}
+                                checked={sAll}
+                                ref={(el) => { if (el) el.indeterminate = sSome; }}
+                                onChange={() => toggleKeys(skeys, !sAll)}
                                 className="w-3.5 h-3.5 accent-emerald-700"
                                 data-testid={`sa-sec-${field}-${sec.secteur}`}
                             />
@@ -139,44 +146,54 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
                         {open && (
                             <div className="pl-7 mt-0.5 space-y-0.5">
                                 {sec.rayons.map((r) => {
-                                    const k = key(sec.secteur, r.rayon);
-                                    const rk = `${field}|${k}`;
+                                    const rkeys = rayonKeys(sec, r);
+                                    const rOn = rkeys.filter((k) => selSet.has(k)).length;
+                                    const rAll = rOn === rkeys.length;
+                                    const rSome = rOn > 0 && !rAll;
+                                    const rk = `${field}|${sec.secteur}|${r.rayon}`;
                                     const rOpen = openRay[rk];
-                                    const allees = (r.allees || []).filter((a) => (a[field] || 0) > 0);
+                                    const rTotal = r.allees.reduce((x, a) => x + (a[field] || 0), 0);
                                     return (
-                                        <div key={k}>
+                                        <div key={rk}>
                                             <div className="flex items-center gap-1.5 text-gray-700">
                                                 <button
                                                     onClick={() => setOpenRay((p) => ({ ...p, [rk]: !rOpen }))}
-                                                    className="text-gray-400 hover:text-gray-600 disabled:opacity-0"
-                                                    disabled={allees.length === 0}
+                                                    className="text-gray-400 hover:text-gray-600"
                                                     data-testid={`sa-ray-toggle-${field}-${sec.secteur}-${r.rayon}`}
                                                 >
                                                     {rOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                                                 </button>
-                                                <label className="flex items-center gap-1.5 cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selSet.has(k)}
-                                                        onChange={() => toggleRayon(k)}
-                                                        className="w-3.5 h-3.5 accent-emerald-700"
-                                                        data-testid={`sa-ray-${field}-${sec.secteur}-${r.rayon}`}
-                                                    />
-                                                    <span>{r.rayon}</span>
-                                                    <span className="text-gray-400">({fmt(r[field] || 0)})</span>
-                                                </label>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={rAll}
+                                                    ref={(el) => { if (el) el.indeterminate = rSome; }}
+                                                    onChange={() => toggleKeys(rkeys, !rAll)}
+                                                    className="w-3.5 h-3.5 accent-emerald-700"
+                                                    data-testid={`sa-ray-${field}-${sec.secteur}-${r.rayon}`}
+                                                />
+                                                <span>{r.rayon}</span>
+                                                <span className="text-gray-400">({fmt(rTotal)})</span>
                                             </div>
-                                            {rOpen && allees.length > 0 && (
-                                                <div className="pl-8 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                                                    {allees.map((a, i) => (
-                                                        <span
-                                                            key={`${a.allee}-${i}`}
-                                                            className="text-[11px] text-gray-500"
-                                                            data-testid={`sa-allee-${field}-${sec.secteur}-${r.rayon}-${a.allee}`}
-                                                        >
-                                                            Allée {a.allee || "—"} <span className="text-gray-400">({fmt(a[field] || 0)})</span>
-                                                        </span>
-                                                    ))}
+                                            {rOpen && (
+                                                <div className="pl-8 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
+                                                    {r.allees.map((a, i) => {
+                                                        const ak = key(sec.secteur, r.rayon, a.allee);
+                                                        return (
+                                                            <label
+                                                                key={`${a.allee}-${i}`}
+                                                                className="flex items-center gap-1 cursor-pointer text-[11px] text-gray-600"
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={selSet.has(ak)}
+                                                                    onChange={() => toggleKeys([ak], !selSet.has(ak))}
+                                                                    className="w-3 h-3 accent-emerald-700"
+                                                                    data-testid={`sa-allee-${field}-${sec.secteur}-${r.rayon}-${a.allee}`}
+                                                                />
+                                                                Allée {a.allee || "—"} <span className="text-gray-400">({fmt(a[field] || 0)})</span>
+                                                            </label>
+                                                        );
+                                                    })}
                                                 </div>
                                             )}
                                         </div>

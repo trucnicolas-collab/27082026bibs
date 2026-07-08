@@ -580,3 +580,7 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
   - Exports : colonne "4.2/4.2 WP" ajoutée dans Carrefour (Récap par nuit, Semaine S*, Récap complet), RTR (Récap par nuit, Semaine S*, Phasage full — décalage colonnes + CF/formules ajustés) et PPTX (slide Récap par nuit + slides Semaine).
   - Frontend (`SaInstallPanel.jsx`, `PhasageTab.jsx`) : case à cocher "4.2/4.2 WP" (comme freezer, tout ajouté), ligne "Toutes les 4.2/4.2 WP seront ajoutées", colonne dans la grille d'allées + Récap par nuit (Total inclut 4.2), `computeSaToInstall`/`computeNodeSaInstall`/`nodeSaTotal`.
   - Validé e2e : upload synthétique (SA 4.2 + 4.2 WP = 13) → summary/breakdown corrects, exports RTR/Carrefour/PPTX = 200 avec valeurs et alignement colonnes vérifiés (Récap par nuit N1=6/N2=7/Total=13, Phasage full CF sur col Nuit=J). Checkbox visible dans le panneau SA.
+
+## Suite (08/07/2026 bis) — Sélection au niveau ALLÉE
+- [x] La sélection SA passe du niveau rayon au niveau **allée** : clé de sélection = `secteur|||rayon|||allée`. Arbre à 3 niveaux dans le panneau SA (secteur → rayon → allée), case à cocher à chaque niveau (secteur/rayon en select-all avec état indéterminé si partiel). `allKeysForField` renvoie les clés d'allée. `computeSaToInstall`/`computeNodeSaInstall` (front) + `_sa_install_key(sec,ray,allee)`/`compute_node_sa_install` (back) mis à jour.
+- [x] Validé e2e : upload 2 allées même rayon (allée1 SA1.5=5, allée2 SA1.5=3), sélection allée1 seule → export Récap par nuit N1=5 / N2=0. Cases d'allée visibles et cochables à l'écran.

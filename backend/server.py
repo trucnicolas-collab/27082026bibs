@@ -5285,8 +5285,11 @@ async def wizard_status(upload_id: str, current_user: dict = Depends(get_current
 
 
 
-def _sa_install_key(sec, ray):
-    return f"{sec or '(Sans secteur)'}|||{ray or '(Sans rayon)'}"
+def _sa_install_key(sec, ray, allee=None):
+    base = f"{sec or '(Sans secteur)'}|||{ray or '(Sans rayon)'}"
+    if allee is None:
+        return base
+    return f"{base}|||{allee}"
 
 
 def compute_node_sa_install(node: dict, cfg: dict) -> dict:
@@ -5305,7 +5308,7 @@ def compute_node_sa_install(node: dict, cfg: dict) -> dict:
     n42 = float(node.get("sa_42") or 0)
     if cfg.get("toutes"):
         return {"sa_15": n15, "sa_21": n21, "freezer": nfz, "sa_42": n42}
-    k = _sa_install_key(node.get("secteur"), node.get("rayon"))
+    k = _sa_install_key(node.get("secteur"), node.get("rayon"), node.get("allee"))
     sel = cfg.get("selection") or {}
     sel15 = set(sel.get("sa_15") or [])
     sel21 = set(sel.get("sa_21") or [])
