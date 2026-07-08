@@ -261,6 +261,31 @@ def _set_col_widths_by_ratio(table, ratios: list[int]):
             table.columns[ci].width = Emu(int(total * w / s))
 
 
+def _place_table(shape, left, top, width, row_h):
+    """Repositionne/dimensionne le GraphicFrame d'une table pour compacter la
+    mise en page (mesures reprises de la maquette de référence utilisateur) :
+      - place le tableau (left, top) et fixe sa largeur totale `width`,
+      - redistribue les colonnes proportionnellement pour remplir `width`,
+      - applique une hauteur de ligne uniforme `row_h` (compacte).
+    La hauteur totale s'adapte au nombre réel de lignes (donc au nb de nuits)."""
+    try:
+        shape.left = Emu(int(left))
+        shape.top = Emu(int(top))
+        shape.width = Emu(int(width))
+        t = shape.table
+        cols = list(t.columns)
+        cur = [int(c.width) for c in cols]
+        s = sum(cur) or 1
+        for c, w in zip(cols, cur):
+            c.width = Emu(int(width * w / s))
+        trs = t._tbl.findall(qn('a:tr'))
+        for tr in trs:
+            tr.set('h', str(int(row_h)))
+        shape.height = Emu(int(row_h * max(1, len(trs))))
+    except Exception:
+        pass
+
+
 # En-têtes + ratios de largeur pour les tables "Phasage par nuit" (slide 12 +
 # semaines) après éclatement de la colonne SA en SA 1.5 / 2.1 / frz (+ magasin)
 # et retrait de la colonne Caméras (les caméras ont leurs propres slides).
@@ -465,7 +490,8 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
     tables = _get_tables(slide)
     if not tables:
         return
-    t = tables[0].table
+    _shape = tables[0]
+    t = _shape.table
     # Étend/tronque le nb de colonnes pour couvrir TOUTES les nuits (plus de
     # troncature : les nuits 17-20 étaient perdues auparavant).
     needed_cols = 1 + len(all_nights)
@@ -500,6 +526,8 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
     while len(t.rows) > 1 + len(labels):
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
+    # Position/dimensions compactes (bandeau fin en haut — maquette de référence)
+    _place_table(_shape, 1822174, 574934, 8347544, 161670)
 
 
 # ===================================================================
@@ -509,7 +537,8 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     tables = _get_tables(slide)
     if not tables:
         return
-    t = tables[0].table
+    _shape = tables[0]
+    t = _shape.table
     nights_sorted = sorted(nuit_es_data.keys())
     n_nights = len(nights_sorted)
     needed_rows = 2 + n_nights
@@ -545,9 +574,8 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     while len(t.rows) > needed_rows:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-    # Hauteurs compactes
-    for tr in t._tbl.findall(qn('a:tr')):
-        tr.set('h', '280000')
+    # Position/dimensions compactes (maquette de référence)
+    _place_table(_shape, 666206, 983106, 10115008, 280000)
 
 
 # ===================================================================
@@ -598,6 +626,8 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     while len(t.rows) > 1 + len(labels):
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
+    # Position/dimensions compactes (petit tableau en haut à droite — réf.)
+    _place_table(t_shape, 6752285, 223373, 4762501, 188000)
 
 
 # ===================================================================
@@ -607,7 +637,8 @@ def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], week
     tables = _get_tables(slide)
     if not tables:
         return
-    t = tables[0].table
+    _shape = tables[0]
+    t = _shape.table
     # Étend dynamiquement le tableau pour accueillir toutes les nuits caméras
     # (1 colonne label + N colonnes nuits). Avant : tronqué à cur_cols-1 nuits.
     _ensure_table_cols(t, 1 + len(cam_nights))
@@ -636,6 +667,8 @@ def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], week
     while len(t.rows) > 1 + len(labels):
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
+    # Position/dimensions compactes (bandeau — maquette de référence)
+    _place_table(_shape, 1952045, 624169, 7461250, 187000)
 
 
 # ===================================================================
@@ -645,7 +678,8 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
     tables = _get_tables(slide)
     if not tables:
         return
-    t = tables[0].table
+    _shape = tables[0]
+    t = _shape.table
     nights = sorted(nuit_cam_data.keys())
     needed = 2 + len(nights)
     _ensure_table_size(t, needed)
@@ -664,6 +698,11 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
         color = _color_for_night(n, weeks)
         for ci in range(5):
             _set_cell_fill(t.cell(r, ci), color)
+    # Supprime les lignes résiduelles éventuelles + compactage/position (réf.)
+    while len(t.rows) > needed:
+        last_tr = t._tbl.findall(qn('a:tr'))[-1]
+        last_tr.getparent().remove(last_tr)
+    _place_table(_shape, 718456, 1403335, 9975669, 280000)
 
 
 # ===================================================================
