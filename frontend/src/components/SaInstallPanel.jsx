@@ -9,7 +9,7 @@ const key = (secteur, rayon) => `${secteur}|||${rayon}`;
 
 // Somme des SA à installer selon la config (utilisée aussi par PhasageTab).
 export function computeSaToInstall(breakdown, cfg) {
-    const res = { sa_15: 0, sa_21: 0, freezer: 0 };
+    const res = { sa_15: 0, sa_21: 0, freezer: 0, sa_42: 0 };
     if (!cfg || !cfg.enabled || !breakdown) return res;
     const sel15 = cfg.selection?.sa_15 || [];
     const sel21 = cfg.selection?.sa_21 || [];
@@ -20,10 +20,12 @@ export function computeSaToInstall(breakdown, cfg) {
                 res.sa_15 += r.sa_15 || 0;
                 res.sa_21 += r.sa_21_std || 0;
                 res.freezer += r.sa_21_freezer || 0;
+                res.sa_42 += r.sa_42 || 0;
             } else {
                 if (cfg.sa_15 && sel15.includes(k)) res.sa_15 += r.sa_15 || 0;
                 if (cfg.sa_21 && sel21.includes(k)) res.sa_21 += r.sa_21_std || 0;
                 if (cfg.freezer) res.freezer += r.sa_21_freezer || 0;
+                if (cfg.sa_42) res.sa_42 += r.sa_42 || 0;
             }
         }
     }
@@ -34,14 +36,15 @@ export function computeSaToInstall(breakdown, cfg) {
 // Retourne { sa_15, sa_21, freezer } = quantités que NOUS posons en VT.
 // La clé secteur|||rayon doit matcher le breakdown backend (défauts "(Sans …)").
 export function computeNodeSaInstall(node, cfg) {
-    const res = { sa_15: 0, sa_21: 0, freezer: 0 };
+    const res = { sa_15: 0, sa_21: 0, freezer: 0, sa_42: 0 };
     if (!node || node.is_seasonal || !cfg || !cfg.enabled) return res;
     const n15 = node.sa_15 || 0;
     const n21 = node.sa_21_std != null
         ? node.sa_21_std
         : Math.max(0, (node.sa_21 || 0) - (node.sa_21_freezer || 0));
     const nfz = node.sa_21_freezer || 0;
-    if (cfg.toutes) return { sa_15: n15, sa_21: n21, freezer: nfz };
+    const n42 = node.sa_42 || 0;
+    if (cfg.toutes) return { sa_15: n15, sa_21: n21, freezer: nfz, sa_42: n42 };
     const sec = node.secteur || "(Sans secteur)";
     const ray = node.rayon || "(Sans rayon)";
     const k = key(sec, ray);
@@ -50,6 +53,7 @@ export function computeNodeSaInstall(node, cfg) {
     if (cfg.sa_15 && sel15.has(k)) res.sa_15 = n15;
     if (cfg.sa_21 && sel21.has(k)) res.sa_21 = n21;
     if (cfg.freezer) res.freezer = nfz;
+    if (cfg.sa_42) res.sa_42 = n42;
     return res;
 }
 
@@ -59,7 +63,7 @@ export function nodeSaTotal(node) {
     const n21 = node.sa_21_std != null
         ? node.sa_21_std
         : Math.max(0, (node.sa_21 || 0) - (node.sa_21_freezer || 0));
-    return (node.sa_15 || 0) + n21 + (node.sa_21_freezer || 0);
+    return (node.sa_15 || 0) + n21 + (node.sa_21_freezer || 0) + (node.sa_42 || 0);
 }
 
 const fmt = (n) => (n || 0).toLocaleString("fr-FR");
@@ -192,7 +196,7 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
     const [cfg, setCfg] = useState(() => {
         const ic = initialConfig || {};
         return {
-            enabled: false, toutes: false, sa_15: false, sa_21: false, freezer: false, answered: false,
+            enabled: false, toutes: false, sa_15: false, sa_21: false, freezer: false, sa_42: false, answered: false,
             ...ic,
             selection: { sa_15: [], sa_21: [], ...(ic.selection || {}) },
         };
@@ -214,7 +218,7 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
     }, [initialConfig]);
 
     const totals = useMemo(() => computeSaToInstall(breakdown, cfg), [breakdown, cfg]);
-    const grandTotal = totals.sa_15 + totals.sa_21 + totals.freezer;
+    const grandTotal = totals.sa_15 + totals.sa_21 + totals.freezer + totals.sa_42;
 
     const set = (patch) => setCfg((p) => ({ ...p, ...patch }));
 
@@ -224,6 +228,7 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
         sa_15: cfg.enabled && !cfg.toutes && cfg.sa_15,
         sa_21: cfg.enabled && !cfg.toutes && cfg.sa_21,
         freezer: cfg.enabled && (cfg.toutes ? false : cfg.freezer),
+        sa_42: cfg.enabled && (cfg.toutes ? false : cfg.sa_42),
         selection: { sa_15: cfg.selection?.sa_15 || [], sa_21: cfg.selection?.sa_21 || [] },
         answered: markAnswered || !!cfg.answered,
     });
@@ -304,6 +309,10 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
                             <input type="checkbox" disabled={cfg.toutes} checked={cfg.freezer} onChange={(e) => set({ freezer: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-freezer" />
                             <span>Freezer (SA 2.1)</span>
                         </label>
+                        <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
+                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_42} onChange={(e) => set({ sa_42: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-42" />
+                            <span>4.2/4.2 WP</span>
+                        </label>
                     </div>
 
                     {!cfg.toutes && cfg.sa_15 && (
@@ -321,9 +330,12 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
                     {!cfg.toutes && cfg.freezer && (
                         <div className="text-[11px] text-gray-500 pl-6">Toutes les SA 2.1 Freezer seront ajoutées ({fmt(totals.freezer)}).</div>
                     )}
+                    {!cfg.toutes && cfg.sa_42 && (
+                        <div className="text-[11px] text-gray-500 pl-6">Toutes les 4.2/4.2 WP seront ajoutées ({fmt(totals.sa_42)}).</div>
+                    )}
 
                     <div className="text-xs text-gray-600 pt-1">
-                        À installer : <b>SA 1.5</b> {fmt(totals.sa_15)} · <b>SA 2.1</b> {fmt(totals.sa_21)} · <b>Freezer</b> {fmt(totals.freezer)}
+                        À installer : <b>SA 1.5</b> {fmt(totals.sa_15)} · <b>SA 2.1</b> {fmt(totals.sa_21)} · <b>Freezer</b> {fmt(totals.freezer)} · <b>4.2/4.2 WP</b> {fmt(totals.sa_42)}
                         <span className="ml-2 font-semibold" style={{ color: BRAND }}>= +{fmt(grandTotal)} EEG</span>
                     </div>
                 </div>

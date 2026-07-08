@@ -271,7 +271,7 @@ export default function PhasageTab({ uploadId }) {
         const totalSA15 = isMag2 ? (t.sa_15 || 0) : 0;
         const sa21Sais = summary.sa_21_saisonnier || 0;
         const inst = computeSaToInstall(summary.sa_breakdown, saCfg);
-        const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0);
+        const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0) + (inst.sa_42 || 0);
         const total = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Sais + instTotal;
         const sugg = suggestEsConfig(total);
         setNbNuits(sugg.nb_nuits);
@@ -301,7 +301,7 @@ export default function PhasageTab({ uploadId }) {
     // Agrégation par nuit
     const nightTotals = useMemo(() => {
         const tot = {};
-        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, cameras: 0, sa_inst_15: 0, sa_inst_21: 0, sa_inst_freezer: 0, sa_mag: 0, allees: [], secteur_rayon: new Set() };
+        for (let n = 1; n <= nbNuits; n++) tot[n] = { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, cameras: 0, sa_inst_15: 0, sa_inst_21: 0, sa_inst_freezer: 0, sa_inst_42: 0, sa_mag: 0, allees: [], secteur_rayon: new Set() };
         rows.forEach((r) => {
             if (!r.nuit) return;
             const node = alleeIndex[String(r.allee)];
@@ -317,8 +317,9 @@ export default function PhasageTab({ uploadId }) {
             tot[r.nuit].sa_inst_15 += inst.sa_15 || 0;
             tot[r.nuit].sa_inst_21 += inst.sa_21 || 0;
             tot[r.nuit].sa_inst_freezer += inst.freezer || 0;
+            tot[r.nuit].sa_inst_42 += inst.sa_42 || 0;
             // Reste SA installé par le magasin (info) = total SA allée − installées par nous
-            tot[r.nuit].sa_mag += Math.max(0, nodeSaTotal(node) - (inst.sa_15 + inst.sa_21 + inst.freezer));
+            tot[r.nuit].sa_mag += Math.max(0, nodeSaTotal(node) - (inst.sa_15 + inst.sa_21 + inst.freezer + inst.sa_42));
             // Bonus rails → ES 1.5 (par couleur, par allée)
             tot[r.nuit].bonus = (tot[r.nuit].bonus || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0);
             // Flèches (= +1 ES 1.5 noir chacune) ajoutées par allée
@@ -378,6 +379,7 @@ export default function PhasageTab({ uploadId }) {
             sa_inst_15: values.reduce((a, x) => a + (x.sa_inst_15 || 0), 0),
             sa_inst_21: values.reduce((a, x) => a + (x.sa_inst_21 || 0), 0),
             sa_inst_freezer: values.reduce((a, x) => a + (x.sa_inst_freezer || 0), 0),
+            sa_inst_42: values.reduce((a, x) => a + (x.sa_inst_42 || 0), 0),
             sa_mag: values.reduce((a, x) => a + (x.sa_mag || 0), 0),
             seasonal: values.reduce((a, x) => a + (x.seasonal || 0), 0),
             bonus: values.reduce((a, x) => a + (x.bonus || 0), 0),
@@ -423,7 +425,7 @@ export default function PhasageTab({ uploadId }) {
         Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0) + (saInstNuit || 0));
     // SA à installer (hors saisonnier) selon la config utilisateur — ajouté aux EEG à poser
     const saToInstall = computeSaToInstall(summary?.sa_breakdown, saInstall);
-    const saInstallTotal = (saToInstall.sa_15 || 0) + (saToInstall.sa_21 || 0) + (saToInstall.freezer || 0);
+    const saInstallTotal = (saToInstall.sa_15 || 0) + (saToInstall.sa_21 || 0) + (saToInstall.freezer || 0) + (saToInstall.sa_42 || 0);
     const totalEEG = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Saisonnier + saInstallTotal;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 
@@ -586,11 +588,11 @@ export default function PhasageTab({ uploadId }) {
                 )}
                 {saInstallTotal > 0 && (
                     <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-300 rounded" data-testid="sa-install-chip"
-                        title={`SA à installer — SA 1.5 ${fmt(saToInstall.sa_15)} / SA 2.1 ${fmt(saToInstall.sa_21)} / Freezer ${fmt(saToInstall.freezer)}`}>
+                        title={`SA à installer — SA 1.5 ${fmt(saToInstall.sa_15)} / SA 2.1 ${fmt(saToInstall.sa_21)} / Freezer ${fmt(saToInstall.freezer)} / 4.2/4.2 WP ${fmt(saToInstall.sa_42)}`}>
                         <span className="text-gray-600">EEG SA à installer :</span>{" "}
                         <span className="font-mono-data font-bold" style={{ color: "#056839" }}>+{fmt(saInstallTotal)}</span>
                         <span className="text-gray-400 text-[10px] ml-1">
-                            (1.5 {fmt(saToInstall.sa_15)} / 2.1 {fmt(saToInstall.sa_21)} / frz {fmt(saToInstall.freezer)})
+                            (1.5 {fmt(saToInstall.sa_15)} / 2.1 {fmt(saToInstall.sa_21)} / frz {fmt(saToInstall.freezer)} / 4.2 {fmt(saToInstall.sa_42)})
                         </span>
                     </div>
                 )}
@@ -645,6 +647,7 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT) — selon la config du panneau">SA 1.5</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT) — selon la config du panneau">SA 2.1</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT) — selon la config du panneau">SA 2.1 frz</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="4.2 / 4.2 WP à installer (VT) — selon la config du panneau">4.2/4.2 WP</th>
                                         {!hideSaMagasin && (
                                             <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info, non incluses dans EEG)">SA magasin</th>
                                         )}
@@ -655,7 +658,7 @@ export default function PhasageTab({ uploadId }) {
                                 <tbody>
                                     {rows.length === 0 && (
                                         <tr>
-                                            <td colSpan={hideSaMagasin ? 8 : 9} className="px-3 py-6 text-center text-gray-500 italic">
+                                            <td colSpan={hideSaMagasin ? 9 : 10} className="px-3 py-6 text-center text-gray-500 italic">
                                                 Cliquez sur « Ajouter une allée » pour commencer
                                             </td>
                                         </tr>
@@ -663,7 +666,7 @@ export default function PhasageTab({ uploadId }) {
                                     {rows.map((r) => {
                                         const node = alleeIndex[String(r.allee)];
                                         const inst = computeNodeSaInstall(node, saInstall);
-                                        const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0);
+                                        const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0) + (inst.sa_42 || 0);
                                         const saMag = node ? Math.max(0, nodeSaTotal(node) - instTotal) : 0;
                                         const color = nightColor(r.nuit, weeks);
                                         const rowStyle = color ? {
@@ -728,6 +731,9 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
                                                     {node && inst.freezer > 0 ? fmt(inst.freezer) : <span className="text-gray-300">—</span>}
                                                 </td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {node && inst.sa_42 > 0 ? fmt(inst.sa_42) : <span className="text-gray-300">—</span>}
+                                                </td>
                                                 {!hideSaMagasin && (
                                                     <td className="px-2 py-1 text-right font-mono-data italic text-gray-500"
                                                         title="SA restantes installées par le magasin (info)">
@@ -786,7 +792,8 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT)">SA 1.5</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT)">SA 2.1</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT)">SA 2.1 frz</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-gray-900" title="Total = EEG ES + SA 1.5 + SA 2.1 + SA 2.1 Freezer (hors Rails ES)">Total</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="4.2 / 4.2 WP à installer (VT)">4.2/4.2 WP</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-gray-900" title="Total = EEG ES + SA 1.5 + SA 2.1 + SA 2.1 Freezer + 4.2/4.2 WP (hors Rails ES)">Total</th>
                                         {!hideSaMagasin && (
                                             <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info)">SA magasin</th>
                                         )}
@@ -794,7 +801,7 @@ export default function PhasageTab({ uploadId }) {
                                 </thead>
                                 <tbody>
                                     {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, sa_inst_15: 0, sa_inst_21: 0, sa_inst_freezer: 0, sa_mag: 0, allees: [] };
+                                        const t = nightTotals[n] || { es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, seasonal: 0, bonus: 0, fleches: 0, sa_inst_15: 0, sa_inst_21: 0, sa_inst_freezer: 0, sa_inst_42: 0, sa_mag: 0, allees: [] };
                                         const totalES = (t.es_15 || 0) + (t.es_21 || 0);
                                         const color = nightColor(n, weeks);
                                         // En magasin 2 : bonus rails NON inclus dans EEG nuit
@@ -802,7 +809,7 @@ export default function PhasageTab({ uploadId }) {
                                         // Flèches comptées en ES 1.5 noir, magasin 1 et 2
                                         const flechesForNight = t.fleches || 0;
                                         const sa15ForNight = isMagasin2 ? (t.sa_15 || 0) : 0;
-                                        const saInstNuit = (t.sa_inst_15 || 0) + (t.sa_inst_21 || 0) + (t.sa_inst_freezer || 0);
+                                        const saInstNuit = (t.sa_inst_15 || 0) + (t.sa_inst_21 || 0) + (t.sa_inst_freezer || 0) + (t.sa_inst_42 || 0);
                                         // EEG ES = part ES uniquement (sans les SA à installer)
                                         const eegES = eegPerNight(totalES, t.seasonal, bonusForNight, flechesForNight, sa15ForNight, 0);
                                         // Total = EEG ES + SA 1.5 + SA 2.1 + SA 2.1 freezer (hors Rails ES)
@@ -839,6 +846,9 @@ export default function PhasageTab({ uploadId }) {
                                                 <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
                                                     {t.sa_inst_freezer > 0 ? fmt(t.sa_inst_freezer) : <span className="text-gray-300">—</span>}
                                                 </td>
+                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                    {t.sa_inst_42 > 0 ? fmt(t.sa_inst_42) : <span className="text-gray-300">—</span>}
+                                                </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" data-testid={`recap-nuit-total-${n}`}>
                                                     {fmt(totalNuit)}
                                                 </td>
@@ -872,8 +882,11 @@ export default function PhasageTab({ uploadId }) {
                                         <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
                                             {fmt(grandTotals.sa_inst_freezer)}
                                         </td>
+                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                            {fmt(grandTotals.sa_inst_42)}
+                                        </td>
                                         <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" data-testid="recap-nuit-total-grand">
-                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal) + grandTotals.sa_inst_15 + grandTotals.sa_inst_21 + grandTotals.sa_inst_freezer)}
+                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal) + grandTotals.sa_inst_15 + grandTotals.sa_inst_21 + grandTotals.sa_inst_freezer + grandTotals.sa_inst_42)}
                                         </td>
                                         {!hideSaMagasin && (
                                             <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
