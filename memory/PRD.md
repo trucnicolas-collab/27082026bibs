@@ -596,3 +596,10 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **« EEG » → « EEG ES »** dans tous les en-têtes de tableaux de phasage (Excel RTR & Carrefour : Récap par nuit, Semaine Sx, Phasage de pose, Tableau date ; PPTX : slide Récap, slides Semaine, tableau compact).
 - [x] Validé e2e : upload synthétique (ES+SA1.5+SA2.1+frz+4.2) → Carrefour/RTR Récap par nuit à plat avec EEG ES=168 (100+30+20+10+8) et colonnes SA correctes ; RTR Phasage de pose droite = SA détaillé statique + TOTAL SUM ; PPTX slide 12 = 11 colonnes correctes. Aucun « Sous-total » dans Récap par nuit.
 - Limite connue : le tableau interactif GAUCHE « Plan d'attribution par allée » (feuille Phasage de pose RTR) garde une colonne « SA » unique (info de saisie) — non éclatée pour éviter un refactor risqué des formules VLOOKUP/validations.
+
+## Suite (09/07/2026) — Phasage caméras = étape dédiée + retrait "Phasage full" de l'UI
+- [x] Le wizard passe de 5 à **6 étapes** : Import(1) → Commande(2) → Phasage(3) → **Phasage caméras(4)** → Dates(5) → Export(6). `WIZARD_STEPS` et `stepSubTabs` mis à jour (App.js).
+- [x] **"Phasage caméras"** n'est plus un sous-onglet de l'étape Phasage : c'est une étape à part entière (sous-onglet unique `pose_cam`).
+- [x] **"Phasage full"** retiré de l'interface (sous-onglet + rendu + import PhasageFullTab supprimés) — il RESTE disponible dans les exports (backend inchangé).
+- [x] Badges du stepper repositionnés (WizardSteps.jsx) : Complète→2, Prêt→3, Dates OK→5.
+- [x] Validé : stepper affiche bien 6 étapes, l'étape 4 affiche le contenu caméras (Plan d'attribution + Récap par nuit). Compilation OK.

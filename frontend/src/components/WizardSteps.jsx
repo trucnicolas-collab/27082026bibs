@@ -9,8 +9,8 @@ export default function WizardSteps({
     subTabs = [], activeSubTab, onSubTab,
     onPrev, onNext, prevDisabled, nextDisabled, nextLabel = "Suivant", nextLoading = false,
 }) {
-    const readyMap = { 2: step2Ready, 3: step3Ready, 4: step4Ready };
-    const readyLabel = { 2: "Complète", 3: "Prêt", 4: "Dates OK" };
+    const readyMap = { 2: step2Ready, 3: step3Ready, 5: step4Ready };
+    const readyLabel = { 2: "Complète", 3: "Prêt", 5: "Dates OK" };
     return (
         <div className="bg-white border-b border-gray-200" data-testid="wizard-steps">
             {/* Stepper */}

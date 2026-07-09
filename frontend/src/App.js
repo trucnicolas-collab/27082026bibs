@@ -12,7 +12,6 @@ import ParSecteurTable from "./components/ParSecteurTable";
 import CommentTab from "./components/CommentTab";
 import PhasageTab from "./components/PhasageTab";
 import PhasageCamTab from "./components/PhasageCamTab";
-import PhasageFullTab from "./components/PhasageFullTab";
 import SuiviPhasageTab from "./components/SuiviPhasageTab";
 import AutreTab from "./components/AutreTab";
 import TableauDateTab from "./components/TableauDateTab";
@@ -68,13 +67,14 @@ export default function App() {
     return <MainApp />;
 }
 
-// Configuration du parcours guidé (5 étapes)
+// Configuration du parcours guidé (6 étapes)
 const WIZARD_STEPS = [
     { n: 1, key: "import", label: "Import" },
     { n: 2, key: "commande", label: "Commande" },
     { n: 3, key: "phasage", label: "Phasage" },
-    { n: 4, key: "dates", label: "Dates" },
-    { n: 5, key: "export", label: "Export" },
+    { n: 4, key: "phasage_cam", label: "Phasage caméras" },
+    { n: 5, key: "dates", label: "Dates" },
+    { n: 6, key: "export", label: "Export" },
 ];
 
 // Sous-onglets disponibles pour chaque étape (selon le dataset)
@@ -95,15 +95,17 @@ function stepSubTabs(step, dataset) {
         case 3:
             return [
                 { id: "pose", label: "Phasage de pose" },
-                { id: "pose_cam", label: "Phasage caméras" },
-                { id: "pose_full", label: "Phasage full" },
             ];
         case 4:
+            return [
+                { id: "pose_cam", label: "Phasage caméras" },
+            ];
+        case 5:
             return [
                 { id: "tableau_date", label: "Tableau date" },
                 { id: "suivi", label: "Suivi phasage" },
             ];
-        case 5:
+        case 6:
             return [
                 { id: "export_home", label: "Exports" },
                 { id: "comment", label: "Commentaire" },
@@ -676,9 +678,6 @@ function MainApp() {
                             )}
                             {activeTab === "pose_cam" && (
                                 <PhasageCamTab key={`cam-${phasageVersion}`} uploadId={dataset.upload_id} />
-                            )}
-                            {activeTab === "pose_full" && (
-                                <PhasageFullTab uploadId={dataset.upload_id} />
                             )}
                             {activeTab === "suivi" && (
                                 <SuiviPhasageTab uploadId={dataset.upload_id} />
