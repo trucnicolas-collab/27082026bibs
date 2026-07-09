@@ -537,7 +537,7 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
         _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
 
     # Lignes : Date / EEG / SA (ligne « Caméra » retirée ; label « SA »).
-    labels = ["Date", "EEG", "SA"]
+    labels = ["Date", "EEG ES", "SA"]
     _ensure_table_size(t, 1 + len(labels))
     for li, lab in enumerate(labels):
         r = li + 1
@@ -546,12 +546,12 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
             tot = totals_by_nuit.get(n, {})
             if lab == "Date":
                 val = _fmt_date(dates_map.get(str(n)))
-            elif lab == "EEG":
+            elif lab == "EEG ES":
                 val = _num(tot.get("eeg", 0))
             else:
                 val = _num(tot.get("sa", 0))
             _set_cell_text(t.cell(r, i + 1), val, size=6,
-                           bold=(lab == "EEG"),
+                           bold=(lab == "EEG ES"),
                            align="center")
             _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
     # Supprime les lignes résiduelles (ancienne ligne Caméra / SA en trop)
@@ -575,11 +575,11 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     n_nights = len(nights_sorted)
     needed_rows = 2 + n_nights
     _ensure_table_size(t, needed_rows)
-    # Colonnes cible (réf. utilisateur) : SA 1.5 gardée séparée, SA 2.1 + Freezer
-    # fusionnées dans « SA 2.1 » ; colonne Caméras ajoutée. Pas de SA magasin.
-    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES", "SA 1.5", "SA 2.1", "4.2/4.2 WP", "Caméras"]
+    # Colonnes cible : SA détaillées par type (SA 1.5, SA 2.1, SA 2.1 frz,
+    # 4.2/4.2 WP) ; colonne Caméras ajoutée. Pas de SA magasin.
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES", "SA 1.5", "SA 2.1", "SA 2.1 frz", "4.2/4.2 WP", "Caméras"]
     ncols = len(headers)
-    ratios = [13, 7, 20, 25, 7, 7, 6, 6, 8, 7]
+    ratios = [12, 7, 18, 22, 7, 7, 6, 6, 7, 7, 7]
     _ensure_table_cols(t, ncols, label_cols=1)
     _trim_table_cols(t, ncols)
     _set_col_widths_by_ratio(t, ratios)
@@ -589,7 +589,6 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     for i, n in enumerate(nights_sorted):
         r = i + 2
         d = nuit_es_data[n]
-        sa_21_mix = (d.get("sa_inst_21", 0) or 0) + (d.get("sa_inst_freezer", 0) or 0)
         _set_cell_text(t.cell(r, 0), f"Nuit {n}", bold=True, size=9)
         _set_cell_text(t.cell(r, 1), _fmt_date(d.get("date")), size=9)
         _set_cell_text(t.cell(r, 2), d.get("sr", ""), align="left", size=8)
@@ -597,9 +596,10 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
         _set_cell_text(t.cell(r, 4), _num(d.get("eeg", 0)), bold=True, size=9)
         _set_cell_text(t.cell(r, 5), _num(d.get("rails_es", 0)), size=9)
         _set_cell_text(t.cell(r, 6), _num(d.get("sa_inst_15", 0) or ""), size=9)
-        _set_cell_text(t.cell(r, 7), _num(sa_21_mix or ""), size=9)
-        _set_cell_text(t.cell(r, 8), _num(d.get("sa_inst_42", 0) or ""), size=9)
-        _set_cell_text(t.cell(r, 9), _num(d.get("cam", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 7), _num(d.get("sa_inst_21", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 8), _num(d.get("sa_inst_freezer", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 9), _num(d.get("sa_inst_42", 0) or ""), size=9)
+        _set_cell_text(t.cell(r, 10), _num(d.get("cam", 0) or ""), size=9)
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
@@ -650,7 +650,7 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     if totmag > 0:
         sa_cols.append(("SA", "sa_mag", True))
 
-    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG", "Rails ES"] + [c[0] for c in sa_cols]
+    headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES"] + [c[0] for c in sa_cols]
     ncols = len(headers)
     ratios = [7, 9, 20, 22, 8, 8] + [7] * len(sa_cols)
     n_data = len(week_nights)
