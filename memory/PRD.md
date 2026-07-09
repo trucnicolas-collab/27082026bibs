@@ -584,3 +584,8 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 ## Suite (08/07/2026 bis) — Sélection au niveau ALLÉE
 - [x] La sélection SA passe du niveau rayon au niveau **allée** : clé de sélection = `secteur|||rayon|||allée`. Arbre à 3 niveaux dans le panneau SA (secteur → rayon → allée), case à cocher à chaque niveau (secteur/rayon en select-all avec état indéterminé si partiel). `allKeysForField` renvoie les clés d'allée. `computeSaToInstall`/`computeNodeSaInstall` (front) + `_sa_install_key(sec,ray,allee)`/`compute_node_sa_install` (back) mis à jour.
 - [x] Validé e2e : upload 2 allées même rayon (allée1 SA1.5=5, allée2 SA1.5=3), sélection allée1 seule → export Récap par nuit N1=5 / N2=0. Cases d'allée visibles et cochables à l'écran.
+
+## Suite (08/07/2026 ter) — +600 flèches automatiques sur ES 1.5 (noir)
+- [x] Ajout automatique fixe de **600** dans la colonne « Flèche » de la ligne **ES 1.5 (noir)** de la commande (constante `FLECHE_FIXED_ES15_NOIR=600` dans `server.py`, bloc bonus flèches de `build_recap_produits`). Ajouté à `total_plus_spare` **sans spare**, cumulé avec le bonus flèches existant. Reste du calcul (Total + MOQ) inchangé.
+- [x] Ces 600 EEG **n'entrent PAS dans le phasage** (recap/commande uniquement — le phasage lit les données brutes). Validé e2e : ES 1.5 (noir) 100 qté → flèche=600, total+spare=705 (sans spare add.) ; phasage-summary es_15=150 (100 noir+50 blanc, non gonflé).
+- Note : s'applique aux **nouveaux uploads** (recap construit à l'import). Les sessions déjà créées ne récupèrent le +600 qu'après re-upload.

@@ -333,6 +333,11 @@ MOQ_BY_REF: dict[str, int] = {
 # aurait une référence vide et bloquerait l'export). Modifiable ici si besoin.
 SUPPORT_ALU_SA_REF = "16808"
 
+# Ajout automatique fixe de flèches sur la ligne ES 1.5 (noir) de la commande
+# (08/07/2026). Ajouté à `total_plus_spare` sans spare, exposé dans la colonne
+# « Flèche ». N'entre PAS dans le phasage (recap/commande uniquement).
+FLECHE_FIXED_ES15_NOIR = 600
+
 
 
 def _compute_total_moq(total_plus_spare, ref) -> int | str:
@@ -761,35 +766,41 @@ def build_recap_produits(df: pd.DataFrame, cols: dict) -> list[dict]:
 
     # Applique le bonus à la ligne ES 1.5 (noir) ET à SA 1.5 (noir) du recap
     # (23/06/2026 : sur les 2 lignes si elles existent toutes les deux).
-    if fleche_total > 0:
-        target_labels = ("es 1.5 (noir)", "sa 1.5 (noir)")
-        for r in rows:
-            if r.get("kind") != "product":
-                continue
-            desig_norm = _norm_desig(r.get("designation"))
-            base_desig = desig_norm.split(" — rajout de")[0]
-            if base_desig not in target_labels:
-                continue
-            try:
-                cur_total = float(r.get("total_plus_spare") or 0)
-            except (ValueError, TypeError):
-                cur_total = 0
-            try:
-                cur_q = float(r.get("quantite") or 0)
-            except (ValueError, TypeError):
-                cur_q = 0
-            try:
-                cur_s = float(r.get("spare") or 0)
-            except (ValueError, TypeError):
-                cur_s = 0
-            if cur_total == 0 and (cur_q + cur_s) > 0:
-                cur_total = cur_q + cur_s
-            r["total_plus_spare"] = cur_total + fleche_total
-            # On préserve la désignation brute (sans suffixe " — rajout de X")
-            # car le détail est désormais exposé via des colonnes dédiées
-            # (Flèche, Signalétique, Saisonnier).
-            r["designation"] = (r.get("designation") or "").split(" — rajout de")[0].strip()
-            r["_fleche_bonus"] = fleche_total
+    # 08/07/2026 : ajout automatique fixe de FLECHE_FIXED_ES15_NOIR flèches
+    # sur la SEULE ligne ES 1.5 (noir), sans spare. Ces EEG entrent dans la
+    # commande (total + MOQ) mais PAS dans le phasage (recap uniquement).
+    fleche_by_label = {
+        "es 1.5 (noir)": fleche_total + FLECHE_FIXED_ES15_NOIR,
+        "sa 1.5 (noir)": fleche_total,
+    }
+    for r in rows:
+        if r.get("kind") != "product":
+            continue
+        desig_norm = _norm_desig(r.get("designation"))
+        base_desig = desig_norm.split(" — rajout de")[0]
+        bonus = fleche_by_label.get(base_desig)
+        if not bonus or bonus <= 0:
+            continue
+        try:
+            cur_total = float(r.get("total_plus_spare") or 0)
+        except (ValueError, TypeError):
+            cur_total = 0
+        try:
+            cur_q = float(r.get("quantite") or 0)
+        except (ValueError, TypeError):
+            cur_q = 0
+        try:
+            cur_s = float(r.get("spare") or 0)
+        except (ValueError, TypeError):
+            cur_s = 0
+        if cur_total == 0 and (cur_q + cur_s) > 0:
+            cur_total = cur_q + cur_s
+        r["total_plus_spare"] = cur_total + bonus
+        # On préserve la désignation brute (sans suffixe " — rajout de X")
+        # car le détail est désormais exposé via des colonnes dédiées
+        # (Flèche, Signalétique, Saisonnier).
+        r["designation"] = (r.get("designation") or "").split(" — rajout de")[0].strip()
+        r["_fleche_bonus"] = bonus
 
     # Ligne Dongle — éditable, pas de Spare ni Total+Spare
     # Référence fixe = 16639 (rajoutée automatiquement)
