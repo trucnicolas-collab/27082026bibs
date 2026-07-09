@@ -603,3 +603,8 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **"Phasage full"** retiré de l'interface (sous-onglet + rendu + import PhasageFullTab supprimés) — il RESTE disponible dans les exports (backend inchangé).
 - [x] Badges du stepper repositionnés (WizardSteps.jsx) : Complète→2, Prêt→3, Dates OK→5.
 - [x] Validé : stepper affiche bien 6 étapes, l'étape 4 affiche le contenu caméras (Plan d'attribution + Récap par nuit). Compilation OK.
+
+## Suite (09/07/2026 bis) — Correctifs tableaux PPTX
+- [x] **Slide « Récap par nuit »** : la barre de titre (bandeau vert) avait un `gridSpan=8` figé alors que le tableau a 11 colonnes → 3 cellules vides dépassaient à droite. Ajout du helper `_merge_title_row()` (pptx_export.py) qui fusionne la ligne de titre sur toutes les colonnes. Titre span=11, plus de colonnes vides.
+- [x] **Slides « Semaine S{n} »** : le titre « Plan de phasage … –S{n} » (largeur 8.16") chevauchait le tableau en haut à droite (L6.4"). La largeur du titre est réduite dynamiquement pour s'arrêter avant le tableau (right 6.27" < 6.4"). Plus de chevauchement.
+- Non reproductible sur preview : le titre vertical « Informations Magasin » (slide 5) — sur le preview la zone de titre est large (8.16"), sans rotation ni wrap → rendu horizontal normal. Probable artefact prod (ancien build). À revérifier après redéploiement.

@@ -230,6 +230,27 @@ def _trim_table_cols(table, n_cols: int):
             tr.remove(tc)
 
 
+def _merge_title_row(table, n_cols: int, row_idx: int = 0):
+    """Force la ligne `row_idx` à être une unique cellule fusionnée sur les
+    n_cols premières colonnes (bandeau de titre). Corrige le cas où le template
+    a un gridSpan figé (< n_cols) après ajout de colonnes → cellules vides qui
+    dépassent à droite."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    tbl = table._tbl
+    trs = tbl.findall(f'{{{NS}}}tr')
+    if row_idx >= len(trs):
+        return
+    tcs = trs[row_idx].findall(f'{{{NS}}}tc')
+    if len(tcs) < n_cols:
+        return
+    tcs[0].set('gridSpan', str(n_cols))
+    tcs[0].attrib.pop('hMerge', None)
+    for tc in tcs[1:n_cols]:
+        tc.set('hMerge', '1')
+        tc.attrib.pop('gridSpan', None)
+
+
+
 def _remove_table_row(table, row_idx: int):
     """Supprime la ligne d'index row_idx (utile pour retirer un en-tête/bandeau)."""
     trs = table._tbl.findall(qn('a:tr'))
@@ -583,6 +604,7 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     _ensure_table_cols(t, ncols, label_cols=1)
     _trim_table_cols(t, ncols)
     _set_col_widths_by_ratio(t, ratios)
+    _merge_title_row(t, ncols, row_idx=0)
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=11)
     for ci, h in enumerate(headers):
         _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=9)
@@ -704,7 +726,20 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
     # Position/dimensions : bloc en haut à droite, compact (réf.)
-    _place_table(t_shape, 5850000, 300000, 6050000, 215000)
+    TABLE_LEFT = 5850000
+    _place_table(t_shape, TABLE_LEFT, 300000, 6050000, 215000)
+    # Évite le chevauchement titre ↔ tableau : on réduit la largeur du titre
+    # « Plan de phasage … –S{n} » pour qu'il s'arrête avant le tableau.
+    for sh in slide.shapes:
+        if sh.has_text_frame and "Plan de phasage" in (sh.text_frame.text or ""):
+            try:
+                new_w = TABLE_LEFT - int(sh.left) - 120000
+                if new_w > 914400:
+                    sh.width = new_w
+                    sh.text_frame.word_wrap = True
+            except (TypeError, ValueError):
+                pass
+            break
 
 
 # ===================================================================
