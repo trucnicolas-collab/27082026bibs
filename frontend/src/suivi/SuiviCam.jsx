@@ -75,6 +75,7 @@ function CamNight({ night, cam, actions, isOpen, onToggle }) {
 function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
     const [reel, setReel] = useState(a.reel ?? "");
     const [geo, setGeo] = useState(a.geo ?? "");
+    const [fix, setFix] = useState(a.fix_reel ?? "");
     const [comment, setComment] = useState(a.comment || "");
     const [geoComment, setGeoComment] = useState(a.geoloc_comment || "");
     const [saving, setSaving] = useState(false);
@@ -181,6 +182,25 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                             data-testid={`cam-input-geo-${a.uid}`}
                             className={`w-full h-7 px-1.5 rounded bg-slate-800 border text-xs text-center outline-none placeholder:text-slate-600
                                 ${gap ? "border-red-700 focus:border-red-500 text-red-300" : "border-slate-700 focus:border-sky-500"}`} />
+                    </div>
+                </div>
+                <div className="rounded-lg bg-slate-900/70 p-2">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-between">
+                        Fixations posées
+                        {a.fix_delta !== null && a.fix_delta !== undefined && (
+                            <span className={`font-bold ${a.fix_delta === 0 ? "text-emerald-400" : a.fix_delta < 0 ? "text-red-400" : "text-amber-400"}`}>
+                                {a.fix_delta > 0 ? "+" : ""}{fmt(a.fix_delta)}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs text-slate-400 w-8 text-right" title="Prévu">{a.fix_plan !== null && a.fix_plan !== undefined ? fmt(a.fix_plan) : "—"}</span>
+                        <span className="text-slate-600 text-xs">→</span>
+                        <input type="number" min="0" inputMode="numeric" placeholder="fixations" value={fix}
+                            onChange={(e) => setFix(e.target.value)}
+                            onBlur={() => saveNum("fixations_reel", fix, a.fix_reel)}
+                            data-testid={`cam-input-fix-${a.uid}`}
+                            className="w-full h-7 px-1.5 rounded bg-slate-800 border border-slate-700 text-xs text-center focus:border-sky-500 outline-none placeholder:text-slate-600" />
                     </div>
                 </div>
             </div>

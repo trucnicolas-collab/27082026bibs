@@ -35,6 +35,8 @@ FAMILY_LABELS = dict(FAMILIES)
 EEG_KEYS = ["es_15", "es_21", "sa_15", "sa_21_std", "sa_21_freezer", "sa_42"]
 # Familles à géolocaliser (posé VS géolocalisé) — hors SA 4.2 / saisonnier / caisses
 GEO_KEYS = ["rails_es", "sa_15", "sa_21_std", "sa_21_freezer"]
+JUSTIF_FAMILIES = set(EEG_KEYS) | {"rails_es"}
+JUSTIF_THRESHOLD = 0.05  # 5% d'écart prévu/réel → justification
 MAX_EEG_PER_NIGHT = 4900.0
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
@@ -104,12 +106,19 @@ class ProductEntry(BaseModel):
     geo: Optional[float] = Field(default=None, ge=0)
 
 
+class ExtraProduct(BaseModel):
+    designation: str
+    qty: float = Field(ge=0)
+
+
 class AlleeUpdate(BaseModel):
     uid: str
     products: Optional[List[ProductEntry]] = None
-    status: Optional[str] = None  # a_faire | validee | bloquee
+    extra_products: Optional[List[ExtraProduct]] = None  # produits posés non prévus
+    status: Optional[str] = None  # a_faire | validee | bloquee | a_finaliser
     comment: Optional[str] = None
     geoloc_comment: Optional[str] = None
+    justification: Optional[str] = None  # écart > 5% EEG/rails
     nuit_reelle: Optional[int] = None  # 0 → retour à la nuit planifiée
 
 
@@ -117,6 +126,7 @@ class CamAlleeUpdate(BaseModel):
     uid: str
     cameras_reel: Optional[float] = Field(default=None, ge=0)
     cameras_geo: Optional[float] = Field(default=None, ge=0)
+    fixations_reel: Optional[float] = Field(default=None, ge=0)
     status: Optional[str] = None
     comment: Optional[str] = None
     geoloc_comment: Optional[str] = None
@@ -233,6 +243,19 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             reel = reel_fam
             geo = geo_fam
             geo_gap = {k: v for k, v in gap_fam.items() if v > 0}
+            justif_products = []
+            for p in products:
+                if p["family"] in JUSTIF_FAMILIES and p["reel"] is not None and p["plan"]:
+                    ecart = abs(p["reel"] - p["plan"])
+                    if ecart > JUSTIF_THRESHOLD * p["plan"]:
+                        justif_products.append({
+                            "designation": p["designation"], "plan": p["plan"], "reel": p["reel"],
+                            "ecart_pct": _r(100.0 * ecart / p["plan"]),
+                        })
+            extra_products = [
+                {"designation": str(x.get("designation") or ""), "qty": _r(x.get("qty") or 0)}
+                for x in (e.get("extra_products") or [])
+            ]
             nuit_reelle = e.get("nuit_reelle")
             eff = int(nuit_reelle) if nuit_reelle else nuit_plan
             delta = {k: (None if reel[k] is None else _r(reel[k] - plan[k])) for k in FAMILY_KEYS}
@@ -259,6 +282,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nb_saisis": sum(1 for p in products if p["reel"] is not None),
                 "eeg_plan": _r(_eeg_sum(plan)),
                 "eeg_reel": _r(_eeg_sum({k: (reel[k] or 0) for k in FAMILY_KEYS})) if has_reel else None,
+                "justification": e.get("justification") or "",
+                "justif_products": justif_products,
+                "extra_products": extra_products,
                 "status": e.get("status") or "a_faire",
                 "comment": e.get("comment") or "",
                 "has_reel": has_reel,
@@ -280,6 +306,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             reel_eeg = sum(x["eeg_reel"] or 0 for x in items if x["eeg_reel"] is not None)
             validated = sum(1 for x in items if x["status"] == "validee")
             blocked = sum(1 for x in items if x["status"] == "bloquee")
+            a_finaliser = sum(1 for x in items if x["status"] == "a_finaliser")
             started = any(x["has_reel"] or x["status"] != "a_faire" for x in items)
             complete = bool(items) and validated == len(items)
             date_n = str(dates.get(str(n)) or dates.get(n) or "")
@@ -287,6 +314,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nuit": n, "date": date_n,
                 "nb_allees": len(items),
                 "nb_validees": validated, "nb_bloquees": blocked,
+                "nb_a_finaliser": a_finaliser,
                 "eeg_plan": _r(plan_eeg), "eeg_reel": _r(reel_eeg),
                 "delta_eeg": _r(reel_eeg - plan_eeg) if started else None,
                 "complete": complete, "started": started,
@@ -323,6 +351,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 g["pose"] += p["reel"] or 0
                 if not_valid:
                     g["restant_a_poser"] += max(0.0, (p["plan"] or 0) - (p["reel"] or 0))
+            for ep in x["extra_products"]:
+                g = prod_agg.setdefault(ep["designation"], {
+                    "designation": ep["designation"], "type": "", "family": None,
+                    "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0, "extra": True})
+                g["pose"] += ep["qty"] or 0
         stock, alerts = [], []
         for desig in sorted(prod_agg.keys(), key=lambda s: s.lower()):
             g = prod_agg[desig]
@@ -351,6 +384,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                                 f"(stock restant {_r(restant_stock)}, encore {_r(g['restant_a_poser'])} à poser)"),
                 })
         for x in allees:
+            if x["status"] == "a_finaliser":
+                alerts.append({
+                    "type": "a_finaliser", "family": None,
+                    "label": f"Allée {x['allee']}",
+                    "uid": x["uid"], "nuit": x["nuit_eff"],
+                    "message": (f"Allée {x['allee']} ({x['secteur']}) — nuit {x['nuit_eff']} À FINALISER une autre nuit"
+                                + (f" : {x['comment']}" if x["comment"] else "")),
+                })
             if x["status"] == "bloquee":
                 alerts.append({
                     "type": "blocage", "family": None,
@@ -394,7 +435,18 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             gap = _r(reel_c - geo_c) if (reel_c is not None and geo_c is not None and geo_c < reel_c) else 0
             nuit_reelle = e.get("nuit_reelle")
             eff = int(nuit_reelle) if nuit_reelle else nuit_plan
+            matc = matidx.get(uid) or {}
+            fix_plan = 0.0
+            for dg, q in (matc.get("totals") or {}).items():
+                tdg = ((matc.get("types") or {}).get(dg) or "").lower()
+                if "fixation" in tdg and "cam" in dg.lower():
+                    fix_plan += q or 0
+            fix_reel = e.get("fixations_reel")
+            fix_reel = None if fix_reel is None else _r(fix_reel)
             cam_allees.append({
+                "fix_plan": _r(fix_plan) if fix_plan else None,
+                "fix_reel": fix_reel,
+                "fix_delta": (None if (fix_reel is None or not fix_plan) else _r(fix_reel - fix_plan)),
                 "uid": uid,
                 "allee": a.get("allee") or uid.split("__")[0],
                 "secteur": a.get("secteur") or "",
@@ -499,7 +551,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         fields = payload.dict(exclude_unset=True)
         uid = fields.pop("uid")
         prods = fields.pop("products", None)
-        if "status" in fields and fields["status"] not in (None, "a_faire", "validee", "bloquee"):
+        extras = fields.pop("extra_products", None)
+        if "status" in fields and fields["status"] not in (None, "a_faire", "validee", "bloquee", "a_finaliser"):
             raise HTTPException(status_code=400, detail="Statut invalide")
         if fields.get("nuit_reelle") == 0:
             fields["nuit_reelle"] = None
@@ -509,6 +562,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             entry = {"uid": uid}
             arr.append(entry)
         entry.update(fields)
+        if extras is not None:
+            entry["extra_products"] = [
+                {"designation": str(x.get("designation") or "").strip(), "qty": float(x.get("qty") or 0)}
+                for x in extras if str(x.get("designation") or "").strip() and float(x.get("qty") or 0) > 0
+            ]
         if prods:
             plist = entry.setdefault("products", [])
             pmap = {str(p.get("designation")): p for p in plist}
@@ -647,6 +705,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             ("EEG posées cette nuit", night.get("eeg_reel", 0)),
             ("Écart cette nuit", delta_n if delta_n is not None else "—"),
             ("Allées validées", f"{night.get('nb_validees', 0)} / {night.get('nb_allees', 0)}"),
+            ("Allées à finaliser une autre nuit", night.get("nb_a_finaliser", 0)),
             ("Posés non géolocalisés (rails/SA)", geo_gap_total),
             ("Rythme moyen réel (EEG/nuit)", st["rythme_reel"] or "—"),
             ("Rythme prévu (EEG/nuit)", st["rythme_prevu"]),
@@ -674,15 +733,16 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             if k in GEO_KEYS:
                 headers.append("Géoloc")
             headers.append("Δ")
-        headers += ["Statut", "Commentaire", "Explication géoloc"]
+        headers += ["Statut", "Justification écart >5%", "Commentaire", "Explication géoloc"]
         for c, h in enumerate(headers):
             ws.write(row, c, h, f_h)
         ws.set_column(0, 0, 8)
         ws.set_column(1, 2, 16)
-        ws.set_column(3, len(headers) - 4, 9)
-        ws.set_column(len(headers) - 2, len(headers) - 1, 28)
+        ws.set_column(3, len(headers) - 5, 9)
+        ws.set_column(len(headers) - 3, len(headers) - 1, 28)
         row += 1
-        status_lbl = {"a_faire": "À faire", "validee": "Validée", "bloquee": "BLOQUÉE"}
+        status_lbl = {"a_faire": "À faire", "validee": "Validée", "bloquee": "BLOQUÉE",
+                      "a_finaliser": "À FINALISER"}
         tot_plan = {k: 0.0 for k in fams}
         tot_reel = {k: 0.0 for k in fams}
         tot_geo = {k: 0.0 for k in fams}
@@ -712,7 +772,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 c += 1
             stx = x["status"]
             ws.write(row, c, status_lbl.get(stx, stx),
-                     f_ok if stx == "validee" else (f_neg if stx == "bloquee" else f_c)); c += 1
+                     f_ok if stx == "validee" else (f_neg if stx in ("bloquee", "a_finaliser") else f_c)); c += 1
+            ws.write(row, c, x.get("justification") or "", f_cl); c += 1
             ws.write(row, c, x["comment"], f_cl); c += 1
             ws.write(row, c, x["geoloc_comment"], f_cl)
             row += 1
@@ -729,6 +790,62 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         for cc in range(c, len(headers)):
             ws.write(row, cc, "", f_tot)
         row += 2
+
+        # Produits supplémentaires posés (non prévus)
+        extras_rows = [(x["allee"], ep) for x in items for ep in (x.get("extra_products") or [])]
+        if extras_rows:
+            ws.write(row, 0, "Produits supplémentaires posés (non prévus)", f_title)
+            row += 1
+            for c0, h in enumerate(["Allée", "Désignation", "Quantité"]):
+                ws.write(row, c0, h, f_h)
+            row += 1
+            for al, ep in extras_rows:
+                ws.write(row, 0, al, f_c)
+                ws.write(row, 1, ep["designation"], f_cl)
+                ws.write(row, 2, ep["qty"], f_c)
+                row += 1
+            row += 1
+
+        # Justifications d'écart > 5% (EEG / rails ES)
+        justif_rows = [x for x in items if x.get("justif_products")]
+        if justif_rows:
+            ws.write(row, 0, "Écarts > 5% (EEG / rails ES) et justifications", f_title)
+            row += 1
+            for c0, h in enumerate(["Allée", "Produit", "Prévu", "Posé", "Écart %", "Justification"]):
+                ws.write(row, c0, h, f_h)
+            ws.set_column(5, 5, 40)
+            row += 1
+            for x in justif_rows:
+                for jp in x["justif_products"]:
+                    ws.write(row, 0, x["allee"], f_c)
+                    ws.write(row, 1, jp["designation"], f_cl)
+                    ws.write(row, 2, jp["plan"], f_c)
+                    ws.write(row, 3, jp["reel"], f_c)
+                    ws.write(row, 4, jp["ecart_pct"], f_neg)
+                    ws.write(row, 5, x.get("justification") or "⚠ manquante", f_cl)
+                    row += 1
+            row += 1
+
+        # Caméras de la nuit (si phasage caméras couvre cette nuit absolue)
+        cam_items = [x for x in ((state.get("cam") or {}).get("allees") or []) if x.get("nuit_abs") == nuit]
+        if cam_items:
+            ws.write(row, 0, "Caméras de la nuit", f_title)
+            row += 1
+            for c0, h in enumerate(["Allée", "Secteur", "Prévu", "Posées", "Géoloc", "Fixations posées", "Statut", "Commentaire"]):
+                ws.write(row, c0, h, f_h)
+            row += 1
+            for x in cam_items:
+                ws.write(row, 0, x["allee"], f_c)
+                ws.write(row, 1, x["secteur"], f_cl)
+                ws.write(row, 2, x["plan"], f_c)
+                ws.write(row, 3, x["reel"] if x["reel"] is not None else "", f_c)
+                ws.write(row, 4, x["geo"] if x["geo"] is not None else "", f_geo_bad if x["geo_gap"] else f_c)
+                ws.write(row, 5, x["fix_reel"] if x.get("fix_reel") is not None else "", f_c)
+                ws.write(row, 6, status_lbl.get(x["status"], x["status"]),
+                         f_ok if x["status"] == "validee" else (f_neg if x["status"] == "bloquee" else f_c))
+                ws.write(row, 7, x["comment"], f_cl)
+                row += 1
+            row += 1
 
         incs = [i for i in state["incidents"] if i.get("nuit") == nuit]
         if incs:
@@ -800,6 +917,59 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 else:
                     ws2.write(rr, 7, dv, f_ok if dv == 0 else (f_neg if dv < 0 else f_pos))
                 rr += 1
+
+        # Feuille 3 : synthèse dashboard de toutes les nuits
+        ws3 = wb.add_worksheet("Synthèse déploiement")
+        ws3.write(0, 0, "Synthèse du déploiement — toutes les nuits", f_title)
+        ws3.write(1, 0, f"{store} — état au {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} UTC", f_sub)
+        r3 = 3
+        gkpis = [
+            ("EEG prévues (total magasin)", st["eeg_prevues"]),
+            ("EEG posées (total)", st["eeg_posees"]),
+            ("Avancement (%)", st["pct"]),
+            ("Allées validées", f"{st['allees_validees']} / {st['allees_total']}"),
+            ("Allées bloquées", st["allees_bloquees"]),
+            ("Nuits terminées", f"{st['nuits_terminees']} / {state['nb_nuits']}"),
+            ("Rythme réel (EEG/nuit)", st["rythme_reel"] or "—"),
+            ("Rythme prévu (EEG/nuit)", st["rythme_prevu"]),
+            ("EEG restant à poser", st["eeg_restant"]),
+            ("Nuits estimées restantes", st["nuits_estimees_restantes"] if st["nuits_estimees_restantes"] is not None else "—"),
+            ("Avance/retard estimé (nuits)", st["avance_nuits"] if st["avance_nuits"] is not None else "—"),
+            ("Écart cumulé EEG (nuits terminées)", st["cumul_delta_eeg"]),
+        ]
+        for label, val in gkpis:
+            ws3.write(r3, 0, label, f_kpi_l)
+            ws3.write(r3, 2, val)
+            r3 += 1
+        r3 += 1
+        heads3 = ["Nuit", "Date", "Allées", "Validées", "Bloquées", "À finaliser",
+                  "EEG prévu", "EEG posé", "Écart", "Statut"]
+        for c0, h in enumerate(heads3):
+            ws3.write(r3, c0, h, f_h)
+        ws3.set_column(0, 0, 10)
+        ws3.set_column(1, 1, 12)
+        ws3.set_column(2, 9, 11)
+        r3 += 1
+        for n in state["nights"]:
+            if not n["nb_allees"]:
+                continue
+            stat = "Terminée" if n["complete"] else ("En cours" if n["started"] else "À venir")
+            if n["nb_a_finaliser"]:
+                stat = "À FINALISER"
+            f_stat = f_neg if (n["nb_a_finaliser"] or n["nb_bloquees"]) else (f_ok if n["complete"] else f_c)
+            ws3.write(r3, 0, f"{n['nuit']}" + (" ◀ cette nuit" if n["nuit"] == nuit else ""), f_stat)
+            ws3.write(r3, 1, n["date"] or "", f_c)
+            ws3.write(r3, 2, n["nb_allees"], f_c)
+            ws3.write(r3, 3, n["nb_validees"], f_c)
+            ws3.write(r3, 4, n["nb_bloquees"], f_neg if n["nb_bloquees"] else f_c)
+            ws3.write(r3, 5, n["nb_a_finaliser"], f_neg if n["nb_a_finaliser"] else f_c)
+            ws3.write(r3, 6, n["eeg_plan"], f_c)
+            ws3.write(r3, 7, n["eeg_reel"], f_c)
+            dv = n["delta_eeg"]
+            ws3.write(r3, 8, "" if dv is None else dv,
+                      f_c if dv is None else (f_ok if dv == 0 else (f_neg if dv < 0 else f_pos)))
+            ws3.write(r3, 9, stat, f_stat)
+            r3 += 1
 
         wb.close()
         buf.seek(0)
@@ -960,6 +1130,42 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         allees.sort(key=_sk)
         return {"nuit": nuit, "date": str(dates.get(str(nuit)) or ""), "allees": allees}
 
+    def _justifs_after_update(matnode: dict, entry: dict, fields: dict) -> list:
+        """Produits EEG/rails avec écart > 5% après application du payload."""
+        merged = {str(p.get("designation")): dict(p) for p in ((entry or {}).get("products") or [])}
+        for item in (fields.get("products") or []):
+            d0 = str(item.get("designation") or "")
+            node = merged.setdefault(d0, {"designation": d0})
+            if "reel" in item:
+                node["reel"] = item["reel"]
+        out = []
+        totals = (matnode or {}).get("totals") or {}
+        types = (matnode or {}).get("types") or {}
+        for desig, plan in totals.items():
+            fam = classify_family(types.get(desig) or "", desig)
+            if fam not in JUSTIF_FAMILIES or not plan:
+                continue
+            reel = (merged.get(desig) or {}).get("reel")
+            if reel is None:
+                continue
+            if abs(float(reel) - float(plan)) > JUSTIF_THRESHOLD * float(plan):
+                out.append(desig)
+        return out
+
+    async def _guarded_allee_update(d: dict, doc: dict, payload: AlleeUpdate, author: str):
+        matnode = _materiel_par_allee(d).get(payload.uid) or {}
+        fields = payload.dict(exclude_unset=True)
+        if fields.get("status") == "validee":
+            entry = next((e for e in (doc.get("allees") or []) if str(e.get("uid")) == payload.uid), {})
+            justifs = _justifs_after_update(matnode, entry, fields)
+            if justifs and not (fields.get("justification") or "").strip() and not (entry.get("justification") or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Justification requise : écart de plus de 5% sur " + ", ".join(justifs))
+        valid = set((matnode.get("totals") or {}).keys())
+        return await _apply_allee_update(doc["upload_id"], doc, payload, author,
+                                         valid_designations=valid or None)
+
     # ================================================== ROUTES AUTHENTIFIÉES ====
     @router.get("/{upload_id}")
     async def get_suivi(upload_id: str, current_user: dict = Depends(get_current_user)):
@@ -972,9 +1178,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                            current_user: dict = Depends(get_current_user)):
         d = await _load(upload_id, current_user)
         doc = await _get_doc(upload_id, str(current_user["_id"]))
-        valid = set((_materiel_par_allee(d).get(payload.uid) or {}).get("totals") or {})
-        uid = await _apply_allee_update(upload_id, doc, payload, current_user.get("email") or "",
-                                        valid_designations=valid or None)
+        uid = await _guarded_allee_update(d, doc, payload, current_user.get("email") or "")
         return {"ok": True, "uid": uid}
 
     @router.patch("/{upload_id}/allee-cam")
@@ -1188,7 +1392,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     @terrain.patch("/{upload_id}/allee")
     async def terrain_update_allee(upload_id: str, payload: AlleeUpdate):
         d, doc = await _resolve_terrain(upload_id)
-        uid = await _apply_allee_update(doc["upload_id"], doc, payload, "équipe terrain")
+        uid = await _guarded_allee_update(d, doc, payload, "équipe terrain")
         return {"ok": True, "uid": uid}
 
     @terrain.post("/{upload_id}/incident")

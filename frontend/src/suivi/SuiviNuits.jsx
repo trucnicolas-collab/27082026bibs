@@ -12,7 +12,9 @@ const STATUS_CHIP = {
     a_faire: ["À faire", "bg-slate-700 text-slate-200"],
     validee: ["Validée", "bg-emerald-600 text-white"],
     bloquee: ["Bloquée", "bg-red-600 text-white"],
+    a_finaliser: ["À finaliser", "bg-red-500 text-white"],
 };
+const JUSTIF_FAMS = ["es_15", "es_21", "sa_15", "sa_21_std", "sa_21_freezer", "sa_42", "rails_es"];
 
 // Suivi de pose : Nuits → Allées → Allée PLEIN ÉCRAN (saisie par produit)
 export default function SuiviNuits({ state, actions, mode = "chef" }) {
@@ -65,11 +67,11 @@ function NightRow({ night, actions, onOpen }) {
     };
     return (
         <section className={`rounded-2xl border overflow-hidden transition-colors
-            ${night.complete ? "border-emerald-900/70 bg-emerald-950/20" : night.started ? "border-sky-900/70 bg-slate-900" : "border-slate-800 bg-slate-900"}`}
+            ${night.nb_a_finaliser > 0 || night.nb_bloquees > 0 ? "border-red-800/80 bg-red-950/20" : night.complete ? "border-emerald-900/70 bg-emerald-950/20" : night.started ? "border-sky-900/70 bg-slate-900" : "border-slate-800 bg-slate-900"}`}
             data-testid={`night-block-${night.nuit}`}>
             <button onClick={onOpen} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" data-testid={`night-open-${night.nuit}`}>
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold flex-shrink-0
-                    ${night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
+                    ${night.nb_a_finaliser > 0 ? "bg-red-600 text-white" : night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
                     {night.nuit}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -78,6 +80,7 @@ function NightRow({ night, actions, onOpen }) {
                         {night.date && <span className="text-xs text-slate-500 font-normal">{new Date(night.date + "T00:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })}</span>}
                         {night.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         {night.nb_bloquees > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-bold">{night.nb_bloquees} bloquée(s)</span>}
+                        {night.nb_a_finaliser > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-bold" data-testid={`night-a-finaliser-${night.nuit}`}>{night.nb_a_finaliser} à finaliser</span>}
                     </div>
                     <div className="text-xs text-slate-400">
                         {night.nb_validees}/{night.nb_allees} allées validées · {fmt(night.eeg_reel)} / {fmt(night.eeg_plan)} EEG
@@ -134,7 +137,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                     <button key={a.uid} onClick={() => onOpenAllee(a.uid)}
                         data-testid={`allee-open-${a.uid}`}
                         className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-colors hover:border-emerald-700
-                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60" : a.status === "bloquee" ? "bg-red-950/20 border-red-900/60" : "bg-slate-900 border-slate-800"}`}>
+                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60" : a.status === "bloquee" || a.status === "a_finaliser" ? "bg-red-950/20 border-red-900/60" : "bg-slate-900 border-slate-800"}`}>
                         <span className="px-2 py-1 rounded-md bg-slate-700 text-slate-100 text-sm font-bold flex-shrink-0">
                             {a.allee}
                         </span>
@@ -190,12 +193,25 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
     const [comment, setComment] = useState(a.comment || "");
     const [geoComment, setGeoComment] = useState(a.geoloc_comment || "");
     const [saving, setSaving] = useState(false);
+    const [panel, setPanel] = useState(false);
+    const [justif, setJustif] = useState(a.justification || "");
+    const [extras, setExtras] = useState(() =>
+        (a.extra_products || []).map((x) => ({ designation: x.designation, qty: String(x.qty) })));
     const [uploading, setUploading] = useState(false);
     const [zoom, setZoom] = useState(null);
     const fileRef = useRef(null);
     const maxNight = Math.max(state.nb_nuits || 1, ...(state.nights || []).map((x) => x.nuit));
     const gapProducts = (a.products || []).filter((p) => p.gap > 0);
     const [lbl, cls] = STATUS_CHIP[a.status] || STATUS_CHIP.a_faire;
+
+    // Écarts > 5% (EEG + rails ES) sur les valeurs saisies localement
+    const justifProducts = (a.products || []).filter((p) => {
+        if (!JUSTIF_FAMS.includes(p.family) || !p.plan) return false;
+        const raw = vals[p.designation]?.reel;
+        const reel = raw === "" || raw === undefined ? p.reel : Number(raw);
+        if (reel === null || reel === undefined || isNaN(reel)) return false;
+        return Math.abs(reel - p.plan) > 0.05 * p.plan;
+    });
 
     const saveField = async (designation, field) => {
         const raw = vals[designation]?.[field];
@@ -208,16 +224,29 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
 
     const setStatus = async (status) => {
         setSaving(true);
-        const fields = { status };
-        if (status === "validee") {
-            const fill = (a.products || [])
-                .filter((p) => p.reel === null && (vals[p.designation]?.reel ?? "") === "")
-                .map((p) => ({ designation: p.designation, reel: p.plan || 0 }));
-            if (fill.length) fields.products = fill;
-        }
-        const ok = await actions.patchAllee(a.uid, fields);
-        if (ok && status === "validee") toast.success(`Allée ${a.allee} validée`);
+        const ok = await actions.patchAllee(a.uid, { status });
         if (ok && status === "bloquee") toast.warning(`Allée ${a.allee} bloquée`);
+        if (ok && status === "a_finaliser") toast.warning(`Allée ${a.allee} à finaliser une autre nuit — la nuit passe en rouge`);
+        setSaving(false);
+    };
+
+    const confirmValidate = async () => {
+        if (justifProducts.length > 0 && !justif.trim()) {
+            toast.error("Justification obligatoire : écart de plus de 5% sur EEG / rails ES");
+            return;
+        }
+        setSaving(true);
+        const fields = { status: "validee" };
+        const fill = (a.products || [])
+            .filter((p) => p.reel === null && (vals[p.designation]?.reel ?? "") === "")
+            .map((p) => ({ designation: p.designation, reel: p.plan || 0 }));
+        if (fill.length) fields.products = fill;
+        if (justif.trim()) fields.justification = justif.trim();
+        fields.extra_products = extras
+            .filter((x) => x.designation.trim() && Number(x.qty) > 0)
+            .map((x) => ({ designation: x.designation.trim(), qty: Number(x.qty) }));
+        const ok = await actions.patchAllee(a.uid, fields);
+        if (ok) { toast.success(`Allée ${a.allee} validée`); setPanel(false); }
         setSaving(false);
     };
 
@@ -353,15 +382,41 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 </div>
             </div>
 
+            {/* Écart > 5% détecté (avant validation) */}
+            {justifProducts.length > 0 && a.status !== "validee" && (
+                <div className="rounded-xl bg-amber-950/40 border border-amber-800/60 p-3" data-testid={`allee-justif-warn-${a.uid}`}>
+                    <div className="text-[11px] text-amber-300 font-semibold flex items-start gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <span>
+                            Écart de plus de 5% : {justifProducts.map((p) => p.designation).join(", ")}.
+                            Une justification sera demandée à la validation.
+                        </span>
+                    </div>
+                </div>
+            )}
+            {a.status === "validee" && a.justification && (
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 text-[11px] text-slate-400" data-testid={`allee-justif-saved-${a.uid}`}>
+                    <span className="font-semibold text-amber-400">Justification écart : </span>{a.justification}
+                </div>
+            )}
+            {(a.extra_products || []).length > 0 && (
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-3" data-testid={`allee-extras-saved-${a.uid}`}>
+                    <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1.5">Produits supplémentaires posés (non prévus)</div>
+                    {(a.extra_products || []).map((x, i) => (
+                        <div key={i} className="text-xs text-slate-300">• {x.designation} — <span className="font-bold text-emerald-400">{fmt(x.qty)}</span></div>
+                    ))}
+                </div>
+            )}
+
             {/* Commentaire + actions */}
             <input value={comment} onChange={(e) => setComment(e.target.value)}
                 onBlur={() => { if (comment !== (a.comment || "")) actions.patchAllee(a.uid, { comment }); }}
                 placeholder="Commentaire (manque produit, casse...)"
                 data-testid={`allee-comment-${a.uid}`}
                 className="w-full h-10 px-3 rounded-xl bg-slate-900 border border-slate-800 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
-            <div className="flex items-center gap-2 pb-4">
+            <div className="flex items-center gap-2">
                 {a.status !== "validee" ? (
-                    <button onClick={() => setStatus("validee")} disabled={saving} data-testid={`allee-validate-${a.uid}`}
+                    <button onClick={() => setPanel(true)} disabled={saving} data-testid={`allee-validate-${a.uid}`}
                         className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Valider l'allée
                     </button>
@@ -383,6 +438,95 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     </button>
                 )}
             </div>
+            <div className="pb-4">
+                {a.status !== "a_finaliser" ? (
+                    a.status !== "validee" && (
+                        <button onClick={() => setStatus("a_finaliser")} disabled={saving} data-testid={`allee-finaliser-${a.uid}`}
+                            className="w-full h-10 rounded-xl border border-red-700/70 text-red-300 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-red-950/40 transition-colors">
+                            <Moon className="w-3.5 h-3.5" /> Je vais finaliser cette allée une autre nuit
+                        </button>
+                    )
+                ) : (
+                    <button onClick={() => setStatus("a_faire")} disabled={saving} data-testid={`allee-reprendre-${a.uid}`}
+                        className="w-full h-10 rounded-xl border border-slate-600 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors">
+                        <RotateCcw className="w-3.5 h-3.5" /> Reprendre la saisie (annuler « à finaliser »)
+                    </button>
+                )}
+            </div>
+
+            {/* Panneau de validation : justification >5% + produits supplémentaires */}
+            {panel && (
+                <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-3" data-testid={`allee-validate-panel-${a.uid}`}>
+                    <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-4 space-y-3 max-h-[85vh] overflow-y-auto">
+                        <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            <h4 className="text-sm font-bold flex-1">Valider l'allée {a.allee}</h4>
+                            <button onClick={() => setPanel(false)} data-testid="validate-panel-close"
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+                        </div>
+
+                        {justifProducts.length > 0 && (
+                            <div className="rounded-xl bg-red-950/40 border border-red-900/60 p-3 space-y-2" data-testid={`validate-justif-${a.uid}`}>
+                                <div className="text-[11px] text-red-300 font-semibold flex items-start gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>Écart de plus de 5% entre prévu et posé — justification obligatoire :</span>
+                                </div>
+                                {justifProducts.map((p) => {
+                                    const raw = vals[p.designation]?.reel;
+                                    const reel = raw === "" || raw === undefined ? p.reel : Number(raw);
+                                    const pct = Math.round(Math.abs(reel - p.plan) / p.plan * 1000) / 10;
+                                    return (
+                                        <div key={p.designation} className="text-[11px] text-slate-300">
+                                            • {p.designation} : prévu {fmt(p.plan)} → posé {fmt(reel)} <span className="text-red-400 font-bold">({pct}%)</span>
+                                        </div>
+                                    );
+                                })}
+                                <textarea value={justif} onChange={(e) => setJustif(e.target.value)} rows={2}
+                                    placeholder="Pourquoi cet écart ? (obligatoire)"
+                                    data-testid={`validate-justif-input-${a.uid}`}
+                                    className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none resize-none" />
+                            </div>
+                        )}
+
+                        <div className="rounded-xl bg-slate-800/50 border border-slate-700 p-3 space-y-2" data-testid={`validate-extras-${a.uid}`}>
+                            <div className="text-[11px] text-slate-300 font-semibold">
+                                Avez-vous posé des produits non prévus dans cette allée ?
+                            </div>
+                            {extras.map((x, i) => (
+                                <div key={i} className="flex items-center gap-1.5">
+                                    <input value={x.designation}
+                                        onChange={(e) => setExtras((s) => s.map((y, j) => (j === i ? { ...y, designation: e.target.value } : y)))}
+                                        placeholder="Désignation (ex: ES 1.5 blanc)"
+                                        data-testid={`extra-desig-${i}`}
+                                        className="flex-1 h-8 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                                    <input type="number" min="0" inputMode="numeric" value={x.qty}
+                                        onChange={(e) => setExtras((s) => s.map((y, j) => (j === i ? { ...y, qty: e.target.value } : y)))}
+                                        placeholder="Qté" data-testid={`extra-qty-${i}`}
+                                        className="w-16 h-8 px-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-center placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                                    <button onClick={() => setExtras((s) => s.filter((_, j) => j !== i))} data-testid={`extra-del-${i}`}
+                                        className="p-1.5 text-slate-500 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </div>
+                            ))}
+                            <button onClick={() => setExtras((s) => [...s, { designation: "", qty: "" }])}
+                                data-testid="extra-add-btn"
+                                className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold">
+                                + Ajouter un produit non prévu
+                            </button>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setPanel(false)} data-testid="validate-cancel"
+                                className="h-10 px-4 rounded-xl border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-800 transition-colors">
+                                Annuler
+                            </button>
+                            <button onClick={confirmValidate} disabled={saving} data-testid={`validate-confirm-${a.uid}`}
+                                className="flex-1 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmer la validation
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {zoom && (
                 <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={() => setZoom(null)} data-testid="photo-zoom">

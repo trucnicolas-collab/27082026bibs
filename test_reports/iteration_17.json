@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 17: nouvelles features 'Suivi de déploiement' validées end-to-end. Backend 52/52 pytest OK (16+16+13+7). Frontend flow terrain 10/10 étapes OK (justif >5%, panneau validation, extras, a_finaliser + badge rouge, reprendre, cam fixations, téléchargement rapport-nuit).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_suivi_justif_finaliser.py",
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/backend/tests/test_suivi_terrain.py",
+    "/app/backend/tests/test_suivi_cam_materiel.py",
+    "/app/test_reports/pytest/iteration_17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_guarded_allee_update calcule justif requise SEULEMENT quand fields.get('status')=='validee'. Une allée déjà validée qui repasse à validee ne re-checke pas — cohérent avec 'existing justification suffit'. RAS.",
+    "extra_products : le state expose les extras côté allée ET côté stock (agrégation). Le message d'alerte type='a_finaliser' est bien émis (visible dans alerts). RAS.",
+    "Excel export 3 feuilles : la feuille 'Nuit N' comprend KPI 'Allées à finaliser une autre nuit', colonne 'Justification écart >5%', sections extras + écarts. La feuille Synthèse a colonne 'À finaliser' et KPIs globaux. RAS.",
+    "Frontend AlleeScreen : panneau modal utilise data-testid uniformisés (validate-justif-input-*, extra-add-btn, extra-desig-0/qty-0, validate-confirm-*). Le badge 'à finaliser' utilise bien class bg-red-600. RAS.",
+    "Minor DX : cam-input-fix-{uid} accepte number en input mais le state envoie float ; envoi de '3' persiste correctement en 3 après reload."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_suivi_justif_finaliser.py (nouveau: 7 tests couvrant justif 5%, a_finaliser, extras, fix cam, rapport 3 feuilles, régression admin)",
+    "/app/backend/tests/test_suivi_deploy.py (2 assertions obsolètes corrigées : validate auto-fill nécessite justification maintenant + workbook a 3 feuilles au lieu de 2)"
+  ],
+  "success_rate": {"backend": "100% (52/52)", "frontend": "100% (10/10 étapes)"},
+  "test_credentials": "admin@vusion.local / admin123 (portail terrain sans compte)",
+  "seed_data_creation": "Aucun. Réutilisation upload_id fd15443f-6d2a-4cef-bd72-c56bb29e9c42. Allée 1__A__R1 remise à status=a_faire / justification vide / extra_products vide / cam fixations_reel=None en fin de tests. Publication conservée.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Commande regression complète: `set -a; source /app/frontend/.env; set +a; python -m pytest /app/backend/tests/test_suivi_deploy.py /app/backend/tests/test_suivi_terrain.py /app/backend/tests/test_suivi_cam_materiel.py /app/backend/tests/test_suivi_justif_finaliser.py -v` → 52 passed. Nouvelles routes/comportements : justif requise si validate & écart>5% EEG/rails ES ; status='a_finaliser' → badge rouge + alerte ; extra_products persist ; fixations_reel sur cam allées ; rapport Excel = 3 feuilles. UI panneau modal via data-testid 'allee-validate-panel-{uid}' et 'validate-confirm-{uid}'.",
+  "rca of the issue": "N/A — tous tests passent."
+}

@@ -142,6 +142,7 @@ def test_validate_auto_fills_missing_products(client):
     r = client.patch(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/allee",
                      json={"uid": UID, "status": "validee",
                            "geoloc_comment": "",
+                           "justification": "Ajustement plan magasin",
                            "products": all_products})
     assert r.status_code == 200, r.text
     j = _state(client)
@@ -245,7 +246,7 @@ def test_rapport_nuit_two_sheets_with_details(client):
     assert r.status_code == 200
     assert r.content[:2] == b"PK"
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Nuit 2", "Détail produits"], f"got {wb.sheetnames}"
+    assert wb.sheetnames == ["Nuit 2", "Détail produits", "Synthèse déploiement"], f"got {wb.sheetnames}"
     ws2 = wb["Détail produits"]
     flat = "\n".join(" | ".join(str(c) if c is not None else "" for c in row)
                      for row in ws2.iter_rows(values_only=True))
