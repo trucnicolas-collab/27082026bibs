@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v21-date-tables"
+__PPTX_VERSION__ = "2026-07-10-v22-full-rebuild"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -273,6 +273,26 @@ def _merge_title_row(table, n_cols: int, row_idx: int = 0):
     tcs[0].set('gridSpan', str(n_cols))
     tcs[0].attrib.pop('hMerge', None)
     for tc in tcs[1:n_cols]:
+        tc.set('hMerge', '1')
+        tc.attrib.pop('gridSpan', None)
+
+
+def _merge_cells_range(table, row_idx: int, start_col: int, end_col: int):
+    """Fusionne les cellules [start_col..end_col] inclus sur la ligne row_idx.
+    Utilisé pour créer des sous-bandeaux (ex : slide 20 « Phasage étiquettes »
+    couvre cols 0-7, « Nuit » 8-9, « Phasage caméras » 10-12)."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    tbl = table._tbl
+    trs = tbl.findall(f'{{{NS}}}tr')
+    if row_idx >= len(trs):
+        return
+    tcs = trs[row_idx].findall(f'{{{NS}}}tc')
+    if end_col >= len(tcs) or start_col > end_col:
+        return
+    span = end_col - start_col + 1
+    tcs[start_col].set('gridSpan', str(span))
+    tcs[start_col].attrib.pop('hMerge', None)
+    for tc in tcs[start_col + 1:end_col + 1]:
         tc.set('hMerge', '1')
         tc.attrib.pop('gridSpan', None)
 
@@ -700,31 +720,31 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         sh._element.getparent().remove(sh._element)
     _remove_table_row(t, 0)  # retire l'éventuel bandeau/en-tête noir du template
 
-    # Colonnes SA à installer dynamiques PAR SEMAINE : on n'affiche que celles
-    # qui ont des SA à poser sur les nuits de CETTE semaine. « SA » (magasin,
-    # hors phasage) affichée pour info en italique si présente cette semaine.
+    # Colonnes fixes : SA 1.5 / SA 2.1 / SA 2.1 frz / 4.2/4.2 WP + Caméras
+    # (toujours affichées, même si 0 — cf. modèle de référence utilisateur
+    # du 10/07/2026). Colonne « SA magasin » (info) affichée uniquement si
+    # elle contient au moins une valeur cette semaine.
     _wk = [nuit_es_data.get(n, {}) for n in week_nights]
-    tot15 = sum((d.get("sa_inst_15") or 0) for d in _wk)
-    tot21 = sum((d.get("sa_inst_21") or 0) for d in _wk)
-    totfz = sum((d.get("sa_inst_freezer") or 0) for d in _wk)
-    tot42 = sum((d.get("sa_inst_42") or 0) for d in _wk)
     totmag = sum((d.get("sa_mag") or 0) for d in _wk)
-    sa_cols = []  # (header, key, italic)
-    if tot15 > 0:
-        sa_cols.append(("SA 1.5", "sa_inst_15", False))
-    if tot21 > 0:
-        sa_cols.append(("SA 2.1", "sa_inst_21", False))
-    if totfz > 0:
-        sa_cols.append(("SA 2.1 frz", "sa_inst_freezer", False))
-    if tot42 > 0:
-        sa_cols.append(("4.2/4.2 WP", "sa_inst_42", False))
+    sa_cols = [
+        ("SA 1.5", "sa_inst_15", False),
+        ("SA 2.1", "sa_inst_21", False),
+        ("SA 2.1 frz", "sa_inst_freezer", False),
+        ("4.2/4.2 WP", "sa_inst_42", False),
+    ]
     if totmag > 0:
-        sa_cols.append(("SA", "sa_mag", True))
+        sa_cols.append(("SA magasin", "sa_mag", True))
+    # Colonne Caméras (toujours présente — cf. modèle utilisateur)
+    include_cam = True
 
     headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES"] + [c[0] for c in sa_cols]
+    if include_cam:
+        headers.append("Caméras")
     ncols = len(headers)
-    # Date élargie (12) pour "27/07/2026" à 9pt sur une ligne.
+    # Ratios (Date large pour dates complètes)
     ratios = [7, 12, 18, 20, 8, 8] + [7] * len(sa_cols)
+    if include_cam:
+        ratios.append(8)
     n_data = len(week_nights)
     needed = 1 + n_data + 1  # header + nuits + sous-total
     _ensure_table_size(t, needed)
@@ -735,7 +755,7 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     for ci, h in enumerate(headers):
         _set_cell_text(t.cell(0, ci), h, bold=True, align="center", size=9)
 
-    sub = {"eeg": 0, "rails_es": 0}
+    sub = {"eeg": 0, "rails_es": 0, "cam": 0}
     for c in sa_cols:
         sub[c[1]] = 0
     for i, n in enumerate(week_nights):
@@ -754,12 +774,15 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
             sub[key] += v
             _set_cell_text(t.cell(r, 6 + j), _num(v or ""), size=9, italic=ital,
                            color=("#6B7280" if ital else None))
+        if include_cam:
+            cam_val = int(round((totals_by_nuit.get(n, {}) or {}).get("cam", 0) or 0))
+            sub["cam"] += cam_val
+            _set_cell_text(t.cell(r, 6 + len(sa_cols)), _num(cam_val or ""), size=9)
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
-            # Force texte noir sur cellules non-magasin (magasin reste
-            # italique/gris). Le template a des SA/Caméras violet hérités.
-            is_italic_mag = (ci >= 6 and (ci - 6) < len(sa_cols) and sa_cols[ci - 6][2])
+            # Force texte noir sur cellules non-magasin (magasin reste italique/gris).
+            is_italic_mag = (6 <= ci < 6 + len(sa_cols) and sa_cols[ci - 6][2])
             if not is_italic_mag:
                 _force_cell_text_color(t.cell(r, ci), "#000000")
 
@@ -774,6 +797,8 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     for j, (h, key, ital) in enumerate(sa_cols):
         _set_cell_text(t.cell(sr, 6 + j), _num(sub[key] or ""), bold=True, size=9, italic=ital,
                        color=("#6B7280" if ital else None))
+    if include_cam:
+        _set_cell_text(t.cell(sr, 6 + len(sa_cols)), _num(sub["cam"] or ""), bold=True, size=9)
     for ci in range(ncols):
         _set_cell_fill(t.cell(sr, ci), "F3F4F6")
         # Force texte noir sur sous-total (sauf colonne magasin italique).
@@ -789,9 +814,11 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     while len(t.rows) > needed:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-    # Position/dimensions : bloc en haut à droite, compact (réf.)
-    TABLE_LEFT = 5850000
-    _place_table(t_shape, TABLE_LEFT, 300000, 6050000, 215000)
+    # Position/dimensions : tableau large (11+ colonnes) — cf. modèle de
+    # référence utilisateur du 10/07/2026 : le tableau prend ~75% de la
+    # largeur, à droite du titre en haut à gauche.
+    TABLE_LEFT = 2500000
+    _place_table(t_shape, TABLE_LEFT, 500000, 9500000, 175000)
     # Évite le chevauchement titre ↔ tableau : on réduit la largeur du titre
     # « Plan de phasage … –S{n} » pour qu'il s'arrête avant le tableau.
     for sh in slide.shapes:
@@ -862,12 +889,14 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
     _shape = tables[0]
     t = _shape.table
     nights = sorted(nuit_cam_data.keys())
-    needed = 2 + len(nights)
+    needed = 2 + len(nights) + 1  # bandeau + header + data + TOTAL
     _ensure_table_size(t, needed)
     _trim_table_cols(t, 5)  # retire la colonne vide résiduelle à droite
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=12)
     for ci, h in enumerate(["Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]):
         _set_cell_text(t.cell(1, ci), h, bold=True, size=10)
+    tot_cam = 0
+    tot_allees = set()
     for i, n in enumerate(nights):
         r = i + 2
         d = nuit_cam_data[n]
@@ -879,6 +908,23 @@ def _fill_slide_18(slide, nuit_cam_data, weeks):
         color = _color_for_night(n, weeks)
         for ci in range(5):
             _set_cell_fill(t.cell(r, ci), color)
+            _force_cell_text_color(t.cell(r, ci), "#000000")
+        # Somme totaux
+        tot_cam += int(d.get("cam", 0) or 0)
+        for a in str(d.get("allees_str") or "").split(","):
+            a = a.strip()
+            if a:
+                tot_allees.add(a)
+    # Ligne TOTAL (cf. modèle de référence utilisateur du 10/07/2026)
+    tr = 2 + len(nights)
+    _set_cell_text(t.cell(tr, 0), "TOTAL", bold=True, align="center", size=10)
+    _set_cell_text(t.cell(tr, 1), "", size=10)
+    _set_cell_text(t.cell(tr, 2), "", size=10)
+    _set_cell_text(t.cell(tr, 3), f"{len(tot_allees)} allées planifiées", bold=True, align="center", size=10)
+    _set_cell_text(t.cell(tr, 4), _num(tot_cam), bold=True, align="center", size=10)
+    for ci in range(5):
+        _set_cell_fill(t.cell(tr, ci), "FEF3C7")  # jaune pâle
+        _force_cell_text_color(t.cell(tr, ci), "#000000")
     # Supprime les lignes résiduelles éventuelles + compactage/position (réf.)
     while len(t.rows) > needed:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
@@ -978,20 +1024,38 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
         return
     t = tables[0].table
     all_n = sorted(set(nuit_es_data.keys()) | set(nuit_cam_data.keys()))
+    # 13 colonnes — SA éclatées en 4 (SA 1.5 / SA 2.1 / SA 2.1 frz / SA magasin)
+    # cf. modèle de référence utilisateur du 10/07/2026.
+    ncols = 13
+    _ensure_table_cols(t, ncols, label_cols=1)
+    _trim_table_cols(t, ncols)
+    # Ratios de colonnes (Allées un peu large, SA compactes, Caméras droite)
+    _set_col_widths_by_ratio(t, [8, 6, 6, 5, 5, 5, 6, 12, 5, 7, 12, 8, 6])
     # 3 lignes d'en-tête + N nuits + 1 ligne TOTAL
     needed = 3 + len(all_n) + 1
     _ensure_table_size(t, needed)
+    # Ligne 0 : titre principal (fusion sur les 13 colonnes)
+    _merge_title_row(t, ncols, row_idx=0)
     _set_cell_text(t.cell(0, 0), "Phasage full — Planning consolidé EEG + Caméras",
                    bold=True, align="center", size=11)
+    # Ligne 1 : 3 sous-bandeaux fusionnés
+    _merge_cells_range(t, 1, 0, 7)   # « Phasage étiquettes et rails »
+    _merge_cells_range(t, 1, 8, 9)   # « Nuit »
+    _merge_cells_range(t, 1, 10, 12) # « Phasage caméras »
     _set_cell_text(t.cell(1, 0), "Phasage étiquettes et rails", bold=True, align="center", size=9)
-    _set_cell_text(t.cell(1, 5), "Nuit", bold=True, align="center", size=9)
-    _set_cell_text(t.cell(1, 7), "Phasage caméras", bold=True, align="center", size=9)
-    subs = ["Allées", "ES", "Rails ES", "SA posées", "Secteur/Rayon",
-            "Nuit", "Date", "Secteur/Rayon", "Allées", "Caméras"]
+    _set_cell_text(t.cell(1, 8), "Nuit", bold=True, align="center", size=9)
+    _set_cell_text(t.cell(1, 10), "Phasage caméras", bold=True, align="center", size=9)
+    subs = ["Allées", "ES", "Rails ES", "SA 1.5", "SA 2.1", "SA 2.1 frz", "SA magasin",
+            "Secteur/Rayon", "Nuit", "Date",
+            "Secteur/Rayon", "Allées", "Caméras"]
     for ci, s in enumerate(subs):
         _set_cell_text(t.cell(2, ci), s, bold=True, size=8)
-    # Data — police plus compacte pour faire tenir toutes les nuits dans la slide
-    tot_es = tot_rails = tot_sa = tot_cam = 0
+    # Force noir sur les en-têtes (le template a des runs violets/gris hérités)
+    for ci in range(ncols):
+        _force_cell_text_color(t.cell(1, ci), "#000000")
+        _force_cell_text_color(t.cell(2, ci), "#000000")
+    # Data — police compacte pour faire tenir toutes les nuits dans la slide
+    tot_es = tot_rails = tot_15 = tot_21 = tot_fz = tot_mag = tot_cam = 0
     for i, n in enumerate(all_n):
         r = i + 3
         es = nuit_es_data.get(n, {})
@@ -999,59 +1063,71 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
         _set_cell_text(t.cell(r, 0), es.get("allees_str", ""), align="left", size=7)
         _set_cell_text(t.cell(r, 1), _num(es.get("eeg", "")), size=8)
         _set_cell_text(t.cell(r, 2), _num(es.get("rails_es", "")), size=8)
-        _set_cell_text(t.cell(r, 3), _num(es.get("sa", "")), size=8)
-        _set_cell_text(t.cell(r, 4), es.get("sr", ""), align="left", size=7)
-        _set_cell_text(t.cell(r, 5), str(n), bold=True, size=9)
-        _set_cell_text(t.cell(r, 6), _fmt_date(dates_map.get(str(n))), size=8)
-        _set_cell_text(t.cell(r, 7), cam.get("sr", ""), align="left", size=7)
-        _set_cell_text(t.cell(r, 8), cam.get("allees_str", ""), align="left", size=7)
-        _set_cell_text(t.cell(r, 9), _num(cam.get("cam", "")), size=8)
+        _set_cell_text(t.cell(r, 3), _num(es.get("sa_inst_15", "") or ""), size=8)
+        _set_cell_text(t.cell(r, 4), _num(es.get("sa_inst_21", "") or ""), size=8)
+        _set_cell_text(t.cell(r, 5), _num(es.get("sa_inst_freezer", "") or ""), size=8)
+        _set_cell_text(t.cell(r, 6), _num(es.get("sa_mag", "") or ""), size=8,
+                       italic=True, color="#6B7280")
+        _set_cell_text(t.cell(r, 7), es.get("sr", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 8), str(n), bold=True, size=9)
+        _set_cell_text(t.cell(r, 9), _fmt_date(dates_map.get(str(n))), size=8)
+        _set_cell_text(t.cell(r, 10), cam.get("sr", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 11), cam.get("allees_str", ""), align="left", size=7)
+        _set_cell_text(t.cell(r, 12), _num(cam.get("cam", "")), size=8)
         color = _color_for_night(n, weeks)
-        for ci in range(10):
+        for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
-        # Cumul TOTAL
-        for v, key in ((es.get("eeg"), "es"), (es.get("rails_es"), "rails"),
-                       (es.get("sa"), "sa"), (cam.get("cam"), "cam")):
-            try:
-                f = float(v) if v not in (None, "") else 0
-            except (ValueError, TypeError):
-                f = 0
-            if key == "es":
-                tot_es += f
-            elif key == "rails":
-                tot_rails += f
-            elif key == "sa":
-                tot_sa += f
+            if ci == 6:  # SA magasin en italique/gris
+                _force_cell_text_color(t.cell(r, ci), "#6B7280")
             else:
-                tot_cam += f
-    # Ligne TOTAL (réécrit la dernière row pour neutraliser les valeurs
-    # héritées du template — bug 26/02/2026)
+                _force_cell_text_color(t.cell(r, ci), "#000000")
+        # Cumul TOTAL
+        def _f(v):
+            try: return float(v) if v not in (None, "") else 0
+            except (ValueError, TypeError): return 0
+        tot_es += _f(es.get("eeg"))
+        tot_rails += _f(es.get("rails_es"))
+        tot_15 += _f(es.get("sa_inst_15"))
+        tot_21 += _f(es.get("sa_inst_21"))
+        tot_fz += _f(es.get("sa_inst_freezer"))
+        tot_mag += _f(es.get("sa_mag"))
+        tot_cam += _f(cam.get("cam"))
+    # Ligne TOTAL
     total_row = 3 + len(all_n)
     _set_cell_text(t.cell(total_row, 0), "TOTAL", bold=True, align="left", size=9)
     _set_cell_text(t.cell(total_row, 1), _num(int(tot_es)), bold=True, size=9)
     _set_cell_text(t.cell(total_row, 2), _num(int(tot_rails)), bold=True, size=9)
-    _set_cell_text(t.cell(total_row, 3), _num(int(tot_sa)), bold=True, size=9)
-    _set_cell_text(t.cell(total_row, 4), "", size=9)
-    _set_cell_text(t.cell(total_row, 5), f"{len(all_n)} nuits", bold=True, size=9)
-    _set_cell_text(t.cell(total_row, 6), "", size=9)
+    _set_cell_text(t.cell(total_row, 3), _num(int(tot_15) or ""), bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 4), _num(int(tot_21) or ""), bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 5), _num(int(tot_fz) or ""), bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 6), _num(int(tot_mag) or ""), bold=True, size=9,
+                   italic=True, color="#6B7280")
     _set_cell_text(t.cell(total_row, 7), "", size=9)
-    _set_cell_text(t.cell(total_row, 8), "", size=9)
-    _set_cell_text(t.cell(total_row, 9), _num(int(tot_cam)), bold=True, size=9)
-    # Supprime les rows résiduelles du template (sinon lignes vides colorées)
+    _set_cell_text(t.cell(total_row, 8), f"{len(all_n)} nuits", bold=True, size=9)
+    _set_cell_text(t.cell(total_row, 9), "", size=9)
+    _set_cell_text(t.cell(total_row, 10), "", size=9)
+    _set_cell_text(t.cell(total_row, 11), "", size=9)
+    _set_cell_text(t.cell(total_row, 12), _num(int(tot_cam)), bold=True, size=9)
+    for ci in range(ncols):
+        if ci == 6:
+            _force_cell_text_color(t.cell(total_row, ci), "#6B7280")
+        else:
+            _force_cell_text_color(t.cell(total_row, ci), "#000000")
+    # Supprime les rows résiduelles du template
     trs = t._tbl.findall(qn('a:tr'))
     while len(trs) > total_row + 1:
         trs[-1].getparent().remove(trs[-1])
         trs.pop()
     # Force des hauteurs de ligne réduites pour faire tenir tout dans la slide
-    # (cy en EMU : 240000 ≈ 0.25 inch ≈ ligne compacte)
     for tr in t._tbl.findall(qn('a:tr')):
         tr.set('h', '240000')
 
 
 # ===================================================================
-# Slides "Plan wifi magasin" — suppression (feature retirée).
-# Le template contient toujours 1 ou 2 slides "Plan wifi magasin" ;
-# on les supprime au build pour ne pas laisser de pages vides.
+# Slides "Plan wifi magasin" — feature d'upload retirée mais le template
+# contient 2 slides "Plan wifi magasin" (principale + réserve). On garde
+# UNE slide vide comme placeholder (ref utilisateur) et on supprime la
+# 2e (réserve inutilisée).
 # ===================================================================
 def _find_wifi_slide_indices(prs) -> list[int]:
     out: list[int] = []
@@ -1067,9 +1143,12 @@ def _find_wifi_slide_indices(prs) -> list[int]:
 
 
 def _remove_wifi_slides(prs) -> None:
-    """Supprime toutes les slides 'Plan wifi magasin' du template."""
-    # Suppression en ordre décroissant pour ne pas décaler les index.
-    for idx in sorted(_find_wifi_slide_indices(prs), reverse=True):
+    """Supprime UNIQUEMENT la 2e slide 'Plan wifi magasin' (réserve).
+    La 1re est conservée comme placeholder vide dans le PPTX (cf. modèle
+    de référence utilisateur du 10/07/2026)."""
+    idxs = _find_wifi_slide_indices(prs)
+    # On conserve la 1re, on supprime les suivantes (en ordre décroissant).
+    for idx in sorted(idxs[1:], reverse=True):
         _delete_slide(prs, idx)
 
 
