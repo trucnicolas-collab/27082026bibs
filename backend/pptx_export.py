@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v22-full-rebuild"
+__PPTX_VERSION__ = "2026-07-10-v23-total-rows"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -654,7 +654,7 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     t = _shape.table
     nights_sorted = sorted(nuit_es_data.keys())
     n_nights = len(nights_sorted)
-    needed_rows = 2 + n_nights
+    needed_rows = 2 + n_nights + 1  # bandeau + header + nuits + TOTAL
     _ensure_table_size(t, needed_rows)
     # Colonnes cible : SA détaillées par type (SA 1.5, SA 2.1, SA 2.1 frz,
     # 4.2/4.2 WP) ; colonne Caméras ajoutée. Pas de SA magasin.
@@ -673,6 +673,10 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     # violet/gris hérités qui subsistent après clone_col).
     for ci in range(ncols):
         _force_cell_text_color(t.cell(1, ci), "#000000")
+    # Cumuls pour la ligne TOTAL
+    tot = {"eeg": 0, "rails_es": 0, "sa_inst_15": 0, "sa_inst_21": 0,
+           "sa_inst_freezer": 0, "sa_inst_42": 0, "cam": 0}
+    allees_planifiees = set()
     for i, n in enumerate(nights_sorted):
         r = i + 2
         d = nuit_es_data[n]
@@ -693,13 +697,40 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
             # Force le texte en noir (le template a des couleurs
             # violet/gris héritées sur les colonnes SA/Caméras).
             _force_cell_text_color(t.cell(r, ci), "#000000")
+        # Cumul TOTAL
+        for k in tot.keys():
+            v = d.get(k if k != "eeg" else "eeg", 0)
+            try:
+                tot[k] += int(v or 0)
+            except (ValueError, TypeError):
+                pass
+        for a in str(d.get("allees_str") or "").split(","):
+            a = a.strip()
+            if a:
+                allees_planifiees.add(a)
+    # Ligne TOTAL (cf. modèle de référence utilisateur du 10/07/2026)
+    tr = 2 + n_nights
+    _set_cell_text(t.cell(tr, 0), "TOTAL", bold=True, align="center", size=10)
+    _set_cell_text(t.cell(tr, 1), "", size=9)
+    _set_cell_text(t.cell(tr, 2), "", size=9)
+    _set_cell_text(t.cell(tr, 3), f"{len(allees_planifiees)} allées planifiées", bold=True, align="center", size=9)
+    _set_cell_text(t.cell(tr, 4), _num(tot["eeg"]), bold=True, size=10)
+    _set_cell_text(t.cell(tr, 5), _num(tot["rails_es"]), bold=True, size=10)
+    _set_cell_text(t.cell(tr, 6), _num(tot["sa_inst_15"] or ""), bold=True, size=10)
+    _set_cell_text(t.cell(tr, 7), _num(tot["sa_inst_21"] or ""), bold=True, size=10)
+    _set_cell_text(t.cell(tr, 8), _num(tot["sa_inst_freezer"] or ""), bold=True, size=10)
+    _set_cell_text(t.cell(tr, 9), _num(tot["sa_inst_42"] or ""), bold=True, size=10)
+    _set_cell_text(t.cell(tr, 10), _num(tot["cam"] or ""), bold=True, size=10)
+    for ci in range(ncols):
+        _set_cell_fill(t.cell(tr, ci), "FEF3C7")  # jaune pâle (comme slide 19)
+        _force_cell_text_color(t.cell(tr, ci), "#000000")
     # Supprime les lignes vides finales (au-delà de needed_rows)
     while len(t.rows) > needed_rows:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
     # Position/dimensions compactes (maquette de référence)
-    # row_h réduit pour faire tenir jusqu'à 20 nuits sans dépasser la slide.
-    _place_table(_shape, 666206, 983106, 10115008, 240000)
+    # row_h réduit pour faire tenir jusqu'à 20 nuits + TOTAL sans dépasser la slide.
+    _place_table(_shape, 666206, 983106, 10115008, 230000)
 
 
 # ===================================================================
@@ -814,20 +845,26 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     while len(t.rows) > needed:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-    # Position/dimensions : tableau large (11+ colonnes) — cf. modèle de
-    # référence utilisateur du 10/07/2026 : le tableau prend ~75% de la
-    # largeur, à droite du titre en haut à gauche.
-    TABLE_LEFT = 2500000
-    _place_table(t_shape, TABLE_LEFT, 500000, 9500000, 175000)
-    # Évite le chevauchement titre ↔ tableau : on réduit la largeur du titre
-    # « Plan de phasage … –S{n} » pour qu'il s'arrête avant le tableau.
+    # Position/dimensions : tableau large (12 colonnes) sans écraser le
+    # titre à gauche. On laisse ~3" pour le titre (2 lignes max) puis
+    # tableau sur ~9.5" de largeur.
+    TABLE_LEFT = 2900000
+    _place_table(t_shape, TABLE_LEFT, 500000, 9100000, 175000)
+    # Rétrécir titre pour ne pas chevaucher le tableau + réduire la police
+    # pour rester sur 2 lignes.
     for sh in slide.shapes:
         if sh.has_text_frame and "Plan de phasage" in (sh.text_frame.text or ""):
             try:
-                new_w = TABLE_LEFT - int(sh.left) - 120000
+                new_w = TABLE_LEFT - int(sh.left) - 80000
                 if new_w > 914400:
                     sh.width = new_w
                     sh.text_frame.word_wrap = True
+                # Réduit la taille de police du titre pour rester compact
+                # (2 lignes idéalement, 3 max) sur toutes les slides semaines
+                for p in sh.text_frame.paragraphs:
+                    for r in p.runs:
+                        if r.font.size and r.font.size.pt > 18:
+                            r.font.size = Pt(18)
             except (TypeError, ValueError):
                 pass
             break
@@ -971,23 +1008,40 @@ def _fill_slide_19(slide, detail_rows, weeks=None):
             trs[-1].getparent().remove(trs[-1])
             trs.pop()
 
+    # Adapter la hauteur des lignes au nombre d'entrées : plus il y en a,
+    # plus les lignes doivent être compactes pour tenir dans la slide (7.5").
+    max_side = max(n_left, n_right, 1)
+    if max_side <= 15:
+        row_h = 220000  # aéré
+        cell_size = 8
+    elif max_side <= 22:
+        row_h = 170000  # standard
+        cell_size = 7
+    elif max_side <= 30:
+        row_h = 145000  # compact
+        cell_size = 7
+    else:
+        row_h = 125000  # ultra-compact (30+ rows)
+        cell_size = 6
+
     def _fill_col(tbl, rows, with_header=True):
         offset = 1 if with_header else 0
         _ensure_table_size(tbl, offset + len(rows))
         _trim_rows(tbl, offset + len(rows))
         if with_header:
             _set_cell_text(tbl.cell(0, 0), "Allées", bold=True, align="left",
-                           size=8, color="#000000", fill_rgb=header_fill)
+                           size=cell_size, color="#000000", fill_rgb=header_fill)
             _set_cell_text(tbl.cell(0, 1), "N° Elements", bold=True, align="left",
-                           size=8, color="#000000", fill_rgb=header_fill)
+                           size=cell_size, color="#000000", fill_rgb=header_fill)
         for i, (n, allee, elems) in enumerate(rows):
             color = _row_color(n)
             fill = _hex_to_rgb(color) if color else WHITE_RGB
             _set_cell_text(tbl.cell(offset + i, 0), allee,
-                           bold=False, align="left", size=8, color="#000000",
+                           bold=False, align="left", size=cell_size, color="#000000",
                            fill_rgb=fill)
             _set_cell_text(tbl.cell(offset + i, 1), elems,
-                           align="left", size=7, color="#000000", fill_rgb=fill)
+                           align="left", size=max(cell_size - 1, 5), color="#000000",
+                           fill_rgb=fill)
             for cc in (tbl.cell(offset + i, 0), tbl.cell(offset + i, 1)):
                 for p in cc.text_frame.paragraphs:
                     for r in p.runs:
@@ -1001,7 +1055,7 @@ def _fill_slide_19(slide, detail_rows, weeks=None):
             _force_cell_text_color(tbl.cell(0, 0), "#000000")
             _force_cell_text_color(tbl.cell(0, 1), "#000000")
         for tr in tbl._tbl.findall(qn('a:tr')):
-            tr.set('h', '180000')
+            tr.set('h', str(row_h))
 
     _fill_col(t1, detail_rows[:n_left], with_header=True)
     if n_right == 0:
