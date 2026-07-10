@@ -222,7 +222,7 @@ function PublishCard({ publication, actions }) {
                 </button>
                 {!confirmReset ? (
                     <button onClick={() => setConfirmReset(true)} data-testid="reset-suivi-btn"
-                        title="Efface toutes les saisies du suivi (réservé au créateur du phasage et à l'admin)"
+                        title="Efface toutes les saisies, photos et incidents du suivi (réservé au créateur du phasage et à l'admin)"
                         className="h-8 px-3 rounded-lg border border-red-900 text-red-400 text-xs font-semibold flex items-center gap-1.5 hover:bg-red-950/50 transition-colors">
                         <Trash2 className="w-3.5 h-3.5" /> Effacer le suivi
                     </button>
