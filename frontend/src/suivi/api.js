@@ -15,6 +15,24 @@ export function makeActions(base, refresh) {
                 return false;
             }
         },
+        patchCamAllee: async (uid, fields) => {
+            try {
+                await axios.patch(`${base}/allee-cam`, { uid, ...fields });
+                await refresh();
+                return true;
+            } catch (e) {
+                toast.error(e?.response?.data?.detail || "Erreur d'enregistrement");
+                return false;
+            }
+        },
+        getMateriel: async () => {
+            try { return (await axios.get(`${base}/materiel`)).data; }
+            catch { toast.error("Chargement du matériel impossible"); return { nights: [], unassigned: { nb_allees: 0, products: [] } }; }
+        },
+        getMaterielNuit: async (n) => {
+            try { return (await axios.get(`${base}/materiel/${n}`)).data; }
+            catch { toast.error("Chargement impossible"); return { nuit: n, allees: [] }; }
+        },
         patchStock: async (family, recu) => {
             try {
                 await axios.patch(`${base}/stock`, { family, recu });

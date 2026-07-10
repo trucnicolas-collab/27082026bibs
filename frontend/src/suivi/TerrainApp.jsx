@@ -1,15 +1,24 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
-import { Loader2, HardHat, AlertCircle } from "lucide-react";
+import { Loader2, HardHat, AlertCircle, Moon, Cctv, Boxes } from "lucide-react";
 import SuiviNuits from "./SuiviNuits";
+import SuiviCam from "./SuiviCam";
+import SuiviMateriel from "./SuiviMateriel";
 import { makeActions } from "./api";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const TABS = [
+    { id: "pose", label: "Pose EEG", icon: Moon },
+    { id: "cam", label: "Caméras", icon: Cctv },
+    { id: "materiel", label: "Matériel", icon: Boxes },
+];
 
 // App équipe terrain : accès par token, SANS compte, mobile-first.
 export default function TerrainApp({ token }) {
     const [state, setState] = useState(null);
     const [error, setError] = useState(null);
+    const [tab, setTab] = useState("pose");
     const base = `${API}/suivi-terrain/${token}`;
 
     const fetchState = useCallback(async () => {
@@ -26,7 +35,7 @@ export default function TerrainApp({ token }) {
 
     useEffect(() => { fetchState(); }, [fetchState]);
 
-    const actions = makeActions(base, fetchState);
+    const actions = useMemo(() => makeActions(base, fetchState), [base, fetchState]);
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 antialiased" data-testid="terrain-app">
@@ -41,26 +50,51 @@ export default function TerrainApp({ token }) {
                     <p className="text-[11px] text-amber-400/90 font-semibold">Mode équipe terrain</p>
                 </div>
             </header>
-            <main className="max-w-3xl mx-auto px-3 sm:px-6 py-4 pb-16">
-                {error ? (
-                    <div className="flex flex-col items-center gap-3 py-24 text-center" data-testid="terrain-error">
-                        <AlertCircle className="w-10 h-10 text-red-400" />
-                        <p className="text-sm text-slate-300 max-w-xs">{error}</p>
-                    </div>
-                ) : !state ? (
-                    <div className="flex items-center justify-center py-32">
-                        <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-                    </div>
-                ) : (
-                    <>
-                        <p className="text-xs text-slate-500 mb-3">
-                            Saisissez le <b className="text-slate-300">réel posé</b> et le <b className="text-slate-300">géolocalisé</b> par allée,
-                            ajoutez photos et commentaires, puis <b className="text-slate-300">validez</b> chaque allée terminée.
-                        </p>
-                        <SuiviNuits state={state} actions={actions} mode="terrain" />
-                    </>
-                )}
-            </main>
+
+            {error ? (
+                <div className="flex flex-col items-center gap-3 py-24 text-center px-4" data-testid="terrain-error">
+                    <AlertCircle className="w-10 h-10 text-red-400" />
+                    <p className="text-sm text-slate-300 max-w-xs">{error}</p>
+                </div>
+            ) : !state ? (
+                <div className="flex items-center justify-center py-32">
+                    <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
+                </div>
+            ) : (
+                <>
+                    <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur border-t border-slate-800 sm:sticky sm:top-14 sm:bottom-auto sm:border-t-0 sm:border-b sm:bg-slate-900/80">
+                        <div className="max-w-3xl mx-auto flex">
+                            {TABS.map((t) => {
+                                const Icon = t.icon;
+                                const active = tab === t.id;
+                                return (
+                                    <button key={t.id} onClick={() => setTab(t.id)}
+                                        data-testid={`terrain-tab-${t.id}`}
+                                        className={`flex-1 sm:flex-none sm:px-6 py-2.5 flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-[11px] sm:text-sm font-medium transition-colors relative
+                                            ${active ? "text-amber-400" : "text-slate-500 hover:text-slate-300"}`}>
+                                        <Icon className="w-5 h-5 sm:w-4 sm:h-4" />
+                                        {t.label}
+                                        {active && <span className="absolute bottom-0 inset-x-4 h-0.5 bg-amber-400 rounded-full hidden sm:block" />}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </nav>
+                    <main className="max-w-3xl mx-auto px-3 sm:px-6 py-4 pb-24 sm:pb-16">
+                        {tab === "pose" && (
+                            <>
+                                <p className="text-xs text-slate-500 mb-3">
+                                    Saisissez le <b className="text-slate-300">réel posé</b> et le <b className="text-slate-300">géolocalisé</b> par allée,
+                                    ajoutez photos et commentaires, puis <b className="text-slate-300">validez</b> chaque allée terminée.
+                                </p>
+                                <SuiviNuits state={state} actions={actions} mode="terrain" />
+                            </>
+                        )}
+                        {tab === "cam" && <SuiviCam state={state} actions={actions} />}
+                        {tab === "materiel" && <SuiviMateriel actions={actions} />}
+                    </main>
+                </>
+            )}
         </div>
     );
 }

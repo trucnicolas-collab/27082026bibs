@@ -118,6 +118,16 @@ class AlleeUpdate(BaseModel):
     nuit_reelle: Optional[int] = None  # 0 → retour à la nuit planifiée
 
 
+class CamAlleeUpdate(BaseModel):
+    uid: str
+    cameras_reel: Optional[float] = Field(default=None, ge=0)
+    cameras_geo: Optional[float] = Field(default=None, ge=0)
+    status: Optional[str] = None
+    comment: Optional[str] = None
+    geoloc_comment: Optional[str] = None
+    nuit_reelle: Optional[int] = None
+
+
 class StockUpdate(BaseModel):
     family: str
     recu: Optional[float] = None
@@ -325,6 +335,81 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     "message": msg,
                 })
 
+        # ---- Phasage caméras (suivi à part) ----
+        cam = ph.get("cam") or {}
+        cam_start = int(cam.get("start_at_nuit") or 1)
+        cam_nb = int(cam.get("nb_nuits") or 0)
+        cam_nuit_by_uid = {}
+        for row in (cam.get("rows") or []):
+            n = row.get("nuit")
+            if n:
+                cam_nuit_by_uid[str(row.get("allee") or row.get("id"))] = int(n)
+        cam_entries = {str(e.get("uid")): e for e in (doc.get("cam_allees") or [])}
+        cam_allees = []
+        for uid, nuit_plan in cam_nuit_by_uid.items():
+            a = by_uid.get(uid) or {}
+            e = cam_entries.get(uid) or {}
+            plan_c = _r(a.get("cameras") or 0)
+            reel_c = e.get("cameras_reel")
+            geo_c = e.get("cameras_geo")
+            reel_c = None if reel_c is None else _r(reel_c)
+            geo_c = None if geo_c is None else _r(geo_c)
+            gap = _r(reel_c - geo_c) if (reel_c is not None and geo_c is not None and geo_c < reel_c) else 0
+            nuit_reelle = e.get("nuit_reelle")
+            eff = int(nuit_reelle) if nuit_reelle else nuit_plan
+            cam_allees.append({
+                "uid": uid,
+                "allee": a.get("allee") or uid.split("__")[0],
+                "secteur": a.get("secteur") or "",
+                "rayon": a.get("rayon") or "",
+                "nuit_plan": nuit_plan, "nuit_reelle": nuit_reelle, "nuit_eff": eff,
+                "nuit_abs": cam_start + eff - 1,
+                "plan": plan_c, "reel": reel_c, "geo": geo_c,
+                "delta": (None if reel_c is None else _r(reel_c - plan_c)),
+                "geo_gap": gap,
+                "elements": a.get("camera_elems") or [],
+                "status": e.get("status") or "a_faire",
+                "comment": e.get("comment") or "",
+                "geoloc_comment": e.get("geoloc_comment") or "",
+            })
+
+        def _cam_sk(x):
+            try:
+                return (x["nuit_eff"], 0, float(str(x["allee"]).replace(",", ".")))
+            except (ValueError, TypeError):
+                return (x["nuit_eff"], 1, 0.0)
+        cam_allees.sort(key=_cam_sk)
+        cam_max = max([cam_nb or 1] + [x["nuit_eff"] for x in cam_allees]) if cam_allees else (cam_nb or 1)
+        cam_nights = []
+        for n in range(1, cam_max + 1):
+            items = [x for x in cam_allees if x["nuit_eff"] == n]
+            abs_n = cam_start + n - 1
+            validated = sum(1 for x in items if x["status"] == "validee")
+            cam_nights.append({
+                "nuit": n, "nuit_abs": abs_n,
+                "date": str(dates.get(str(abs_n)) or dates.get(abs_n) or ""),
+                "nb_allees": len(items),
+                "nb_validees": validated,
+                "nb_bloquees": sum(1 for x in items if x["status"] == "bloquee"),
+                "cam_plan": _r(sum(x["plan"] for x in items)),
+                "cam_reel": _r(sum(x["reel"] or 0 for x in items)),
+                "complete": bool(items) and validated == len(items),
+            })
+        for x in cam_allees:
+            if x["status"] == "bloquee":
+                alerts.append({
+                    "type": "blocage", "family": None,
+                    "label": f"Caméras allée {x['allee']}",
+                    "message": (f"Caméras — allée {x['allee']} ({x['secteur']}) nuit {x['nuit_abs']} bloquée"
+                                + (f" : {x['comment']}" if x["comment"] else "")),
+                })
+            if x["geo_gap"]:
+                needs_expl = not bool(x["geoloc_comment"])
+                msg = f"Caméras — allée {x['allee']} (nuit {x['nuit_abs']}) : {x['geo_gap']} posée(s) non géolocalisée(s)."
+                msg += " ⚠ Explication demandée." if needs_expl else f" Explication : {x['geoloc_comment']}"
+                alerts.append({"type": "geoloc", "family": "cameras", "label": f"Caméras allée {x['allee']}",
+                               "uid": x["uid"], "needs_explanation": needs_expl, "message": msg})
+
         incidents = sorted(doc.get("incidents") or [], key=lambda i: (i.get("nuit") or 0, i.get("created_at") or ""))
 
         state = {
@@ -341,6 +426,12 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             "alerts": alerts,
             "incidents": incidents,
             "is_terrain": is_terrain,
+            "cam": {
+                "start_at_nuit": cam_start,
+                "nb_nuits": cam_nb,
+                "nights": cam_nights,
+                "allees": cam_allees,
+            },
             "stats": {
                 "eeg_prevues": total_eeg_plan,
                 "eeg_posees": total_eeg_reel,
@@ -635,6 +726,151 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
 
+    async def _apply_cam_update(upload_id: str, doc: dict, payload: CamAlleeUpdate, author: str):
+        fields = payload.dict(exclude_unset=True)
+        uid = fields.pop("uid")
+        if "status" in fields and fields["status"] not in (None, "a_faire", "validee", "bloquee"):
+            raise HTTPException(status_code=400, detail="Statut invalide")
+        if fields.get("nuit_reelle") == 0:
+            fields["nuit_reelle"] = None
+        arr = doc.get("cam_allees") or []
+        entry = next((e for e in arr if str(e.get("uid")) == uid), None)
+        if entry is None:
+            entry = {"uid": uid}
+            arr.append(entry)
+        entry.update(fields)
+        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+        entry["updated_by"] = author
+        await db.suivi_docs.update_one({"upload_id": upload_id}, {"$set": {"cam_allees": arr}})
+        return uid
+
+    # ------------------------------------------ Matériel prévu (3 niveaux)
+    def _materiel_par_allee(d: dict) -> dict:
+        raw = d.get("raw_records") or []
+        if not raw:
+            return {}
+        cols = list(raw[0].keys())
+        secteur_col = "Secteur" if "Secteur" in cols else None
+        rayon_col = "Rayon" if "Rayon" in cols else None
+        allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in cols), None)
+        elem_col = next((c for c in cols if "lément" in c or "lement" in c.lower()), None)
+        if elem_col is None and len(cols) >= 7:
+            elem_col = cols[6]
+        desig_col = next((c for c in ["Désignation", "Designation"] if c in cols), None)
+        qty_col = next((c for c in ["Quantité", "Quantite"] if c in cols), None)
+        idx = {}
+        for r in raw:
+            allee_raw = r.get(allee_col) if allee_col else None
+            if allee_raw is None or (isinstance(allee_raw, float) and math.isnan(allee_raw)):
+                continue
+            try:
+                f = float(allee_raw)
+                allee_key = str(int(f)) if f.is_integer() else str(allee_raw)
+            except (ValueError, TypeError):
+                allee_key = str(allee_raw).strip()
+            secteur_v = str(r.get(secteur_col) or "") if secteur_col else ""
+            rayon_v = str(r.get(rayon_col) or "") if rayon_col else ""
+            uid = f"{allee_key}__{secteur_v}__{rayon_v}"
+            desig = str(r.get(desig_col) or "").strip() if desig_col else ""
+            if not desig or desig.lower() == "nan":
+                desig = "(sans désignation)"
+            try:
+                qty = float(r.get(qty_col) or 0) if qty_col else 0.0
+            except (ValueError, TypeError):
+                qty = 0.0
+            elem_v = r.get(elem_col) if elem_col else None
+            if elem_v is None or (isinstance(elem_v, float) and math.isnan(elem_v)) or str(elem_v).strip() in ("", "nan"):
+                elem_key = "(sans élément)"
+            else:
+                try:
+                    fe = float(elem_v)
+                    elem_key = str(int(fe)) if fe.is_integer() else str(elem_v)
+                except (ValueError, TypeError):
+                    elem_key = str(elem_v).strip()
+            node = idx.setdefault(uid, {"uid": uid, "allee": allee_key, "secteur": secteur_v,
+                                        "rayon": rayon_v, "totals": {}, "elements": {}})
+            node["totals"][desig] = node["totals"].get(desig, 0.0) + qty
+            enode = node["elements"].setdefault(elem_key, {})
+            enode[desig] = enode.get(desig, 0.0) + qty
+        return idx
+
+    def _products_list(totals: dict) -> list:
+        return [{"designation": k, "qty": _r(v)} for k, v in sorted(totals.items(), key=lambda t: t[0].lower())]
+
+    def _eff_nights_map(d: dict, doc: dict) -> dict:
+        """uid -> nuit effective (plan EEG + overrides nuit_reelle du suivi)."""
+        ph = normalize_phasage(d.get("phasage"))
+        out = {}
+        for row in (ph.get("es") or {}).get("rows") or []:
+            n = row.get("nuit")
+            if n:
+                out[str(row.get("allee") or row.get("id"))] = int(n)
+        for e in (doc.get("allees") or []):
+            nr = e.get("nuit_reelle")
+            if nr and str(e.get("uid")) in out:
+                out[str(e.get("uid"))] = int(nr)
+        return out
+
+    def _materiel_overview(d: dict, doc: dict) -> dict:
+        idx = _materiel_par_allee(d)
+        nights_map = _eff_nights_map(d, doc)
+        ph = normalize_phasage(d.get("phasage"))
+        dates = ph.get("dates") or {}
+        by_night = {}
+        unassigned = {"totals": {}, "nb_allees": 0}
+        for uid, node in idx.items():
+            n = nights_map.get(uid)
+            if not n:
+                unassigned["nb_allees"] += 1
+                for k, v in node["totals"].items():
+                    unassigned["totals"][k] = unassigned["totals"].get(k, 0.0) + v
+                continue
+            b = by_night.setdefault(n, {"nuit": n, "date": str(dates.get(str(n)) or ""), "nb_allees": 0, "totals": {}})
+            b["nb_allees"] += 1
+            for k, v in node["totals"].items():
+                b["totals"][k] = b["totals"].get(k, 0.0) + v
+        nights = []
+        for n in sorted(by_night.keys()):
+            b = by_night[n]
+            nights.append({"nuit": n, "date": b["date"], "nb_allees": b["nb_allees"],
+                           "products": _products_list(b["totals"])})
+        return {
+            "nights": nights,
+            "unassigned": {"nb_allees": unassigned["nb_allees"],
+                           "products": _products_list(unassigned["totals"])},
+        }
+
+    def _materiel_nuit(d: dict, doc: dict, nuit: int) -> dict:
+        idx = _materiel_par_allee(d)
+        nights_map = _eff_nights_map(d, doc)
+        ph = normalize_phasage(d.get("phasage"))
+        dates = ph.get("dates") or {}
+
+        def _elem_sort(t):
+            try:
+                return (0, float(str(t[0]).replace(",", ".")))
+            except (ValueError, TypeError):
+                return (1, str(t[0]))
+        allees = []
+        for uid, node in idx.items():
+            if nights_map.get(uid) != nuit:
+                continue
+            elements = [{"element": k, "products": _products_list(v)}
+                        for k, v in sorted(node["elements"].items(), key=_elem_sort)]
+            allees.append({"uid": uid, "allee": node["allee"], "secteur": node["secteur"],
+                           "rayon": node["rayon"], "products": _products_list(node["totals"]),
+                           "elements": elements})
+        if not allees:
+            raise HTTPException(status_code=404, detail=f"Aucune allée sur la nuit {nuit}")
+
+        def _sk(x):
+            try:
+                return (0, float(str(x["allee"]).replace(",", ".")))
+            except (ValueError, TypeError):
+                return (1, str(x["allee"]))
+        allees.sort(key=_sk)
+        return {"nuit": nuit, "date": str(dates.get(str(nuit)) or ""), "allees": allees}
+
     # ================================================== ROUTES AUTHENTIFIÉES ====
     @router.get("/{upload_id}")
     async def get_suivi(upload_id: str, current_user: dict = Depends(get_current_user)):
@@ -649,6 +885,27 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         doc = await _get_doc(upload_id, str(current_user["_id"]))
         uid = await _apply_allee_update(upload_id, doc, payload, current_user.get("email") or "")
         return {"ok": True, "uid": uid}
+
+    @router.patch("/{upload_id}/allee-cam")
+    async def update_cam_allee(upload_id: str, payload: CamAlleeUpdate,
+                               current_user: dict = Depends(get_current_user)):
+        await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        uid = await _apply_cam_update(upload_id, doc, payload, current_user.get("email") or "")
+        return {"ok": True, "uid": uid}
+
+    @router.get("/{upload_id}/materiel")
+    async def get_materiel(upload_id: str, current_user: dict = Depends(get_current_user)):
+        d = await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        return _materiel_overview(d, doc)
+
+    @router.get("/{upload_id}/materiel/{nuit}")
+    async def get_materiel_nuit(upload_id: str, nuit: int,
+                                current_user: dict = Depends(get_current_user)):
+        d = await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        return _materiel_nuit(d, doc, nuit)
 
     @router.patch("/{upload_id}/stock")
     async def update_stock(upload_id: str, payload: StockUpdate,
@@ -831,6 +1088,22 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     async def terrain_rapport(token: str, nuit: int):
         d, doc = await _resolve_terrain(token)
         return _rapport_response(d, doc, doc["upload_id"], nuit)
+
+    @terrain.patch("/{token}/allee-cam")
+    async def terrain_update_cam(token: str, payload: CamAlleeUpdate):
+        d, doc = await _resolve_terrain(token)
+        uid = await _apply_cam_update(doc["upload_id"], doc, payload, "équipe terrain")
+        return {"ok": True, "uid": uid}
+
+    @terrain.get("/{token}/materiel")
+    async def terrain_materiel(token: str):
+        d, doc = await _resolve_terrain(token)
+        return _materiel_overview(d, doc)
+
+    @terrain.get("/{token}/materiel/{nuit}")
+    async def terrain_materiel_nuit(token: str, nuit: int):
+        d, doc = await _resolve_terrain(token)
+        return _materiel_nuit(d, doc, nuit)
 
     parent = APIRouter()
     parent.include_router(router)

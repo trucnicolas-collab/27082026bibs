@@ -1,0 +1,34 @@
+{
+  "summary": "Backend + frontend testing of the new CAM tab (phasage caméras) and MATERIEL tab (drill-down 3 niveaux) on /suivi (chef) and /suivi/terrain/{token} (public). 13 new pytest cases in test_suivi_cam_materiel.py + all 20 previous tests → 33/33 pass. Frontend chef and terrain both verified via Playwright: cam-card, cam elements (with red '12 ×2' duplicate), cam inputs reel/geo (blur-save), cam-geo-warn/explain/comment, cam-move select (N-labels), cam-validate/block/comment; materiel-night-2 with 7 products (990 mm, Caméra noire, ES 1.5/2.1, SA 1.5/2.1/2.1 Freezer noirs), materiel-unassigned block, drill-down to allée toggle showing 'Élément 12 → Caméra noire ×2' + '(sans élément) → 6 produits', materiel-back button OK. Dashboard geoloc alerts (2) still displayed. Terrain 3-tab nav (pose/cam/materiel) fully functional. Regression: pose EEG allée-card still rendered on terrain.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_suivi_cam_materiel.py",
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/backend/tests/test_suivi_terrain.py",
+    "/app/test_reports/pytest/cam_materiel.xml",
+    "/app/test_reports/pytest/suivi_all.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "suivi_deploy.py:398-430 — _build_state produces both 'element' key in materiel/{nuit} response and cam.allees list. Consistency: pose uses 'numero' terminology elsewhere; the materiel per-element bucket uses key 'element'. Not a bug, just note for future consistency.",
+    "SuiviCam.jsx auto-opens the first non-complete night with allées — good UX. When user changes geo to close the gap, cam-geo-warn and cam-geo-explain unmount and input reference is detached (expected React behavior, not a bug).",
+    "CamAlleeUpdate accepts cameras_reel/cameras_geo as Optional[float] ge=0 → negatives rejected (422) verified. Bad status → 400 verified. Terrain endpoint mirror OK.",
+    "SuiviMateriel.jsx (150 lines) is compact and easy to maintain; getMateriel + getMaterielNuit loading is fast (<300ms). Loader is shown during transition.",
+    "Terrain public endpoints /allee-cam and /materiel(/{nuit}) have no rate limiting — same recommendation as iteration 13 (public token endpoints deserve rate limits before production)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_suivi_cam_materiel.py (new — 13 tests, all pass)"
+  ],
+  "success_rate": {"backend": "100% (33/33 including 20 regression)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@vusion.local / admin123 · Terrain token ab04ab2fa14949e2915063dc4645a7fe (KEPT ENABLED at end of run)",
+  "seed_data_creation": "Reused dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42. Cam allée 1__A__R1 restored to spec state at end: cameras_reel=2, cameras_geo=1, geo_gap=1, status=a_faire, geoloc_comment='' (as agent-to-agent context requested).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Three backend test files: test_suivi_deploy.py (11), test_suivi_terrain.py (9), test_suivi_cam_materiel.py (13). Run: `pytest backend/tests/test_suivi_deploy.py backend/tests/test_suivi_terrain.py backend/tests/test_suivi_cam_materiel.py -v`. Materiel per-element uses key 'element' (not 'numero') — the test accepts both. Cam night has only 1 nuit in this dataset (start_at_nuit=1, nb_nuits=1), so cam-move select shows only 'N1' option. To reset the cam state after modifying it in UI, PATCH /api/suivi/{id}/allee-cam with {uid:'1__A__R1',cameras_reel:2,cameras_geo:1,status:'a_faire',geoloc_comment:''}.",
+  "rca of the issue": "N/A — no failing tests. Two minor Playwright script hiccups were self-corrected: (1) toast overlay on chef → used JS click; (2) cam-card not found because auto-open already toggled — removed explicit toggle."
+}

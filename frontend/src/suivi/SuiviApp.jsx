@@ -5,21 +5,25 @@ import { useAuth } from "../contexts/AuthContext";
 import AuthScreen from "../components/AuthScreen";
 import SuiviDashboard from "./SuiviDashboard";
 import SuiviNuits from "./SuiviNuits";
+import SuiviCam from "./SuiviCam";
+import SuiviMateriel from "./SuiviMateriel";
 import SuiviStock from "./SuiviStock";
 import TerrainApp from "./TerrainApp";
 import { makeActions } from "./api";
 import {
     LayoutDashboard, Moon, Package, ChevronLeft, LogOut,
-    Loader2, ClipboardList, Store, ChevronRight,
+    Loader2, ClipboardList, Store, ChevronRight, Cctv, Boxes,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const LS_KEY = "suivi.lastUploadId";
 
 const TABS = [
-    { id: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
-    { id: "nuits", label: "Nuits", icon: Moon },
-    { id: "stock", label: "Stock", icon: Package },
+    { id: "dashboard", label: "Tableau de bord", shortLabel: "Board", icon: LayoutDashboard },
+    { id: "nuits", label: "Nuits", shortLabel: "Nuits", icon: Moon },
+    { id: "cam", label: "Caméras", shortLabel: "Cam", icon: Cctv },
+    { id: "materiel", label: "Matériel", shortLabel: "Matériel", icon: Boxes },
+    { id: "stock", label: "Stock", shortLabel: "Stock", icon: Package },
 ];
 
 export default function SuiviApp() {
@@ -145,7 +149,8 @@ function ChefApp() {
                                         className={`flex-1 sm:flex-none sm:px-6 py-2.5 flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-[11px] sm:text-sm font-medium transition-colors relative
                                             ${active ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"}`}>
                                         <Icon className="w-5 h-5 sm:w-4 sm:h-4" />
-                                        {t.label}
+                                        <span className="sm:hidden">{t.shortLabel}</span>
+                                        <span className="hidden sm:inline">{t.label}</span>
                                         {alertCount > 0 && (
                                             <span className="absolute top-1 right-[calc(50%-22px)] sm:static sm:ml-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">
                                                 {alertCount}
@@ -160,6 +165,8 @@ function ChefApp() {
                     <main className="max-w-5xl mx-auto px-3 sm:px-6 pt-4 pb-24 sm:pb-10">
                         {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} />}
                         {tab === "nuits" && <SuiviNuits state={state} actions={actions} mode="chef" />}
+                        {tab === "cam" && <SuiviCam state={state} actions={actions} />}
+                        {tab === "materiel" && <SuiviMateriel actions={actions} />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} />}
                     </main>
                 </>
