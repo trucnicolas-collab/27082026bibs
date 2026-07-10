@@ -494,7 +494,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return state
 
     # ------------------------------------------------------- mutations partagées
-    async def _apply_allee_update(upload_id: str, doc: dict, payload: AlleeUpdate, author: str):
+    async def _apply_allee_update(upload_id: str, doc: dict, payload: AlleeUpdate, author: str,
+                                  valid_designations=None):
         fields = payload.dict(exclude_unset=True)
         uid = fields.pop("uid")
         prods = fields.pop("products", None)
@@ -514,6 +515,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             for item in prods:
                 desig = str(item.get("designation") or "").strip()
                 if not desig:
+                    continue
+                if valid_designations is not None and desig not in valid_designations:
                     continue
                 node = pmap.get(desig)
                 if node is None:
@@ -967,9 +970,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     @router.patch("/{upload_id}/allee")
     async def update_allee(upload_id: str, payload: AlleeUpdate,
                            current_user: dict = Depends(get_current_user)):
-        await _load(upload_id, current_user)
+        d = await _load(upload_id, current_user)
         doc = await _get_doc(upload_id, str(current_user["_id"]))
-        uid = await _apply_allee_update(upload_id, doc, payload, current_user.get("email") or "")
+        valid = set((_materiel_par_allee(d).get(payload.uid) or {}).get("totals") or {})
+        uid = await _apply_allee_update(upload_id, doc, payload, current_user.get("email") or "",
+                                        valid_designations=valid or None)
         return {"ok": True, "uid": uid}
 
     @router.patch("/{upload_id}/allee-cam")

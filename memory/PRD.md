@@ -1,5 +1,13 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/07/2026 (v8 — Suivi « tout par produit », plein écran, terrain = web)
+- [x] **Saisie PAR PRODUIT** (remplace la saisie par famille) : PATCH allee `{uid, products:[{designation, reel?, geo?}], ...}` ; agrégats familles (reel/delta/geo/geo_gap), dashboard, alertes, rythme et rapports recalculés automatiquement via `classify_family(type, désignation)` (server.py). geo saisissable uniquement sur produits rails_es/sa_15/sa_21_std/sa_21_freezer (is_geo). Désignations inconnues du fichier filtrées. Chaque allée expose `products[]`, `nb_produits`, `nb_saisis`.
+- [x] **Stock PAR PRODUIT** : chaque désignation (prévu → reçu saisi → posé auto → alerte manque nominale). `PATCH /stock {designation, recu}` (auth + PUBLIC terrain), `stock_received` en liste. UI : recherche + filtre alertes. Restant à poser = plan − déjà posé (allées non validées).
+- [x] **Nuits en 3 niveaux PLEIN ÉCRAN** : liste nuits → allées de la nuit (X/Y produits saisis, incidents) → page allée plein écran : tableau produits (prévu/posé/géoloc/Δ), explication géoloc, photos, commentaire, gros bouton « Valider l'allée » (auto-remplit posé=prévu pour produits non saisis), Bloquer, déplacement de nuit.
+- [x] **Terrain = même chose que le web** : 5 onglets identiques au chef (Board/Nuits/Caméras/Matériel/Stock) ; Board terrain sans carte publication ni Replanifier (via prop mode).
+- [x] **Rapport nuit : 2 feuilles** — « Nuit N » (synthèse familles) + « Détail produits » (allée, désignation, type, prévu, posé, géolocalisé, Δ).
+- [x] Testé : testing_agent iteration_16 — **45/45 pytest** (3 fichiers réécrits au format produit), frontend chef + terrain 100%. Garde-fou désignations inconnues ajouté post-test (45/45 re-vérifié).
+
 ## Changelog 10/07/2026 (v7 — Espace terrain commun, publication, effacement)
 - [x] **SUPPRESSION du lien token par magasin** → **espace terrain commun `/suivi/terrain`** (public, sans compte) : store picker listant UNIQUEMENT les magasins publiés (avec « publié par ... »), puis interface 3 onglets. Routes publiques désormais clé upload_id : `/api/suivi-terrain/{upload_id}/...` + `GET /api/suivi-terrain/stores`. Résolution via `suivi_docs.published=True`.
 - [x] **Publication par le créateur du phasage** : `POST /api/suivi/{id}/publish {published}` (auth) ; carte `publish-card` dans le dashboard chef (badge PUBLIÉ/NON PUBLIÉ, lien commun copiable). L'état chef expose `publication {published, published_by}` (absent côté terrain).
