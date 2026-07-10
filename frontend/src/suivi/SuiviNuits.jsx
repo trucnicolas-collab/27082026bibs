@@ -192,7 +192,7 @@ function AlleeCard({ allee: a, actions, maxNight }) {
                     title="Déplacer sur une autre nuit"
                     className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-emerald-600 outline-none cursor-pointer">
                     {Array.from({ length: maxNight }, (_, i) => i + 1).map((x) => (
-                        <option key={x} value={x}>N{x}</option>
+                        <option key={x} value={x}>{"N" + x}</option>
                     ))}
                 </select>
             </div>

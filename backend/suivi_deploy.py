@@ -12,7 +12,7 @@ from typing import Optional
 import xlsxwriter
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 FAMILIES = [
     ("es_15", "EEG ES 1.5"),
@@ -58,14 +58,14 @@ def _eeg_sum(vals: dict) -> float:
 
 class AlleeUpdate(BaseModel):
     uid: str
-    es_15_reel: Optional[float] = None
-    es_21_reel: Optional[float] = None
-    rails_es_reel: Optional[float] = None
-    sa_15_reel: Optional[float] = None
-    sa_21_std_reel: Optional[float] = None
-    sa_21_freezer_reel: Optional[float] = None
-    sa_42_reel: Optional[float] = None
-    cameras_reel: Optional[float] = None
+    es_15_reel: Optional[float] = Field(default=None, ge=0)
+    es_21_reel: Optional[float] = Field(default=None, ge=0)
+    rails_es_reel: Optional[float] = Field(default=None, ge=0)
+    sa_15_reel: Optional[float] = Field(default=None, ge=0)
+    sa_21_std_reel: Optional[float] = Field(default=None, ge=0)
+    sa_21_freezer_reel: Optional[float] = Field(default=None, ge=0)
+    sa_42_reel: Optional[float] = Field(default=None, ge=0)
+    cameras_reel: Optional[float] = Field(default=None, ge=0)
     status: Optional[str] = None  # a_faire | validee | bloquee
     comment: Optional[str] = None
     nuit_reelle: Optional[int] = None  # 0 → retour à la nuit planifiée
@@ -520,8 +520,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             ph = normalize_phasage(d.get("phasage"))
             try:
                 await save_phasage_snapshot(upload_id, current_user, ph)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Snapshot avant replan échoué: {e}")
             for row in ph.get("es", {}).get("rows") or []:
                 uidr = str(row.get("allee") or row.get("id"))
                 if uidr in mapping:

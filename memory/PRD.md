@@ -1,5 +1,17 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/07/2026 (v4 — NOUVELLE APP « Suivi de déploiement » sur /suivi)
+- [x] **App séparée accessible sur `/suivi`** (même backend/DB, interface distincte dark mobile-first, login commun, lien « Suivi » dans le header de l'app phasage). Fichiers : `frontend/src/suivi/{SuiviApp,SuiviDashboard,SuiviNuits,SuiviStock}.jsx`, routage pathname dans `App.js`.
+- [x] **Backend `backend/suivi_deploy.py`** (router `/api/suivi`, collection Mongo `suivi_docs`) :
+  - `GET /api/suivi/{id}` : état complet (allées avec plan/réel/delta par famille, nuits, stock, alertes, stats, incidents). Familles : es_15, es_21, rails_es, sa_15, sa_21_std, sa_21_freezer, sa_42, cameras. ⚠️ uid des allées = champ `allee` des rows du phasage (pas `id`).
+  - `PATCH /allee` : saisie réel par famille (ge=0), statut (a_faire/validee/bloquee), commentaire, `nuit_reelle` (déplacement d'allée vers une autre nuit, 0 = retour au plan). Valider sans saisie = auto-remplissage au prévu (côté frontend).
+  - `PATCH /stock` : reçu réel par famille (null = théorique = prévu). Alerte rupture si restant stock < restant à poser (manque = restant_a_poser − max(0, restant_stock)).
+  - `POST/DELETE /incident` : journal d'incidents par nuit.
+  - `GET /rapport-nuit/{n}` : rapport Excel par nuit (xlsxwriter) — KPIs rythme (écart nuit, cumul, avance/retard estimé, verdict plus rapide/lent), tableau allées prévu/réel/Δ coloré, totaux, incidents.
+  - `POST /replan {apply}` : replanification automatique du restant selon le rythme réel mesuré (nuits terminées = toutes allées validées), capacité = max(rythme réel, prévu) plafonnée 4900 EEG/nuit ; preview puis apply (snapshot phasage auto + persist + reset des nuit_reelle déplacées). 400 si aucune nuit terminée.
+- [x] **Dashboard** : % avancement EEG, allées validées/bloquées, nuits terminées, rythme réel vs prévu, bandeau avance/retard (nuits estimées restantes), alertes rupture/blocage cliquables, grille des nuits, bouton Replanifier avec modal preview.
+- [x] Testé : testing_agent iteration_12 — backend 11/11 pytest (`backend/tests/test_suivi_deploy.py`), frontend Playwright OK. Corrections post-test : validation ge=0 (422), warning snapshot loggé, fix warning `<option>`.
+
 ## Changelog 10/07/2026 (v3 — refonte template)
 - [x] **Template PPTX remplacé par le modèle de référence utilisateur** (`rendu PPTX CR VT.pptx` du 10/07/2026). Le fichier `/app/backend/templates/cr_vt_template.pptx` est désormais le PPTX que l'utilisateur veut, garantissant un rendu identique à sa vision. L'ancien template est conservé en `cr_vt_template.OLD.pptx`.
 - [x] Indices de slides mis à jour dans `build_pptx()` : idx 7=Matériel, 10=Plan EEG complet, 11=Récap par nuit, 12-15=S1-S4, 16=Plan cam complet, 17=Récap cam, 18=Détail cam, 19=Récap full.
