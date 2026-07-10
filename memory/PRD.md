@@ -1,5 +1,14 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/07/2026 (session en cours)
+- [x] **Enquête « les tableaux PPTX sont cassés en production »** : vérification DIRECTE de la production (https://go-lang-43.emergent.host) — 6 exports successifs analysés (XML) : le code prod est À JOUR (11 colonnes complètes, bandeau « Récap par nuit » fusionné sur 11 col, en-têtes SA 1.5/2.1/frz/4.2/Caméras présents, titre « Informations Magasin » horizontal). Le fichier 38 Mo joint par l'utilisateur (« rendu PPTX CR VT.pptx ») provient d'une version TRÈS ancienne (colonne « SA » unique, « EEG » sans « ES ») et ses captures 01h54 d'une version intermédiaire → il regardait d'anciens fichiers téléchargés. ⚠️ Découverte : ~1 export sur 6 en prod échoue avec une erreur Cloudflare 520 (gros fichier) → un téléchargement raté peut amener à rouvrir un ancien fichier.
+- [x] **3 vrais défauts PPTX trouvés (rendus LibreOffice) et corrigés (`pptx_export.py`)** :
+  - `_fill_slide_17` : le tableau caméras transposé chevauchait le titre → top abaissé (624169 → 1250000 EMU).
+  - `_fill_slide_19` (Détail caméras par allée) : lignes vides COLORÉES du template dans le tableau droit + débordement bas du tableau gauche → répartition équilibrée 50/50 entre les 2 tableaux (>14 lignes), suppression réelle des `tr` inutilisés, suppression du tableau droit si inutile, texte forcé noir/non-gras (le template avait des runs rouges/gras), fond blanc forcé si pas de couleur nuit.
+  - `_fill_slide_20` (Phasage full) : lignes vides colorées sous TOTAL → `tr` excédentaires réellement supprimés (avant : texte vidé mais fonds conservés).
+- Vérifié par rendu LibreOffice→PDF→PNG des slides 14-21 (preview) + test unitaire 30 lignes pour la slide 19. Aucune régression.
+- ⚠️ Ces 3 correctifs sont en PREVIEW : un redéploiement est nécessaire pour la production.
+
 ## Changelog 25/06/2026
 - [x] **Masquage des colonnes SA par semaine** : sur chaque slide/feuille semaine, les colonnes SA (SA 1.5 / SA 2.1 / SA 2.1 frz / SA info) ne s'affichent que si des SA sont posées sur les nuits de CETTE semaine (calcul par semaine et non global). Appliqué au PPTX (`_fill_slide_week`) et aux 2 Excel (`_write_week_sheets`). Vérifié : S1 (avec SA) → colonnes SA visibles ; S2/S3 (sans SA) → colonnes de base uniquement.
 - [x] **Tableaux par semaine détaillés + harmonisation PPTX/Excel** :

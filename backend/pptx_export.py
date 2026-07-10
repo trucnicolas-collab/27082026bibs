@@ -779,8 +779,9 @@ def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], week
     while len(t.rows) > 1 + len(labels):
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
-    # Position/dimensions compactes (bandeau — maquette de référence)
-    _place_table(_shape, 1952045, 624169, 7461250, 187000)
+    # Position/dimensions compactes (bandeau — maquette de référence).
+    # top abaissé pour ne pas chevaucher le titre de la slide.
+    _place_table(_shape, 1952045, 1250000, 7461250, 187000)
 
 
 # ===================================================================
@@ -827,22 +828,19 @@ def _fill_slide_19(slide, detail_rows, weeks=None):
     tables = _get_tables(slide)
     if len(tables) < 2:
         return
-    t1, t2 = tables[0].table, tables[1].table
-    # On utilise row 0 de t1 comme HEADER (Allées | N° Elements), data depuis
-    # row 1 — cohérent avec le rendu cible (pas de double titre).
-    DATA_OFFSET_T1 = 1
-    cap1 = len(t1.rows) - DATA_OFFSET_T1
-    cap2 = len(t2.rows)
+    t1_shape, t2_shape = tables[0], tables[1]
+    t1, t2 = t1_shape.table, t2_shape.table
     needed = len(detail_rows)
-    if needed > cap1 + cap2:
-        _ensure_table_size(t2, needed - cap1)
-        cap2 = len(t2.rows)
-    # Header gris/gras à la place de l'ancien bandeau violet
     header_fill = (0xE5, 0xE7, 0xEB)
-    _set_cell_text(t1.cell(0, 0), "Allées", bold=True, align="left",
-                   size=8, fill_rgb=header_fill)
-    _set_cell_text(t1.cell(0, 1), "N° Elements", bold=True, align="left",
-                   size=8, fill_rgb=header_fill)
+    WHITE_RGB = (0xFF, 0xFF, 0xFF)
+
+    # Répartition ÉQUILIBRÉE gauche/droite : évite le débordement en bas de
+    # slide du tableau gauche et les lignes vides colorées du template à droite.
+    if needed <= 14:
+        n_left, n_right = needed, 0
+    else:
+        n_left = (needed + 1) // 2
+        n_right = needed - n_left
 
     def _row_color(n: int) -> str | None:
         if not n or n >= 9999 or not weeks:
@@ -853,30 +851,46 @@ def _fill_slide_19(slide, detail_rows, weeks=None):
         hx = hx.lstrip("#")
         return (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
 
-    for i in range(min(cap1, needed)):
-        n, allee, elems = detail_rows[i]
-        color = _row_color(n)
-        fill = _hex_to_rgb(color) if color else None
-        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 0), allee,
-                       bold=False, align="left", size=8, fill_rgb=fill)
-        _set_cell_text(t1.cell(DATA_OFFSET_T1 + i, 1), elems,
-                       align="left", size=7, fill_rgb=fill)
-    rest = detail_rows[cap1:]
-    for i in range(min(cap2, len(rest))):
-        n, allee, elems = rest[i]
-        color = _row_color(n)
-        fill = _hex_to_rgb(color) if color else None
-        _set_cell_text(t2.cell(i, 0), allee, bold=False, align="left",
-                       size=8, fill_rgb=fill)
-        _set_cell_text(t2.cell(i, 1), elems, align="left", size=7, fill_rgb=fill)
-    # Vide les cellules non utilisées (sans fond)
-    for i in range(max(0, needed - cap1), cap2):
-        _set_cell_text(t2.cell(i, 0), "", size=8)
-        _set_cell_text(t2.cell(i, 1), "", size=8)
-    # Hauteur de ligne compacte uniforme
-    for tbl in (t1, t2):
+    def _trim_rows(tbl, keep: int):
+        trs = tbl._tbl.findall(qn('a:tr'))
+        while len(trs) > max(1, keep):
+            trs[-1].getparent().remove(trs[-1])
+            trs.pop()
+
+    def _fill_col(tbl, rows, with_header=True):
+        offset = 1 if with_header else 0
+        _ensure_table_size(tbl, offset + len(rows))
+        _trim_rows(tbl, offset + len(rows))
+        if with_header:
+            _set_cell_text(tbl.cell(0, 0), "Allées", bold=True, align="left",
+                           size=8, color="#000000", fill_rgb=header_fill)
+            _set_cell_text(tbl.cell(0, 1), "N° Elements", bold=True, align="left",
+                           size=8, color="#000000", fill_rgb=header_fill)
+        for i, (n, allee, elems) in enumerate(rows):
+            color = _row_color(n)
+            fill = _hex_to_rgb(color) if color else WHITE_RGB
+            _set_cell_text(tbl.cell(offset + i, 0), allee,
+                           bold=False, align="left", size=8, color="#000000",
+                           fill_rgb=fill)
+            _set_cell_text(tbl.cell(offset + i, 1), elems,
+                           align="left", size=7, color="#000000", fill_rgb=fill)
+            for cc in (tbl.cell(offset + i, 0), tbl.cell(offset + i, 1)):
+                for p in cc.text_frame.paragraphs:
+                    for r in p.runs:
+                        r.font.bold = False
         for tr in tbl._tbl.findall(qn('a:tr')):
             tr.set('h', '180000')
+
+    _fill_col(t1, detail_rows[:n_left], with_header=True)
+    if n_right == 0:
+        # Tableau droit inutile : on le supprime (sinon lignes vides colorées)
+        t2_shape._element.getparent().remove(t2_shape._element)
+    else:
+        _fill_col(t2, detail_rows[n_left:], with_header=True)
+        try:
+            t2_shape.top = t1_shape.top
+        except (TypeError, ValueError):
+            pass
 
 
 # ===================================================================
@@ -947,10 +961,11 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
     _set_cell_text(t.cell(total_row, 7), "", size=9)
     _set_cell_text(t.cell(total_row, 8), "", size=9)
     _set_cell_text(t.cell(total_row, 9), _num(int(tot_cam)), bold=True, size=9)
-    # Vide les rows résiduelles éventuelles (si template a + de rows que prévu)
-    for r in range(total_row + 1, len(t.rows)):
-        for ci in range(10):
-            _set_cell_text(t.cell(r, ci), "", size=8)
+    # Supprime les rows résiduelles du template (sinon lignes vides colorées)
+    trs = t._tbl.findall(qn('a:tr'))
+    while len(trs) > total_row + 1:
+        trs[-1].getparent().remove(trs[-1])
+        trs.pop()
     # Force des hauteurs de ligne réduites pour faire tenir tout dans la slide
     # (cy en EMU : 240000 ≈ 0.25 inch ≈ ligne compacte)
     for tr in t._tbl.findall(qn('a:tr')):
