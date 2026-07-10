@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v20-nowifi"
+__PPTX_VERSION__ = "2026-07-10-v21-date-tables"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -584,24 +584,37 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
         _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=6)
         _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
 
-    # Lignes : Date / EEG / SA (ligne « Caméra » retirée ; label « SA »).
-    labels = ["Date", "EEG ES", "SA"]
+    # Lignes : Date / EEG ES+SA / SA magasin (ligne « Caméra » retirée).
+    labels = ["Date", "EEG ES+SA", "SA magasin"]
     _ensure_table_size(t, 1 + len(labels))
     for li, lab in enumerate(labels):
         r = li + 1
-        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=6)
+        italic = (lab == "SA magasin")
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=6,
+                       italic=italic, color=("#6B7280" if italic else "#000000"))
         for i, n in enumerate(all_nights):
             tot = totals_by_nuit.get(n, {})
             if lab == "Date":
                 val = _fmt_date(dates_map.get(str(n)))
-            elif lab == "EEG ES":
+            elif lab == "EEG ES+SA":
                 val = _num(tot.get("eeg", 0))
             else:
                 val = _num(tot.get("sa", 0))
             _set_cell_text(t.cell(r, i + 1), val, size=6,
-                           bold=(lab == "EEG ES"),
+                           bold=(lab == "EEG ES+SA"),
+                           italic=italic,
+                           color=("#6B7280" if italic else "#000000"),
                            align="center")
             _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+            # Force couleur (le template a des runs violets/gris hérités).
+            if italic:
+                _force_cell_text_color(t.cell(r, i + 1), "#6B7280")
+            else:
+                _force_cell_text_color(t.cell(r, i + 1), "#000000")
+    # Force couleur sur la ligne d'en-tête aussi.
+    _force_cell_text_color(t.cell(0, 0), "#000000")
+    for i in range(len(all_nights)):
+        _force_cell_text_color(t.cell(0, i + 1), "#000000")
     # Supprime les lignes résiduelles (ancienne ligne Caméra / SA en trop)
     while len(t.rows) > 1 + len(labels):
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
@@ -810,22 +823,26 @@ def _fill_slide_17(slide, totals_by_nuit, dates_map, cam_nights: list[int], week
     nights = cam_nights[: cur_cols - 1]
     _set_cell_text(t.cell(0, 0), "", size=11)
     for i, n in enumerate(nights):
-        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=12)
+        _set_cell_text(t.cell(0, i + 1), f"Nuit {n}", bold=True, align="center", size=12,
+                       color="#000000")
         _set_cell_fill(t.cell(0, i + 1), _color_for_night(n, weeks))
+        _force_cell_text_color(t.cell(0, i + 1), "#000000")
     # Lignes : Date / Caméra (ligne « EEG » retirée — réf. utilisateur).
     labels = ["Date", "Caméra"]
     _ensure_table_size(t, 1 + len(labels))
     for li, lab in enumerate(labels):
         r = li + 1
-        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=11)
+        _set_cell_text(t.cell(r, 0), lab, bold=True, align="left", size=11, color="#000000")
         for i, n in enumerate(nights):
             tot = totals_by_nuit.get(n, {})
             if lab == "Date":
                 val = _fmt_date(dates_map.get(str(n)))
             else:
                 val = _num(tot.get("cam", 0))
-            _set_cell_text(t.cell(r, i + 1), val, align="center", size=11)
+            _set_cell_text(t.cell(r, i + 1), val, align="center", size=11,
+                           bold=(lab == "Caméra"), color="#000000")
             _set_cell_fill(t.cell(r, i + 1), _color_for_night(n, weeks))
+            _force_cell_text_color(t.cell(r, i + 1), "#000000")
     # Supprime les lignes résiduelles du template (au-delà de 1 + labels)
     while len(t.rows) > 1 + len(labels):
         last_tr = t._tbl.findall(qn('a:tr'))[-1]

@@ -4142,6 +4142,86 @@ def _write_code_couleur_sheet(workbook, writer, d):
     # Free the unused fmt_date_iso (silence linter)
     _ = fmt_date_iso
 
+    # =========================================================
+    # SECTION CAMÉRAS — mêmes colonnes (Nuit N) mais uniquement
+    # les nuits caméras (start_at .. start_at + nb_cam - 1)
+    # 2 lignes : Date / Caméra.
+    # =========================================================
+    cam_nights: list[int] = []
+    for n in range(1, nb_cam + 1):
+        gn = start_at + n - 1
+        cam_nights.append(gn)
+    if cam_nights:
+        # Calcule dernière ligne utilisée (blocs globaux + blocs semaines).
+        nb_global_chunks = (total + cols_per_row - 1) // cols_per_row
+        cam_row = ROW_HEADER_OFFSET + nb_global_chunks * BLOCK_HEIGHT + 2
+        if weeks_list and len(weeks_list) > 0:
+            nuit_cursor2 = 1
+            for wi, w in enumerate(weeks_list):
+                ww = int(w or 0)
+                if ww <= 0:
+                    continue
+                week_nights = list(range(nuit_cursor2, nuit_cursor2 + ww))
+                nuit_cursor2 += ww
+                week_nights = [n for n in week_nights if n in totals_by_nuit or n in all_nights]
+                if not week_nights:
+                    continue
+                # Titre + sous-titre + blocs pour cette semaine
+                nb_wc = (len(week_nights) + cols_per_row - 1) // cols_per_row
+                cam_row += 3 + nb_wc * BLOCK_HEIGHT + 2  # titre+sub+espace + blocs + espace
+
+        CAM_BLOCK_HEIGHT = 3  # 1 header + 2 rows
+        # Titre section
+        end_col = min(cols_per_row, len(cam_nights))
+        ws.merge_range(cam_row, 0, cam_row, end_col,
+                       "Tableau date caméras", fmt_title)
+        ws.set_row(cam_row, 30)
+        cam_row += 1
+        ws.merge_range(cam_row, 0, cam_row, end_col,
+                       f"{len(cam_nights)} nuit(s) caméras · couleurs par position",
+                       fmt_sub)
+        cam_row += 2
+
+        CAM_LABELS = [("Date", False), ("Caméra", False)]
+        for chunk_idx, chunk_start in enumerate(range(0, len(cam_nights), cols_per_row)):
+            chunk = cam_nights[chunk_start:chunk_start + cols_per_row]
+            base_row = cam_row + chunk_idx * CAM_BLOCK_HEIGHT
+            ws.write(base_row, 0, "", fmt_lbl_left)
+            for i, n in enumerate(chunk):
+                color = night_color_hex(n, weeks_list)
+                fmt_h = workbook.add_format({
+                    "bg_color": color, "border": 1, "align": "center", "valign": "vcenter",
+                    "font_size": 12, "bold": True, "font_color": "#111827",
+                })
+                ws.write(base_row, i + 1, f"Nuit {n}", fmt_h)
+            ws.set_row(base_row, 24)
+            for li, (label, italic) in enumerate(CAM_LABELS):
+                row = base_row + 1 + li
+                ws.write(row, 0, label, fmt_lbl_left)
+                for i, n in enumerate(chunk):
+                    color = night_color_hex(n, weeks_list)
+                    base_fmt = {"bg_color": color, "border": 1, "align": "center",
+                                "valign": "vcenter", "font_size": 11}
+                    t = totals_by_nuit.get(n, {"eeg": 0, "cam": 0, "sa": 0})
+                    if label == "Date":
+                        date_iso = dates_map.get(str(n))
+                        if date_iso:
+                            try:
+                                from datetime import datetime as _dt
+                                dval = _dt.strptime(date_iso, "%Y-%m-%d").date()
+                                f = workbook.add_format({**base_fmt, "num_format": "dd/mm/yyyy"})
+                                ws.write_datetime(row, i + 1, dval, f)
+                            except Exception:
+                                f = workbook.add_format(base_fmt)
+                                ws.write(row, i + 1, date_iso, f)
+                        else:
+                            f = workbook.add_format(base_fmt)
+                            ws.write(row, i + 1, "", f)
+                    else:  # Caméra
+                        f = workbook.add_format({**base_fmt, "bold": True})
+                        ws.write_number(row, i + 1, int(t["cam"]), f)
+                ws.set_row(row, 22)
+
 
 def _write_suivi_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     """Comparaison prévu / réalité — entièrement éditable dans Excel via formules natives.
