@@ -33,9 +33,9 @@ export function makeActions(base, refresh) {
             try { return (await axios.get(`${base}/materiel/${n}`)).data; }
             catch { toast.error("Chargement impossible"); return { nuit: n, allees: [] }; }
         },
-        patchStock: async (family, recu) => {
+        patchStock: async (designation, recu) => {
             try {
-                await axios.patch(`${base}/stock`, { family, recu });
+                await axios.patch(`${base}/stock`, { designation, recu });
                 await refresh();
             } catch { toast.error("Erreur d'enregistrement du stock"); }
         },

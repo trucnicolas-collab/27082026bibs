@@ -10,7 +10,7 @@ import os
 import uuid
 import logging
 from datetime import datetime, timezone, date
-from typing import Optional
+from typing import Optional, List
 
 import requests as _requests
 import xlsxwriter
@@ -98,20 +98,15 @@ def _eeg_sum(vals: dict) -> float:
     return sum(float(vals.get(k) or 0) for k in EEG_KEYS)
 
 
+class ProductEntry(BaseModel):
+    designation: str
+    reel: Optional[float] = Field(default=None, ge=0)
+    geo: Optional[float] = Field(default=None, ge=0)
+
+
 class AlleeUpdate(BaseModel):
     uid: str
-    es_15_reel: Optional[float] = Field(default=None, ge=0)
-    es_21_reel: Optional[float] = Field(default=None, ge=0)
-    rails_es_reel: Optional[float] = Field(default=None, ge=0)
-    sa_15_reel: Optional[float] = Field(default=None, ge=0)
-    sa_21_std_reel: Optional[float] = Field(default=None, ge=0)
-    sa_21_freezer_reel: Optional[float] = Field(default=None, ge=0)
-    sa_42_reel: Optional[float] = Field(default=None, ge=0)
-    cameras_reel: Optional[float] = Field(default=None, ge=0)
-    rails_es_geo: Optional[float] = Field(default=None, ge=0)
-    sa_15_geo: Optional[float] = Field(default=None, ge=0)
-    sa_21_std_geo: Optional[float] = Field(default=None, ge=0)
-    sa_21_freezer_geo: Optional[float] = Field(default=None, ge=0)
+    products: Optional[List[ProductEntry]] = None
     status: Optional[str] = None  # a_faire | validee | bloquee
     comment: Optional[str] = None
     geoloc_comment: Optional[str] = None
@@ -129,8 +124,8 @@ class CamAlleeUpdate(BaseModel):
 
 
 class StockUpdate(BaseModel):
-    family: str
-    recu: Optional[float] = None
+    designation: str
+    recu: Optional[float] = Field(default=None, ge=0)
 
 
 class IncidentCreate(BaseModel):
@@ -147,7 +142,8 @@ class PublishUpdate(BaseModel):
 
 
 def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summary,
-                       normalize_phasage, save_phasage_snapshot, persist_phasage):
+                       normalize_phasage, save_phasage_snapshot, persist_phasage,
+                       classify_family):
     router = APIRouter(prefix="/suivi")
     terrain = APIRouter(prefix="/suivi-terrain")
 
@@ -194,27 +190,49 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             if n:
                 nuit_by_uid[str(row.get("allee") or row.get("id"))] = int(n)
         entries = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
+        matidx = _materiel_par_allee(d)
 
         allees = []
         for uid, nuit_plan in nuit_by_uid.items():
             a = by_uid.get(uid) or {}
             e = entries.get(uid) or {}
             plan = _plan_for_allee(a)
-            reel, has_reel = {}, False
-            for k in FAMILY_KEYS:
-                v = e.get(f"{k}_reel")
-                reel[k] = None if v is None else _r(v)
-                if v is not None:
+            mat = matidx.get(uid) or {"totals": {}, "types": {}}
+            pentries = {str(p.get("designation")): p for p in (e.get("products") or [])}
+            products = []
+            reel_fam = {k: None for k in FAMILY_KEYS}
+            geo_fam = {k: None for k in GEO_KEYS}
+            gap_fam = {k: 0.0 for k in GEO_KEYS}
+            has_reel = False
+            for desig in sorted(mat["totals"].keys(), key=lambda s: s.lower()):
+                pplan = _r(mat["totals"][desig])
+                typ = (mat.get("types") or {}).get(desig) or ""
+                fam = classify_family(typ, desig)
+                is_geo = fam in GEO_KEYS
+                pe = pentries.get(desig) or {}
+                preel = pe.get("reel")
+                pgeo = pe.get("geo")
+                preel = None if preel is None else _r(preel)
+                pgeo = None if pgeo is None else _r(pgeo)
+                if preel is not None:
                     has_reel = True
-            geo = {}
-            for k in GEO_KEYS:
-                v = e.get(f"{k}_geo")
-                geo[k] = None if v is None else _r(v)
-            geo_gap = {}
-            for k in GEO_KEYS:
-                pose_k = reel.get(k)
-                if geo[k] is not None and pose_k is not None and geo[k] < pose_k:
-                    geo_gap[k] = _r(pose_k - geo[k])
+                    if fam:
+                        reel_fam[fam] = _r((reel_fam[fam] or 0) + preel)
+                if pgeo is not None and is_geo:
+                    geo_fam[fam] = _r((geo_fam[fam] or 0) + pgeo)
+                pgap = 0
+                if is_geo and preel is not None and pgeo is not None and pgeo < preel:
+                    pgap = _r(preel - pgeo)
+                    gap_fam[fam] = _r(gap_fam[fam] + pgap)
+                products.append({
+                    "designation": desig, "type": typ, "family": fam,
+                    "is_geo": is_geo, "plan": pplan, "reel": preel,
+                    "geo": pgeo, "gap": pgap,
+                    "delta": (None if preel is None else _r(preel - pplan)),
+                })
+            reel = reel_fam
+            geo = geo_fam
+            geo_gap = {k: v for k, v in gap_fam.items() if v > 0}
             nuit_reelle = e.get("nuit_reelle")
             eff = int(nuit_reelle) if nuit_reelle else nuit_plan
             delta = {k: (None if reel[k] is None else _r(reel[k] - plan[k])) for k in FAMILY_KEYS}
@@ -236,6 +254,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "geo_gap": geo_gap,
                 "geoloc_comment": e.get("geoloc_comment") or "",
                 "photos": photos,
+                "products": products,
+                "nb_produits": len(products),
+                "nb_saisis": sum(1 for p in products if p["reel"] is not None),
                 "eeg_plan": _r(_eeg_sum(plan)),
                 "eeg_reel": _r(_eeg_sum({k: (reel[k] or 0) for k in FAMILY_KEYS})) if has_reel else None,
                 "status": e.get("status") or "a_faire",
@@ -286,32 +307,48 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         avance_nuits = (nuits_plan_restantes - nuits_estimees) if nuits_estimees is not None else None
         cumul_delta = _r(sum((n["delta_eeg"] or 0) for n in nights_done))
 
-        stock_received = doc.get("stock_received") or {}
+        # ---- Stock PAR PRODUIT (chaque désignation du fichier) ----
+        stock_received = doc.get("stock_received")
+        if not isinstance(stock_received, list):
+            stock_received = []
+        recu_by_desig = {str(s.get("designation")): s.get("recu") for s in stock_received}
+        prod_agg = {}
+        for x in allees:
+            not_valid = x["status"] != "validee"
+            for p in x["products"]:
+                g = prod_agg.setdefault(p["designation"], {
+                    "designation": p["designation"], "type": p["type"], "family": p["family"],
+                    "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0})
+                g["prevu"] += p["plan"] or 0
+                g["pose"] += p["reel"] or 0
+                if not_valid:
+                    g["restant_a_poser"] += max(0.0, (p["plan"] or 0) - (p["reel"] or 0))
         stock, alerts = [], []
-        for k in FAMILY_KEYS:
-            prevu = sum(float(x["plan"].get(k) or 0) for x in allees)
-            pose = sum(float(x["reel"].get(k) or 0) for x in allees if x["reel"].get(k) is not None)
-            restant_a_poser = sum(float(x["plan"].get(k) or 0) for x in allees if x["status"] != "validee")
-            recu = stock_received.get(k)
-            recu_eff = float(recu) if recu is not None else prevu
-            restant_stock = recu_eff - pose
-            manque = max(0.0, restant_a_poser - max(0.0, restant_stock))
+        for desig in sorted(prod_agg.keys(), key=lambda s: s.lower()):
+            g = prod_agg[desig]
+            recu = recu_by_desig.get(desig)
+            recu_eff = float(recu) if recu is not None else g["prevu"]
+            restant_stock = recu_eff - g["pose"]
+            manque = max(0.0, g["restant_a_poser"] - max(0.0, restant_stock))
+            alert = manque > 0 and g["prevu"] > 0
             stock.append({
-                "family": k, "label": FAMILY_LABELS[k],
-                "prevu": _r(prevu),
+                "designation": desig, "label": desig,
+                "type": g["type"], "family": g["family"],
+                "prevu": _r(g["prevu"]),
                 "recu": (None if recu is None else _r(recu)),
                 "recu_theorique": recu is None,
-                "pose": _r(pose),
+                "pose": _r(g["pose"]),
                 "restant_stock": _r(restant_stock),
-                "restant_a_poser": _r(restant_a_poser),
-                "manque": _r(manque), "alert": manque > 0 and prevu > 0,
+                "restant_a_poser": _r(g["restant_a_poser"]),
+                "manque": _r(manque), "alert": alert,
             })
-            if manque > 0 and prevu > 0:
+            if alert:
                 alerts.append({
-                    "type": "rupture", "family": k, "label": FAMILY_LABELS[k],
+                    "type": "rupture", "family": g["family"], "label": desig,
+                    "designation": desig,
                     "manque": _r(manque),
-                    "message": (f"{FAMILY_LABELS[k]} : il manque {_r(manque)} unité(s) pour finir la pose "
-                                f"(stock restant {_r(restant_stock)}, encore {_r(restant_a_poser)} à poser)"),
+                    "message": (f"{desig} : il manque {_r(manque)} unité(s) pour finir la pose "
+                                f"(stock restant {_r(restant_stock)}, encore {_r(g['restant_a_poser'])} à poser)"),
                 })
         for x in allees:
             if x["status"] == "bloquee":
@@ -460,6 +497,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     async def _apply_allee_update(upload_id: str, doc: dict, payload: AlleeUpdate, author: str):
         fields = payload.dict(exclude_unset=True)
         uid = fields.pop("uid")
+        prods = fields.pop("products", None)
         if "status" in fields and fields["status"] not in (None, "a_faire", "validee", "bloquee"):
             raise HTTPException(status_code=400, detail="Statut invalide")
         if fields.get("nuit_reelle") == 0:
@@ -470,6 +508,22 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             entry = {"uid": uid}
             arr.append(entry)
         entry.update(fields)
+        if prods:
+            plist = entry.setdefault("products", [])
+            pmap = {str(p.get("designation")): p for p in plist}
+            for item in prods:
+                desig = str(item.get("designation") or "").strip()
+                if not desig:
+                    continue
+                node = pmap.get(desig)
+                if node is None:
+                    node = {"designation": desig}
+                    plist.append(node)
+                    pmap[desig] = node
+                if "reel" in item:
+                    node["reel"] = item["reel"]
+                if "geo" in item:
+                    node["geo"] = item["geo"]
         entry["updated_at"] = datetime.now(timezone.utc).isoformat()
         entry["updated_by"] = author
         if fields.get("status") == "validee":
@@ -716,6 +770,34 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             except Exception as e:
                 logger.warning(f"Photos section failed: {e}")
 
+        # Feuille 2 : détail par produit
+        ws2 = wb.add_worksheet("Détail produits")
+        headers2 = ["Allée", "Secteur", "Désignation", "Type", "Prévu", "Posé", "Géolocalisé", "Δ"]
+        for c, h in enumerate(headers2):
+            ws2.write(0, c, h, f_h)
+        ws2.set_column(0, 1, 12)
+        ws2.set_column(2, 2, 42)
+        ws2.set_column(3, 7, 11)
+        rr = 1
+        for x in items:
+            for p in x["products"]:
+                ws2.write(rr, 0, x["allee"], f_c)
+                ws2.write(rr, 1, x["secteur"], f_cl)
+                ws2.write(rr, 2, p["designation"], f_cl)
+                ws2.write(rr, 3, p["type"], f_c)
+                ws2.write(rr, 4, p["plan"], f_c)
+                ws2.write(rr, 5, p["reel"] if p["reel"] is not None else "", f_c)
+                if p["is_geo"]:
+                    ws2.write(rr, 6, p["geo"] if p["geo"] is not None else "", f_geo_bad if p["gap"] else f_c)
+                else:
+                    ws2.write(rr, 6, "—", f_c)
+                dv = p["delta"]
+                if dv is None:
+                    ws2.write(rr, 7, "", f_c)
+                else:
+                    ws2.write(rr, 7, dv, f_ok if dv == 0 else (f_neg if dv < 0 else f_pos))
+                rr += 1
+
         wb.close()
         buf.seek(0)
         safe_store = "".join(ch for ch in store if ch.isalnum() or ch in " -_")[:40].strip().replace(" ", "_")
@@ -752,6 +834,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         cols = list(raw[0].keys())
         secteur_col = "Secteur" if "Secteur" in cols else None
         rayon_col = "Rayon" if "Rayon" in cols else None
+        type_col = "Type" if "Type" in cols else None
         allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in cols), None)
         elem_col = next((c for c in cols if "lément" in c or "lement" in c.lower()), None)
         if elem_col is None and len(cols) >= 7:
@@ -788,8 +871,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 except (ValueError, TypeError):
                     elem_key = str(elem_v).strip()
             node = idx.setdefault(uid, {"uid": uid, "allee": allee_key, "secteur": secteur_v,
-                                        "rayon": rayon_v, "totals": {}, "elements": {}})
+                                        "rayon": rayon_v, "totals": {}, "elements": {}, "types": {}})
             node["totals"][desig] = node["totals"].get(desig, 0.0) + qty
+            if desig not in node["types"]:
+                typ_v = str(r.get(type_col) or "").strip() if type_col else ""
+                node["types"][desig] = "" if typ_v.lower() == "nan" else typ_v
             enode = node["elements"].setdefault(elem_key, {})
             enode[desig] = enode.get(desig, 0.0) + qty
         return idx
@@ -907,19 +993,21 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         doc = await _get_doc(upload_id, str(current_user["_id"]))
         return _materiel_nuit(d, doc, nuit)
 
+    async def _apply_stock_update(upload_id: str, doc: dict, payload: StockUpdate):
+        arr = doc.get("stock_received")
+        if not isinstance(arr, list):
+            arr = []
+        arr = [s for s in arr if str(s.get("designation")) != payload.designation]
+        if payload.recu is not None:
+            arr.append({"designation": payload.designation, "recu": float(payload.recu)})
+        await db.suivi_docs.update_one({"upload_id": upload_id}, {"$set": {"stock_received": arr}})
+
     @router.patch("/{upload_id}/stock")
     async def update_stock(upload_id: str, payload: StockUpdate,
                            current_user: dict = Depends(get_current_user)):
         await _load(upload_id, current_user)
-        await _get_doc(upload_id, str(current_user["_id"]))
-        if payload.family not in FAMILY_KEYS:
-            raise HTTPException(status_code=400, detail="Famille inconnue")
-        if payload.recu is None:
-            await db.suivi_docs.update_one({"upload_id": upload_id},
-                                           {"$unset": {f"stock_received.{payload.family}": ""}})
-        else:
-            await db.suivi_docs.update_one({"upload_id": upload_id},
-                                           {"$set": {f"stock_received.{payload.family}": float(payload.recu)}})
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        await _apply_stock_update(upload_id, doc, payload)
         return {"ok": True}
 
     @router.post("/{upload_id}/incident")
@@ -1135,6 +1223,12 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         d, doc = await _resolve_terrain(upload_id)
         uid = await _apply_cam_update(doc["upload_id"], doc, payload, "équipe terrain")
         return {"ok": True, "uid": uid}
+
+    @terrain.patch("/{upload_id}/stock")
+    async def terrain_update_stock(upload_id: str, payload: StockUpdate):
+        d, doc = await _resolve_terrain(upload_id)
+        await _apply_stock_update(doc["upload_id"], doc, payload)
+        return {"ok": True}
 
     @terrain.get("/{upload_id}/materiel")
     async def terrain_materiel(upload_id: str):

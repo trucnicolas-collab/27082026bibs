@@ -1,18 +1,22 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
-import { Loader2, HardHat, AlertCircle, Moon, Cctv, Boxes, Store, ChevronRight, ChevronLeft } from "lucide-react";
+import { Loader2, HardHat, AlertCircle, Moon, Cctv, Boxes, Store, ChevronRight, ChevronLeft, LayoutDashboard, Package } from "lucide-react";
 import SuiviNuits from "./SuiviNuits";
 import SuiviCam from "./SuiviCam";
 import SuiviMateriel from "./SuiviMateriel";
+import SuiviDashboard from "./SuiviDashboard";
+import SuiviStock from "./SuiviStock";
 import { makeActions } from "./api";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const LS_KEY = "suivi.terrain.lastStore";
 
 const TABS = [
-    { id: "pose", label: "Pose EEG", icon: Moon },
+    { id: "dashboard", label: "Board", icon: LayoutDashboard },
+    { id: "pose", label: "Nuits", icon: Moon },
     { id: "cam", label: "Caméras", icon: Cctv },
     { id: "materiel", label: "Matériel", icon: Boxes },
+    { id: "stock", label: "Stock", icon: Package },
 ];
 
 // Espace équipe terrain COMMUN (/suivi/terrain) : sans compte,
@@ -24,7 +28,7 @@ export default function TerrainApp() {
     });
     const [state, setState] = useState(null);
     const [error, setError] = useState(null);
-    const [tab, setTab] = useState("pose");
+    const [tab, setTab] = useState("dashboard");
     const base = `${API}/suivi-terrain/${uploadId}`;
 
     const fetchStores = useCallback(async () => {
@@ -57,7 +61,7 @@ export default function TerrainApp() {
     const actions = useMemo(() => makeActions(base, fetchState), [base, fetchState]);
 
     const openStore = (id) => {
-        setUploadId(id); setState(null); setTab("pose");
+        setUploadId(id); setState(null); setTab("dashboard");
         try { localStorage.setItem(LS_KEY, id); } catch { }
     };
     const closeStore = () => {
@@ -119,17 +123,12 @@ export default function TerrainApp() {
                         </div>
                     </nav>
                     <main className="max-w-3xl mx-auto px-3 sm:px-6 py-4 pb-24 sm:pb-16">
-                        {tab === "pose" && (
-                            <>
-                                <p className="text-xs text-slate-500 mb-3">
-                                    Saisissez le <b className="text-slate-300">réel posé</b> et le <b className="text-slate-300">géolocalisé</b> par allée,
-                                    ajoutez photos et commentaires, puis <b className="text-slate-300">validez</b> chaque allée terminée.
-                                </p>
-                                <SuiviNuits state={state} actions={actions} mode="terrain" />
-                            </>
-                        )}
+                        {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} mode="terrain"
+                            goTab={(t) => setTab(t === "nuits" ? "pose" : t)} />}
+                        {tab === "pose" && <SuiviNuits state={state} actions={actions} mode="terrain" />}
                         {tab === "cam" && <SuiviCam state={state} actions={actions} />}
                         {tab === "materiel" && <SuiviMateriel actions={actions} />}
+                        {tab === "stock" && <SuiviStock state={state} actions={actions} />}
                     </main>
                 </>
             )}

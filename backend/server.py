@@ -2113,6 +2113,31 @@ def _is_valid_camera_desig(desig: str) -> bool:
     return ("noir" in d) or ("blanc" in d)
 
 
+def classify_family(typ: str, desig: str) -> Optional[str]:
+    """Classifie un produit (Type + Désignation) dans une famille du suivi."""
+    t = (typ or "").strip().lower()
+    if t == "eeg":
+        if _is_es_15(desig):
+            return "es_15"
+        if _is_es_21(desig):
+            return "es_21"
+        if _is_sa(desig):
+            if _is_sa_15(desig):
+                return "sa_15"
+            if _is_sa_42(desig):
+                return "sa_42"
+            if _is_sa_21(desig):
+                return "sa_21_freezer" if _is_sa_freezer(desig) else "sa_21_std"
+        return None
+    if t in ("caméra", "camera"):
+        return "cameras" if _is_valid_camera_desig(desig) else None
+    if t == "rail":
+        return "rails_es" if _is_rail_es(desig) else None
+    if _is_fleche(typ) or _is_fleche(desig):
+        return "es_15"
+    return None
+
+
 def compute_phasage_summary(d: dict) -> dict:
     """Pour chaque allée du dataset, calcule les comptes ES 1.5 / ES 2.1 / Rails ES,
     ainsi que les totaux globaux. Retourne un dict prêt à servir au frontend.
@@ -5763,7 +5788,7 @@ api_router.include_router(build_auth_router(db))
 from suivi_deploy import build_suivi_router  # noqa: E402
 api_router.include_router(build_suivi_router(
     db, load_dataset, get_current_user, compute_phasage_summary,
-    _normalize_phasage, save_phasage_snapshot, persist_phasage))
+    _normalize_phasage, save_phasage_snapshot, persist_phasage, classify_family))
 
 app.include_router(api_router)
 

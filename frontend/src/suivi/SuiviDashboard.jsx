@@ -8,7 +8,7 @@ import {
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
 
-export default function SuiviDashboard({ state, actions, goTab }) {
+export default function SuiviDashboard({ state, actions, goTab, mode = "chef" }) {
     const st = state.stats || {};
     const alerts = state.alerts || [];
     const ruptures = alerts.filter((a) => a.type === "rupture");
@@ -84,11 +84,11 @@ export default function SuiviDashboard({ state, actions, goTab }) {
                         <div className="font-semibold text-sm">Parfaitement dans le planning ✔</div>
                     </>
                 )}
-                <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />
+                {mode === "chef" && <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />}
             </section>
 
-            {/* Publication espace terrain + effacement */}
-            <PublishCard publication={state.publication} actions={actions} />
+            {/* Publication espace terrain + effacement (chef uniquement) */}
+            {mode === "chef" && <PublishCard publication={state.publication} actions={actions} />}
 
             {/* Alertes */}
             <section data-testid="dash-alerts">

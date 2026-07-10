@@ -93,11 +93,11 @@ def test_terrain_state_invalid_upload_id_404():
     assert r.status_code == 404
 
 
-# ---- PATCH allee geoloc + comment ---------------------------------------
+# ---- PATCH allee geoloc + comment (par PRODUIT) ------------------------
 def test_terrain_patch_geo_gap_and_alert_explanation():
     r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee",
-                       json={"uid": UID, "rails_es_reel": 5, "rails_es_geo": 3,
-                             "geoloc_comment": ""})
+                       json={"uid": UID, "geoloc_comment": "",
+                             "products": [{"designation": "990 mm (noir)", "reel": 5, "geo": 3}]})
     assert r.status_code == 200, r.text
 
     j = requests.get(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}").json()
@@ -106,7 +106,9 @@ def test_terrain_patch_geo_gap_and_alert_explanation():
     assert a["geo"]["rails_es"] == 3
     assert a["geo_gap"].get("rails_es") == 2
 
-    alerts_geo = [al for al in j["alerts"] if al.get("type") == "geoloc" and al.get("uid") == UID]
+    alerts_geo = [al for al in j["alerts"]
+                  if al.get("type") == "geoloc" and al.get("uid") == UID
+                  and al.get("family") in (None, "rails_es")]
     assert alerts_geo
     assert alerts_geo[0]["needs_explanation"] is True
 
@@ -115,13 +117,16 @@ def test_terrain_patch_geo_gap_and_alert_explanation():
                        json={"uid": UID, "geoloc_comment": "TEST_ explication automatique"})
     assert r.status_code == 200
     j = requests.get(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}").json()
-    alerts_geo = [al for al in j["alerts"] if al.get("type") == "geoloc" and al.get("uid") == UID]
+    alerts_geo = [al for al in j["alerts"]
+                  if al.get("type") == "geoloc" and al.get("uid") == UID
+                  and al.get("family") in (None, "rails_es")]
     assert alerts_geo[0]["needs_explanation"] is False
 
 
 def test_terrain_patch_negative_geo_422():
     r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee",
-                       json={"uid": UID, "rails_es_geo": -1})
+                       json={"uid": UID,
+                             "products": [{"designation": "990 mm (noir)", "geo": -1}]})
     assert r.status_code == 422
 
 
@@ -216,7 +221,8 @@ def test_reset_by_non_creator_forbidden():
 def test_reset_by_creator_clears_data_keeps_publication(auth):
     # create some data first
     r = auth.patch(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/allee",
-                   json={"uid": UID, "rails_es_reel": 3})
+                   json={"uid": UID,
+                         "products": [{"designation": "990 mm (noir)", "reel": 3}]})
     assert r.status_code == 200
     r = auth.post(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/incident",
                   json={"nuit": 2, "text": "TEST_before_reset"})
@@ -246,7 +252,8 @@ def test_terrain_endpoints_404_when_unpublished(auth):
     auth.post(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/publish", json={"published": False})
     try:
         r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee",
-                           json={"uid": UID, "rails_es_reel": 1})
+                           json={"uid": UID,
+                                 "products": [{"designation": "990 mm (noir)", "reel": 1}]})
         assert r.status_code == 404
         r = requests.post(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/incident",
                           json={"nuit": 2, "text": "x"})
