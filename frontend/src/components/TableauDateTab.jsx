@@ -247,9 +247,9 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
                                 );
                             })}
                         </tr>
-                        {/* Ligne EEG */}
+                        {/* Ligne EEG ES+SA */}
                         <tr>
-                            <th className="px-2 py-1.5 text-left font-semibold text-gray-700 bg-gray-50 border border-gray-200 sticky left-0">EEG</th>
+                            <th className="px-2 py-1.5 text-left font-semibold text-gray-700 bg-gray-50 border border-gray-200 sticky left-0">EEG ES+SA</th>
                             {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
                                 const c = nightColor(n, weeks);
                                 const t = totalsByNight[n] || { eeg: 0 };
@@ -265,27 +265,9 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
                                 );
                             })}
                         </tr>
-                        {/* Ligne Caméras */}
+                        {/* Ligne SA magasin — italique car pour info */}
                         <tr>
-                            <th className="px-2 py-1.5 text-left font-semibold text-gray-700 bg-gray-50 border border-gray-200 sticky left-0">Caméra</th>
-                            {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
-                                const c = nightColor(n, weeks);
-                                const t = totalsByNight[n] || { cameras: 0 };
-                                return (
-                                    <td
-                                        key={n}
-                                        className="px-2 py-1.5 text-center font-mono-data font-semibold text-purple-800 border border-gray-200"
-                                        style={c ? { backgroundColor: c.bg } : {}}
-                                        data-testid={`td-cam-${n}`}
-                                    >
-                                        {fmt(t.cameras)}
-                                    </td>
-                                );
-                            })}
-                        </tr>
-                        {/* Ligne SA — italique car pour info */}
-                        <tr>
-                            <th className="px-2 py-1.5 text-left font-semibold text-gray-500 bg-gray-50 border border-gray-200 sticky left-0 italic">SA</th>
+                            <th className="px-2 py-1.5 text-left font-semibold text-gray-500 bg-gray-50 border border-gray-200 sticky left-0 italic">SA magasin</th>
                             {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => {
                                 const c = nightColor(n, weeks);
                                 const t = totalsByNight[n] || { sa: 0 };

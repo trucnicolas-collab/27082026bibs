@@ -4002,11 +4002,10 @@ def _write_code_couleur_sheet(workbook, writer, d):
 
     LABELS = [
         ("Date", False),
-        ("EEG ES", False),
-        ("Caméra", False),
-        ("SA", True),  # italique : info
+        ("EEG ES+SA", False),
+        ("SA magasin", True),  # italique : info
     ]
-    BLOCK_HEIGHT = 5  # 1 header + 4 rows + 1 separator
+    BLOCK_HEIGHT = 4  # 1 header + 3 rows
     ROW_HEADER_OFFSET = 3
 
     for chunk_idx, chunk_start in enumerate(range(0, total, cols_per_row)):
@@ -4022,7 +4021,7 @@ def _write_code_couleur_sheet(workbook, writer, d):
             })
             ws.write(base_row, i + 1, f"Nuit {n}", fmt_h)
         ws.set_row(base_row, 24)
-        # 4 lignes : Date / EEG / Caméra / SA
+        # 3 lignes : Date / EEG ES+SA / SA magasin
         for li, (label, italic) in enumerate(LABELS):
             row = base_row + 1 + li
             ws.write(row, 0, label, fmt_lbl_left_italic if italic else fmt_lbl_left)
@@ -4050,13 +4049,10 @@ def _write_code_couleur_sheet(workbook, writer, d):
                     else:
                         f = workbook.add_format(base_fmt)
                         ws.write(row, i + 1, "", f)
-                elif label == "EEG ES":
+                elif label == "EEG ES+SA":
                     f = workbook.add_format({**base_fmt, "bold": True})
                     ws.write_number(row, i + 1, int(t["eeg"]), f)
-                elif label == "Caméra":
-                    f = workbook.add_format(base_fmt)
-                    ws.write_number(row, i + 1, int(t["cam"]), f)
-                else:  # SA
+                else:  # SA magasin
                     f = workbook.add_format(base_fmt)
                     ws.write_number(row, i + 1, int(t["sa"]), f)
             ws.set_row(row, 22)
@@ -4133,13 +4129,10 @@ def _write_code_couleur_sheet(workbook, writer, d):
                             else:
                                 f = workbook.add_format(base_fmt)
                                 ws.write(row, i + 1, "", f)
-                        elif label == "EEG ES":
+                        elif label == "EEG ES+SA":
                             f = workbook.add_format({**base_fmt, "bold": True})
                             ws.write_number(row, i + 1, int(t["eeg"]), f)
-                        elif label == "Caméra":
-                            f = workbook.add_format(base_fmt)
-                            ws.write_number(row, i + 1, int(t["cam"]), f)
-                        else:
+                        else:  # SA magasin
                             f = workbook.add_format(base_fmt)
                             ws.write_number(row, i + 1, int(t["sa"]), f)
                     ws.set_row(row, 22)
