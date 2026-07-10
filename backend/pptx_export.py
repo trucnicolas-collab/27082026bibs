@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-02-27-v18-inclineur-short"
+__PPTX_VERSION__ = "2026-07-10-v19-force-black-date"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -108,6 +108,33 @@ def _set_cell_text(cell, value, *, bold=False, italic=False, align="center", siz
             p.alignment = PP_ALIGN.LEFT
         elif align == "right":
             p.alignment = PP_ALIGN.RIGHT
+
+
+def _force_cell_text_color(cell, hex_color: str = "000000"):
+    """Force la couleur du texte sur TOUS les runs d'une cellule en
+    supprimant tout `<a:solidFill>` hérité du template (via clonage de
+    lignes) puis en réinjectant un srgbClr propre au niveau `<a:rPr>`.
+
+    Nécessaire car `_set_cell_text` (via python-pptx) ne remplace pas
+    toujours fiablement la couleur héritée du template quand celui-ci
+    contient plusieurs runs ou des couleurs scheme/thème."""
+    NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    hx = hex_color.lstrip("#").upper()
+    tc = cell._tc
+    for r in tc.iter(f"{{{NS}}}r"):
+        rpr = r.find(f"{{{NS}}}rPr")
+        if rpr is None:
+            rpr = etree.SubElement(r, f"{{{NS}}}rPr")
+            # rPr doit être 1er enfant du run
+            r.insert(0, rpr)
+        # Supprime tout solidFill existant
+        for child in list(rpr):
+            if etree.QName(child).localname == "solidFill":
+                rpr.remove(child)
+        # Injecte un solidFill/srgbClr propre en tête du rPr
+        sf = etree.SubElement(rpr, f"{{{NS}}}solidFill")
+        srgb = etree.SubElement(sf, f"{{{NS}}}srgbClr")
+        srgb.set("val", hx)
 
 
 def _set_cell_fill(cell, hex_color: str):
@@ -600,7 +627,8 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     # 4.2/4.2 WP) ; colonne Caméras ajoutée. Pas de SA magasin.
     headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES", "SA 1.5", "SA 2.1", "SA 2.1 frz", "4.2/4.2 WP", "Caméras"]
     ncols = len(headers)
-    ratios = [12, 7, 18, 22, 7, 7, 6, 6, 7, 7, 7]
+    # Date élargie pour tenir "27/07/2026" sur UNE seule ligne à 9pt.
+    ratios = [8, 11, 16, 20, 7, 7, 6, 6, 7, 6, 6]
     _ensure_table_cols(t, ncols, label_cols=1)
     _trim_table_cols(t, ncols)
     _set_col_widths_by_ratio(t, ratios)
@@ -608,6 +636,10 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
     _set_cell_text(t.cell(0, 0), "Récap par nuit", bold=True, align="center", size=11)
     for ci, h in enumerate(headers):
         _set_cell_text(t.cell(1, ci), h, bold=True, align="center", size=9)
+    # Force le texte noir sur la ligne d'en-tête (le template a des runs
+    # violet/gris hérités qui subsistent après clone_col).
+    for ci in range(ncols):
+        _force_cell_text_color(t.cell(1, ci), "#000000")
     for i, n in enumerate(nights_sorted):
         r = i + 2
         d = nuit_es_data[n]
@@ -625,12 +657,16 @@ def _fill_slide_12(slide, nuit_es_data, weeks, hide_sa_mag=False):
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
+            # Force le texte en noir (le template a des couleurs
+            # violet/gris héritées sur les colonnes SA/Caméras).
+            _force_cell_text_color(t.cell(r, ci), "#000000")
     # Supprime les lignes vides finales (au-delà de needed_rows)
     while len(t.rows) > needed_rows:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
         last_tr.getparent().remove(last_tr)
     # Position/dimensions compactes (maquette de référence)
-    _place_table(_shape, 666206, 983106, 10115008, 280000)
+    # row_h réduit pour faire tenir jusqu'à 20 nuits sans dépasser la slide.
+    _place_table(_shape, 666206, 983106, 10115008, 240000)
 
 
 # ===================================================================
@@ -674,7 +710,8 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
 
     headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES"] + [c[0] for c in sa_cols]
     ncols = len(headers)
-    ratios = [7, 9, 20, 22, 8, 8] + [7] * len(sa_cols)
+    # Date élargie (12) pour "27/07/2026" à 9pt sur une ligne.
+    ratios = [7, 12, 18, 20, 8, 8] + [7] * len(sa_cols)
     n_data = len(week_nights)
     needed = 1 + n_data + 1  # header + nuits + sous-total
     _ensure_table_size(t, needed)
@@ -707,6 +744,11 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
         color = _color_for_night(n, weeks)
         for ci in range(ncols):
             _set_cell_fill(t.cell(r, ci), color)
+            # Force texte noir sur cellules non-magasin (magasin reste
+            # italique/gris). Le template a des SA/Caméras violet hérités.
+            is_italic_mag = (ci >= 6 and (ci - 6) < len(sa_cols) and sa_cols[ci - 6][2])
+            if not is_italic_mag:
+                _force_cell_text_color(t.cell(r, ci), "#000000")
 
     # Ligne « Sous-total S{n} »
     sr = 1 + n_data
@@ -721,6 +763,15 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
                        color=("#6B7280" if ital else None))
     for ci in range(ncols):
         _set_cell_fill(t.cell(sr, ci), "F3F4F6")
+        # Force texte noir sur sous-total (sauf colonne magasin italique).
+        is_italic_mag = (ci >= 6 and (ci - 6) < len(sa_cols) and sa_cols[ci - 6][2])
+        if not is_italic_mag:
+            _force_cell_text_color(t.cell(sr, ci), "#000000")
+
+    # Force aussi le texte noir sur la ligne d'en-tête (le template a du
+    # texte blanc/violet hérité sur les colonnes SA après clone_col).
+    for ci in range(ncols):
+        _force_cell_text_color(t.cell(0, ci), "#000000")
 
     while len(t.rows) > needed:
         last_tr = t._tbl.findall(qn('a:tr'))[-1]
@@ -878,6 +929,14 @@ def _fill_slide_19(slide, detail_rows, weeks=None):
                 for p in cc.text_frame.paragraphs:
                     for r in p.runs:
                         r.font.bold = False
+                # Force la couleur noire sur TOUS les runs (le template
+                # a des runs gras/rouges hérités que _set_cell_text ne
+                # remplace pas fiablement).
+                _force_cell_text_color(cc, "#000000")
+        # Force également le noir sur les cellules d'en-tête
+        if with_header:
+            _force_cell_text_color(tbl.cell(0, 0), "#000000")
+            _force_cell_text_color(tbl.cell(0, 1), "#000000")
         for tr in tbl._tbl.findall(qn('a:tr')):
             tr.set('h', '180000')
 

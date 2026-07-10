@@ -1,5 +1,15 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/07/2026 (v2 — soir)
+- [x] **BUGS PPTX PROD RÉELLEMENT CORRIGÉS** (fichier utilisateur `Export MONT ST AIGNAN` du 10/07 02:37 disséqué → 3 vrais défauts confirmés par LibreOffice→PDF→PNG et XML) :
+  - **Slide 13 (Récap par nuit) — colonne Date trop étroite** : ratios `[12,7,18,22,7,7,6,6,7,7,7]` donnaient 6.25% à Date → "27/07/2026" wrappait sur **3 lignes** → lignes gonflées → **Nuit 16 débordait sous le pied de page**. Fix : nouveaux ratios `[8,11,16,20,7,7,6,6,7,6,6]` (Date passe à 9.8%) + row_h réduit `280000 → 240000` EMU pour tenir 20 nuits max.
+  - **Slide 13 & 14-17 (Semaines) — texte violet/gris hérité du template** : SA 2.1, SA 2.1 frz, 4.2/4.2 WP, Caméras affichés en **`#6B21A8` (violet)** au lieu de noir. Cause : `_set_cell_text` réutilise le premier run cloné dont le `<a:solidFill>` du template persistait ; `r.font.color.rgb =` de python-pptx ne remplaçait pas fiablement. Fix : nouveau helper `_force_cell_text_color()` qui supprime tout `<a:solidFill>` existant sur TOUS les runs et injecte un nouveau `srgbClr val="000000"` propre. Appliqué à toutes les cellules data (slides 12, week 13-16) + lignes d'en-tête + sous-totaux.
+  - **Slides 14-17 (Semaines) — Date trop étroite** : ratios `[7,9,20,22,8,8]+SA` → Date wrappait aussi. Fix : Date passe de 9 à 12.
+  - **Slide 20 (Détail caméras par allée) — texte gris `#374151` sur rangées 2+** : idem, `_set_cell_text(color="#000000")` ne remplaçait pas la couleur héritée du clone. Fix : `_force_cell_text_color()` sur cellules + en-tête.
+- Vérifié : PPTX 24.5 Mo généré en preview → LibreOffice→PDF→PNG des slides 13,14,20,21 → **toutes les 16 nuits visibles, dates sur 1 ligne, texte 100% noir**. Comparaison visuelle avant/après concluante.
+- Version marker : `X-PPTX-Version: 2026-07-10-v19-force-black-date`
+- ⚠️ **Redéploiement production requis pour que l'utilisateur voie les corrections.**
+
 ## Changelog 10/07/2026 (session en cours)
 - [x] **Enquête « les tableaux PPTX sont cassés en production »** : vérification DIRECTE de la production (https://go-lang-43.emergent.host) — 6 exports successifs analysés (XML) : le code prod est À JOUR (11 colonnes complètes, bandeau « Récap par nuit » fusionné sur 11 col, en-têtes SA 1.5/2.1/frz/4.2/Caméras présents, titre « Informations Magasin » horizontal). Le fichier 38 Mo joint par l'utilisateur (« rendu PPTX CR VT.pptx ») provient d'une version TRÈS ancienne (colonne « SA » unique, « EEG » sans « ES ») et ses captures 01h54 d'une version intermédiaire → il regardait d'anciens fichiers téléchargés. ⚠️ Découverte : ~1 export sur 6 en prod échoue avec une erreur Cloudflare 520 (gros fichier) → un téléchargement raté peut amener à rouvrir un ancien fichier.
 - [x] **3 vrais défauts PPTX trouvés (rendus LibreOffice) et corrigés (`pptx_export.py`)** :
