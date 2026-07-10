@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v24-new-template"
+__PPTX_VERSION__ = "2026-07-10-v25-strict-11cols"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -752,20 +752,14 @@ def _fill_slide_week(slide, week_index: int, week_nights: list[int],
     _remove_table_row(t, 0)  # retire l'éventuel bandeau/en-tête noir du template
 
     # Colonnes fixes : SA 1.5 / SA 2.1 / SA 2.1 frz / 4.2/4.2 WP + Caméras
-    # (toujours affichées, même si 0 — cf. modèle de référence utilisateur
-    # du 10/07/2026). Colonne « SA magasin » (info) affichée uniquement si
-    # elle contient au moins une valeur cette semaine.
-    _wk = [nuit_es_data.get(n, {}) for n in week_nights]
-    totmag = sum((d.get("sa_mag") or 0) for d in _wk)
+    # (11 colonnes strictes cf. modèle de référence utilisateur du 10/07/2026 —
+    # la colonne "SA magasin" n'apparaît PAS dans les semaines).
     sa_cols = [
         ("SA 1.5", "sa_inst_15", False),
         ("SA 2.1", "sa_inst_21", False),
         ("SA 2.1 frz", "sa_inst_freezer", False),
         ("4.2/4.2 WP", "sa_inst_42", False),
     ]
-    if totmag > 0:
-        sa_cols.append(("SA magasin", "sa_mag", True))
-    # Colonne Caméras (toujours présente — cf. modèle utilisateur)
     include_cam = True
 
     headers = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES"] + [c[0] for c in sa_cols]
