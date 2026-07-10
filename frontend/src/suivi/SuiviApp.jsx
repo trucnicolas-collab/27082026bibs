@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
-import { Toaster, toast } from "sonner";
+import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import AuthScreen from "../components/AuthScreen";
 import SuiviDashboard from "./SuiviDashboard";
 import SuiviNuits from "./SuiviNuits";
 import SuiviStock from "./SuiviStock";
+import TerrainApp from "./TerrainApp";
+import { makeActions } from "./api";
 import {
     LayoutDashboard, Moon, Package, ChevronLeft, LogOut,
     Loader2, ClipboardList, Store, ChevronRight,
@@ -21,6 +23,13 @@ const TABS = [
 ];
 
 export default function SuiviApp() {
+    // Route équipe terrain : /suivi/terrain/{token} — sans compte
+    const m = window.location.pathname.match(/^\/suivi\/terrain\/([a-zA-Z0-9-]+)/);
+    if (m) return <TerrainApp token={m[1]} />;
+    return <ChefApp />;
+}
+
+function ChefApp() {
     const { user, logout } = useAuth();
     const [uploadId, setUploadId] = useState(() => {
         try { return localStorage.getItem(LS_KEY) || null; } catch { return null; }
@@ -63,68 +72,11 @@ export default function SuiviApp() {
         try { localStorage.removeItem(LS_KEY); } catch { }
     };
 
-    // --- Actions API partagées ---
-    const patchAllee = useCallback(async (uid, fields) => {
-        try {
-            await axios.patch(`${API}/suivi/${uploadId}/allee`, { uid, ...fields });
-            await fetchState(uploadId);
-            return true;
-        } catch (e) {
-            toast.error(e?.response?.data?.detail || "Erreur d'enregistrement");
-            return false;
-        }
-    }, [uploadId, fetchState]);
+    const actions = useMemo(
+        () => makeActions(`${API}/suivi/${uploadId}`, () => fetchState(uploadId)),
+        [uploadId, fetchState]
+    );
 
-    const patchStock = useCallback(async (family, recu) => {
-        try {
-            await axios.patch(`${API}/suivi/${uploadId}/stock`, { family, recu });
-            await fetchState(uploadId);
-        } catch { toast.error("Erreur d'enregistrement du stock"); }
-    }, [uploadId, fetchState]);
-
-    const addIncident = useCallback(async (nuit, text) => {
-        try {
-            await axios.post(`${API}/suivi/${uploadId}/incident`, { nuit, text });
-            await fetchState(uploadId);
-            toast.success("Incident enregistré");
-        } catch { toast.error("Erreur"); }
-    }, [uploadId, fetchState]);
-
-    const delIncident = useCallback(async (id) => {
-        try {
-            await axios.delete(`${API}/suivi/${uploadId}/incident/${id}`);
-            await fetchState(uploadId);
-        } catch { toast.error("Erreur"); }
-    }, [uploadId, fetchState]);
-
-    const downloadReport = useCallback(async (nuit) => {
-        try {
-            const res = await fetch(`${API}/suivi/${uploadId}/rapport-nuit/${nuit}`, { credentials: "include" });
-            if (!res.ok) throw new Error();
-            const blob = await res.blob();
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = `Rapport_nuit_${nuit}.xlsx`;
-            a.click();
-            URL.revokeObjectURL(a.href);
-        } catch { toast.error("Impossible de générer le rapport"); }
-    }, [uploadId]);
-
-    const replan = useCallback(async (apply) => {
-        try {
-            const res = await axios.post(`${API}/suivi/${uploadId}/replan`, { apply });
-            if (apply) {
-                toast.success(`Phasage replanifié — ${res.data.allees_deplacees} allée(s) déplacée(s)`);
-                await fetchState(uploadId);
-            }
-            return res.data;
-        } catch (e) {
-            toast.error(e?.response?.data?.detail || "Replanification impossible");
-            return null;
-        }
-    }, [uploadId, fetchState]);
-
-    // ---- Rendus ----
     if (user === null) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -139,8 +91,6 @@ export default function SuiviApp() {
             </div>
         );
     }
-
-    const actions = { patchAllee, patchStock, addIncident, delIncident, downloadReport, replan, refresh: () => fetchState(uploadId) };
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 antialiased" data-testid="suivi-app">
@@ -209,7 +159,7 @@ export default function SuiviApp() {
                     </nav>
                     <main className="max-w-5xl mx-auto px-3 sm:px-6 pt-4 pb-24 sm:pb-10">
                         {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} />}
-                        {tab === "nuits" && <SuiviNuits state={state} actions={actions} />}
+                        {tab === "nuits" && <SuiviNuits state={state} actions={actions} mode="chef" />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} />}
                     </main>
                 </>

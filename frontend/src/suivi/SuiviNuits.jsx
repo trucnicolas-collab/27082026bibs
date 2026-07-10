@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { toast } from "sonner";
 import {
     ChevronDown, CheckCircle2, Ban, RotateCcw, Download, Loader2,
-    AlertTriangle, MessageSquarePlus, Trash2, MoveRight,
+    AlertTriangle, MessageSquarePlus, Trash2, MoveRight, MapPin, Camera, X,
 } from "lucide-react";
+import { compressImage } from "./api";
 
 const FAM_SHORT = {
     es_15: "ES 1.5", es_21: "ES 2.1", rails_es: "Rails",
@@ -11,9 +12,10 @@ const FAM_SHORT = {
     sa_42: "SA 4.2", cameras: "Cam",
 };
 const FAMILY_KEYS = Object.keys(FAM_SHORT);
+const GEO_KEYS = ["rails_es", "sa_15", "sa_21_std", "sa_21_freezer"];
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
 
-export default function SuiviNuits({ state, actions }) {
+export default function SuiviNuits({ state, actions, mode = "chef" }) {
     const nights = state.nights || [];
     const [open, setOpen] = useState(() => {
         const firstOpen = nights.find((n) => !n.complete && n.nb_allees > 0) || nights.find((n) => n.nb_allees > 0);
@@ -23,8 +25,8 @@ export default function SuiviNuits({ state, actions }) {
     if (!nights.some((n) => n.nb_allees > 0)) {
         return (
             <div className="text-center py-20 text-slate-500 text-sm" data-testid="nuits-empty">
-                Aucune allée assignée à une nuit.<br />
-                Complétez d'abord le phasage dans l'<a href="/" className="text-emerald-400 underline">app Phasage</a>.
+                Aucune allée assignée à une nuit.
+                {mode === "chef" && (<><br />Complétez d'abord le phasage dans l'<a href="/" className="text-emerald-400 underline">app Phasage</a>.</>)}
             </div>
         );
     }
@@ -32,14 +34,14 @@ export default function SuiviNuits({ state, actions }) {
     return (
         <div className="space-y-3" data-testid="suivi-nuits">
             {nights.map((n) => (
-                <NightBlock key={n.nuit} night={n} state={state} actions={actions}
+                <NightBlock key={n.nuit} night={n} state={state} actions={actions} mode={mode}
                     isOpen={open === n.nuit} onToggle={() => setOpen(open === n.nuit ? null : n.nuit)} />
             ))}
         </div>
     );
 }
 
-function NightBlock({ night, state, actions, isOpen, onToggle }) {
+function NightBlock({ night, state, actions, mode, isOpen, onToggle }) {
     const n = night.nuit;
     const items = (state.allees || []).filter((x) => x.nuit_eff === n);
     const incidents = (state.incidents || []).filter((i) => i.nuit === n);
@@ -96,7 +98,6 @@ function NightBlock({ night, state, actions, isOpen, onToggle }) {
                         <AlleeCard key={a.uid} allee={a} actions={actions} maxNight={maxNight} />
                     ))}
 
-                    {/* Incidents */}
                     <div className="rounded-xl bg-slate-800/40 p-3 mt-2" data-testid={`night-incidents-${n}`}>
                         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2 flex items-center gap-1.5">
                             <AlertTriangle className="w-3.5 h-3.5" /> Incidents de la nuit
@@ -133,9 +134,19 @@ function AlleeCard({ allee: a, actions, maxNight }) {
         FAMILY_KEYS.forEach((k) => { v[k] = a.reel[k] ?? ""; });
         return v;
     });
+    const [geoVals, setGeoVals] = useState(() => {
+        const v = {};
+        GEO_KEYS.forEach((k) => { v[k] = (a.geo && a.geo[k] !== null && a.geo[k] !== undefined) ? a.geo[k] : ""; });
+        return v;
+    });
     const [comment, setComment] = useState(a.comment || "");
+    const [geoComment, setGeoComment] = useState(a.geoloc_comment || "");
     const [saving, setSaving] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [zoom, setZoom] = useState(null);
+    const fileRef = useRef(null);
     const fams = FAMILY_KEYS.filter((k) => (a.plan[k] || 0) > 0 || a.reel[k] !== null);
+    const hasGeoGap = Object.values(a.geo_gap || {}).some((v) => v > 0);
 
     const saveField = async (k) => {
         const raw = vals[k];
@@ -145,9 +156,16 @@ function AlleeCard({ allee: a, actions, maxNight }) {
         await actions.patchAllee(a.uid, { [`${k}_reel`]: num });
     };
 
+    const saveGeo = async (k) => {
+        const raw = geoVals[k];
+        const num = raw === "" ? null : Number(raw);
+        if (raw !== "" && (isNaN(num) || num < 0)) { toast.error("Valeur invalide"); return; }
+        if (num === ((a.geo && a.geo[k]) ?? null)) return;
+        await actions.patchAllee(a.uid, { [`${k}_geo`]: num });
+    };
+
     const setStatus = async (status) => {
         setSaving(true);
-        // Auto-remplissage : valider sans saisie = conforme au prévu
         const fields = { status };
         if (status === "validee") {
             fams.forEach((k) => {
@@ -168,9 +186,17 @@ function AlleeCard({ allee: a, actions, maxNight }) {
         toast.success(v === a.nuit_plan ? `Allée ${a.allee} → nuit planifiée ${a.nuit_plan}` : `Allée ${a.allee} déplacée en nuit ${v}`);
     };
 
-    const saveComment = async () => {
-        if (comment === (a.comment || "")) return;
-        await actions.patchAllee(a.uid, { comment });
+    const onPhotoPick = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+        setUploading(true);
+        try {
+            const blob = await compressImage(file);
+            await actions.uploadPhoto(a.uid, blob);
+        } catch {
+            toast.error("Photo illisible");
+        } finally { setUploading(false); }
     };
 
     const border = a.status === "validee" ? "border-emerald-800/70" : a.status === "bloquee" ? "border-red-800/70" : "border-slate-700/70";
@@ -183,6 +209,11 @@ function AlleeCard({ allee: a, actions, maxNight }) {
                     Allée {a.allee}
                 </span>
                 <span className="text-xs text-slate-400 truncate flex-1 min-w-0">{a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}</span>
+                {hasGeoGap && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/70 text-red-300 font-bold flex items-center gap-1" data-testid={`allee-geo-warn-${a.uid}`}>
+                        <MapPin className="w-3 h-3" /> Géoloc incomplète
+                    </span>
+                )}
                 {a.nuit_reelle && a.nuit_reelle !== a.nuit_plan && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/60 text-violet-300 font-semibold flex items-center gap-1">
                         <MoveRight className="w-3 h-3" /> plan N{a.nuit_plan}
@@ -197,12 +228,14 @@ function AlleeCard({ allee: a, actions, maxNight }) {
                 </select>
             </div>
 
-            {/* prévu vs réel */}
+            {/* prévu → réel posé (+ géolocalisé pour rails/SA) */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5">
                 {fams.map((k) => {
                     const d = a.delta[k];
+                    const isGeo = GEO_KEYS.includes(k);
+                    const gap = (a.geo_gap || {})[k];
                     return (
-                        <div key={k} className="rounded-lg bg-slate-900/70 p-2">
+                        <div key={k} className={`rounded-lg bg-slate-900/70 p-2 ${gap ? "ring-1 ring-red-800" : ""}`}>
                             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-between">
                                 {FAM_SHORT[k]}
                                 {d !== null && d !== undefined && (
@@ -214,16 +247,69 @@ function AlleeCard({ allee: a, actions, maxNight }) {
                             <div className="flex items-center gap-1.5 mt-1">
                                 <span className="text-xs text-slate-400 w-10 text-right" title="Prévu">{fmt(a.plan[k])}</span>
                                 <span className="text-slate-600 text-xs">→</span>
-                                <input type="number" min="0" inputMode="numeric" placeholder="réel"
+                                <input type="number" min="0" inputMode="numeric" placeholder="posé"
                                     value={vals[k]}
                                     onChange={(e) => setVals((s) => ({ ...s, [k]: e.target.value }))}
                                     onBlur={() => saveField(k)}
                                     data-testid={`allee-input-${k}-${a.uid}`}
                                     className="w-full h-7 px-1.5 rounded bg-slate-800 border border-slate-700 text-xs text-center focus:border-emerald-500 outline-none placeholder:text-slate-600" />
                             </div>
+                            {isGeo && (
+                                <div className="flex items-center gap-1.5 mt-1">
+                                    <span className="w-10 flex justify-end" title="Géolocalisé">
+                                        <MapPin className={`w-3.5 h-3.5 ${gap ? "text-red-400" : "text-sky-400"}`} />
+                                    </span>
+                                    <span className="text-slate-600 text-xs">→</span>
+                                    <input type="number" min="0" inputMode="numeric" placeholder="géo"
+                                        value={geoVals[k]}
+                                        onChange={(e) => setGeoVals((s) => ({ ...s, [k]: e.target.value }))}
+                                        onBlur={() => saveGeo(k)}
+                                        data-testid={`allee-geo-${k}-${a.uid}`}
+                                        className={`w-full h-7 px-1.5 rounded bg-slate-800 border text-xs text-center outline-none placeholder:text-slate-600
+                                            ${gap ? "border-red-700 focus:border-red-500 text-red-300" : "border-slate-700 focus:border-sky-500"}`} />
+                                </div>
+                            )}
                         </div>
                     );
                 })}
+            </div>
+
+            {/* Explication demandée si géoloc < posé */}
+            {hasGeoGap && (
+                <div className="mt-2 rounded-lg bg-red-950/40 border border-red-900/60 p-2" data-testid={`allee-geo-explain-${a.uid}`}>
+                    <div className="text-[11px] text-red-300 font-semibold flex items-center gap-1.5 mb-1">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        {Object.entries(a.geo_gap).filter(([, v]) => v > 0).map(([k, v]) => `${FAM_SHORT[k]} : ${fmt(v)} posé(s) non géolocalisé(s)`).join(" · ")}
+                        {!geoComment && " — explication demandée"}
+                    </div>
+                    <input value={geoComment} onChange={(e) => setGeoComment(e.target.value)}
+                        onBlur={() => { if (geoComment !== (a.geoloc_comment || "")) actions.patchAllee(a.uid, { geoloc_comment: geoComment }); }}
+                        placeholder="Pourquoi ? (ex: zone sans signal, scan à refaire demain...)"
+                        data-testid={`allee-geo-comment-${a.uid}`}
+                        className="w-full h-8 px-2.5 rounded-lg bg-slate-900 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none" />
+                </div>
+            )}
+
+            {/* Photos */}
+            <div className="flex items-center gap-2 mt-2.5 flex-wrap" data-testid={`allee-photos-${a.uid}`}>
+                {(a.photos || []).map((p) => (
+                    <div key={p.id} className="relative group">
+                        <img src={actions.photoUrl(p.id)} alt="" loading="lazy"
+                            onClick={() => setZoom(p.id)}
+                            className="w-14 h-14 object-cover rounded-lg border border-slate-700 cursor-zoom-in" />
+                        <button onClick={() => actions.delPhoto(p.id)} data-testid={`photo-del-${p.id}`}
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+                ))}
+                <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                    data-testid={`allee-add-photo-${a.uid}`}
+                    className="w-14 h-14 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-emerald-400 hover:border-emerald-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
+                    {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                    <span className="text-[9px]">Photo</span>
+                </button>
+                <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhotoPick} />
             </div>
 
             {/* actions + commentaire */}
@@ -250,11 +336,19 @@ function AlleeCard({ allee: a, actions, maxNight }) {
                         <RotateCcw className="w-3.5 h-3.5" /> Débloquer
                     </button>
                 )}
-                <input value={comment} onChange={(e) => setComment(e.target.value)} onBlur={saveComment}
+                <input value={comment} onChange={(e) => setComment(e.target.value)}
+                    onBlur={() => { if (comment !== (a.comment || "")) actions.patchAllee(a.uid, { comment }); }}
                     placeholder="Commentaire (manque produit, casse...)"
                     data-testid={`allee-comment-${a.uid}`}
                     className="flex-1 min-w-[140px] h-8 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
             </div>
+
+            {zoom && (
+                <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={() => setZoom(null)} data-testid="photo-zoom">
+                    <img src={actions.photoUrl(zoom)} alt="" className="max-w-full max-h-full rounded-xl" />
+                    <button className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 text-white"><X className="w-5 h-5" /></button>
+                </div>
+            )}
         </div>
     );
 }

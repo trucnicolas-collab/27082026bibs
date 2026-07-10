@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { toast } from "sonner";
 import {
     AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
-    Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight,
+    Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin,
+    HardHat, Copy, Link2,
 } from "lucide-react";
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
@@ -12,6 +13,7 @@ export default function SuiviDashboard({ state, actions, goTab }) {
     const alerts = state.alerts || [];
     const ruptures = alerts.filter((a) => a.type === "rupture");
     const blocages = alerts.filter((a) => a.type === "blocage");
+    const geolocs = alerts.filter((a) => a.type === "geoloc");
     const pct = Math.min(100, st.pct || 0);
     const avance = st.avance_nuits;
 
@@ -85,6 +87,9 @@ export default function SuiviDashboard({ state, actions, goTab }) {
                 <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />
             </section>
 
+            {/* Lien équipe terrain */}
+            <TerrainLinkCard terrain={state.terrain} actions={actions} />
+
             {/* Alertes */}
             <section data-testid="dash-alerts">
                 <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2 flex items-center gap-2">
@@ -108,6 +113,14 @@ export default function SuiviDashboard({ state, actions, goTab }) {
                                 className="w-full text-left rounded-xl bg-amber-950/40 border border-amber-900/60 p-3.5 flex items-start gap-3 hover:border-amber-700 transition-colors">
                                 <Ban className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                                 <div className="text-sm text-amber-200">{a.message}</div>
+                            </button>
+                        ))}
+                        {geolocs.map((a, i) => (
+                            <button key={`g${i}`} onClick={() => goTab("nuits")} data-testid={`alert-geoloc-${i}`}
+                                className={`w-full text-left rounded-xl p-3.5 flex items-start gap-3 transition-colors border
+                                    ${a.needs_explanation ? "bg-red-950/40 border-red-900/60 hover:border-red-700" : "bg-sky-950/40 border-sky-900/60 hover:border-sky-700"}`}>
+                                <MapPin className={`w-4 h-4 mt-0.5 flex-shrink-0 ${a.needs_explanation ? "text-red-400" : "text-sky-400"}`} />
+                                <div className={`text-sm ${a.needs_explanation ? "text-red-200" : "text-sky-200"}`}>{a.message}</div>
                             </button>
                         ))}
                     </div>
@@ -144,6 +157,56 @@ export default function SuiviDashboard({ state, actions, goTab }) {
                 </div>
             </section>
         </div>
+    );
+}
+
+function TerrainLinkCard({ terrain, actions }) {
+    const [busy, setBusy] = useState(false);
+    const enabled = terrain?.enabled;
+    const link = terrain?.token ? `${window.location.origin}/suivi/terrain/${terrain.token}` : "";
+
+    const toggle = async () => {
+        setBusy(true);
+        const res = await actions.terrainShare(!enabled);
+        setBusy(false);
+        if (res) toast.success(res.enabled ? "Lien terrain activé" : "Lien terrain désactivé");
+    };
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(link);
+            toast.success("Lien copié — envoyez-le aux poseurs");
+        } catch { toast.error("Copie impossible"); }
+    };
+
+    return (
+        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4" data-testid="terrain-link-card">
+            <div className="flex items-center gap-3 flex-wrap">
+                <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <HardHat className="w-5 h-5 text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold">Accès équipe terrain</div>
+                    <div className="text-xs text-slate-400">Lien sans compte : saisie du réel + géoloc, photos, validation, rapport.</div>
+                </div>
+                <button onClick={toggle} disabled={busy} data-testid="terrain-toggle"
+                    className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors
+                        ${enabled ? "border border-slate-600 text-slate-300 hover:bg-slate-800" : "bg-amber-500 hover:bg-amber-400 text-slate-950"}`}>
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                    {enabled ? "Désactiver" : "Activer le lien"}
+                </button>
+            </div>
+            {enabled && link && (
+                <div className="mt-3 flex items-center gap-2">
+                    <code className="flex-1 min-w-0 truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-emerald-300" data-testid="terrain-link">
+                        {link}
+                    </code>
+                    <button onClick={copy} data-testid="terrain-copy"
+                        className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                        <Copy className="w-3.5 h-3.5" /> Copier
+                    </button>
+                </div>
+            )}
+        </section>
     );
 }
 

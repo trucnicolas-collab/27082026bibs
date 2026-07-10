@@ -1,0 +1,33 @@
+{
+  "summary": "Backend + frontend testing of the terrain (public-token) extension on /suivi. 20/20 pytest cases pass (9 new terrain + 11 regression). Frontend terrain page (/suivi/terrain/{token}) verified via Playwright: all testids visible (allee-card, allee-input-rails_es, allee-geo-rails_es, allee-geo-warn, allee-geo-explain, allee-geo-comment, allee-add-photo, allee-validate, allee-block, night-report-2), photo upload via hidden file input works (photo-del appears), invalid token shows terrain-error. Chef dashboard (/suivi, admin): terrain-link-card + terrain-toggle work, terrain-link + terrain-copy shown when enabled with correct URL, alert-geoloc-0 present and clickable → navigates to Nuits tab (suivi-nuits visible).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "TerrainApp/SuiviNuits AlleeCard - Photo section", "issues": ["When a photo is uploaded, thumbnail sometimes renders as an empty green square while the image loads/fails silently for tiny 1x1 test PNGs. GET /photo/{id} returns 200 and correct bytes; likely an <img> aspect-ratio / rendering edge case for very small images and does not affect real usage."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_suivi_terrain.py",
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/test_reports/pytest/suivi_terrain.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "suivi_deploy.py::_build_state builds a full state dict for every terrain PATCH via subsequent GET; acceptable but the geoloc alert message uses '⚠ Explication demandée' — good, matches spec. The 'terrain' key is correctly hidden when is_terrain=True (verified).",
+    "Terrain endpoints skip auth entirely (by design). Rate-limiting the public token endpoints (photo upload especially) should be considered before production.",
+    "MAX_PHOTO_BYTES=8MB enforced server-side ✓ but the token URL is a bearer secret in path — logs may contain it. Consider using a header or query redaction in access logs.",
+    "AlleeUpdate has ge=0 on all *_reel and *_geo fields — negative rejected with 422 ✓ (verified)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_suivi_terrain.py (new — 9 tests, all pass)"
+  ],
+  "success_rate": {"backend": "100% (20/20 including 11 regression)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@vusion.local / admin123 · Terrain token active: ab04ab2fa14949e2915063dc4645a7fe (kept ENABLED at end of run)",
+  "seed_data_creation": "Reused dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42 · Allée 1__A__R1 left with rails_es_reel=5, rails_es_geo=3, geoloc_comment='TEST_terrain UI comment', 1 leftover photo from playwright upload (harmless). All TEST_ incidents deleted.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two backend test files: /app/backend/tests/test_suivi_deploy.py (chef flows, 11) and /app/backend/tests/test_suivi_terrain.py (terrain public + auth photo + rapport with embedded images + geo-gap alert, 9). Run: `pytest backend/tests/test_suivi_deploy.py backend/tests/test_suivi_terrain.py -v`. The rapport test uses openpyxl (ws._images) to assert at least 1 embedded photo and checks 'Géoloc' + 'Explication géoloc' headers. Frontend testids verified in TerrainApp and chef dashboard match the spec.",
+  "rca of the issue": "N/A — no failing tests. Initial suspicion of terrain-link not appearing was a test-script bug (my toggle logic accidentally deactivated the link); rerun with correct logic confirmed terrain-link + terrain-copy render correctly when terrain.enabled === true."
+}
