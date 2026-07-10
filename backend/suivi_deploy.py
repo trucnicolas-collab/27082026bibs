@@ -142,8 +142,8 @@ class ReplanRequest(BaseModel):
     apply: bool = False
 
 
-class TerrainShareUpdate(BaseModel):
-    enabled: bool
+class PublishUpdate(BaseModel):
+    published: bool
 
 
 def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summary,
@@ -163,17 +163,17 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             doc = {
                 "upload_id": upload_id, "user_id": user_id,
                 "allees": [], "stock_received": {}, "incidents": [],
-                "terrain_token": None, "terrain_enabled": False,
+                "published": False, "published_by": "",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             await db.suivi_docs.insert_one(dict(doc))
         doc.pop("_id", None)
         return doc
 
-    async def _resolve_terrain(token: str):
-        doc = await db.suivi_docs.find_one({"terrain_token": token, "terrain_enabled": True})
+    async def _resolve_terrain(upload_id: str):
+        doc = await db.suivi_docs.find_one({"upload_id": upload_id, "published": True})
         if not doc:
-            raise HTTPException(status_code=404, detail="Lien terrain invalide ou désactivé")
+            raise HTTPException(status_code=404, detail="Magasin non publié au suivi terrain")
         doc.pop("_id", None)
         d = await load_dataset(doc["upload_id"])
         if d is None:
@@ -450,9 +450,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             },
         }
         if not is_terrain:
-            state["terrain"] = {
-                "enabled": bool(doc.get("terrain_enabled")),
-                "token": doc.get("terrain_token") or "",
+            state["publication"] = {
+                "published": bool(doc.get("published")),
+                "published_by": doc.get("published_by") or "",
             }
         return state
 
@@ -965,16 +965,34 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         doc = await _get_doc(upload_id, str(current_user["_id"]))
         return _rapport_response(d, doc, upload_id, nuit)
 
-    @router.post("/{upload_id}/terrain-share")
-    async def terrain_share(upload_id: str, payload: TerrainShareUpdate,
+    @router.post("/{upload_id}/publish")
+    async def publish_suivi(upload_id: str, payload: PublishUpdate,
                             current_user: dict = Depends(get_current_user)):
+        """Publie/dépublie le magasin dans l'espace terrain commun (créateur du phasage)."""
         await _load(upload_id, current_user)
-        doc = await _get_doc(upload_id, str(current_user["_id"]))
-        token = doc.get("terrain_token") or uuid.uuid4().hex
+        await _get_doc(upload_id, str(current_user["_id"]))
         await db.suivi_docs.update_one(
             {"upload_id": upload_id},
-            {"$set": {"terrain_token": token, "terrain_enabled": payload.enabled}})
-        return {"ok": True, "enabled": payload.enabled, "token": token}
+            {"$set": {"published": payload.published,
+                      "published_by": current_user.get("email") or "",
+                      "published_at": datetime.now(timezone.utc).isoformat()}})
+        return {"ok": True, "published": payload.published}
+
+    @router.delete("/{upload_id}/reset")
+    async def reset_suivi(upload_id: str, current_user: dict = Depends(get_current_user)):
+        """Efface toutes les données du suivi (saisies, caméras, incidents, stock, photos).
+        Réservé au créateur du phasage et à l'administrateur."""
+        is_admin = (current_user.get("role") == "admin")
+        d = await load_dataset(upload_id, user_id=None if is_admin else str(current_user["_id"]))
+        if d is None:
+            raise HTTPException(status_code=404, detail="Dataset introuvable")
+        if not is_admin and str(d.get("user_id") or "") != str(current_user["_id"]):
+            raise HTTPException(status_code=403,
+                                detail="Seul le créateur du phasage ou l'administrateur peut effacer le suivi")
+        await db.suivi_docs.update_one(
+            {"upload_id": upload_id},
+            {"$set": {"allees": [], "cam_allees": [], "incidents": [], "stock_received": {}}})
+        return {"ok": True}
 
     @router.post("/{upload_id}/replan")
     async def replan(upload_id: str, payload: ReplanRequest,
@@ -1046,63 +1064,86 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         }
 
     # ============================================= ROUTES TERRAIN (SANS COMPTE) ====
-    @terrain.get("/{token}")
-    async def terrain_state(token: str):
-        d, doc = await _resolve_terrain(token)
+    @terrain.get("/stores")
+    async def terrain_stores():
+        """Liste PUBLIQUE des magasins publiés au suivi terrain."""
+        docs = await db.suivi_docs.find({"published": True},
+                                        {"_id": 0, "upload_id": 1, "published_by": 1}).to_list(length=200)
+        out = []
+        for doc in docs:
+            meta = await db.datasets.find_one(
+                {"upload_id": doc["upload_id"]},
+                {"_id": 0, "filename": 1, "label": 1, "store_name": 1, "store_code": 1, "uploaded_at": 1})
+            if not meta:
+                continue
+            out.append({
+                "upload_id": doc["upload_id"],
+                "store_name": meta.get("store_name") or "",
+                "store_code": meta.get("store_code") or "",
+                "label": meta.get("label") or "",
+                "filename": meta.get("filename") or "",
+                "published_by": doc.get("published_by") or "",
+            })
+        out.sort(key=lambda s: (s["store_name"] or s["label"] or s["filename"]).lower())
+        return {"stores": out}
+
+    @terrain.get("/{upload_id}")
+    async def terrain_state(upload_id: str):
+        d, doc = await _resolve_terrain(upload_id)
         return _build_state(d, doc, doc["upload_id"], is_terrain=True)
 
-    @terrain.patch("/{token}/allee")
-    async def terrain_update_allee(token: str, payload: AlleeUpdate):
-        d, doc = await _resolve_terrain(token)
+    @terrain.patch("/{upload_id}/allee")
+    async def terrain_update_allee(upload_id: str, payload: AlleeUpdate):
+        d, doc = await _resolve_terrain(upload_id)
         uid = await _apply_allee_update(doc["upload_id"], doc, payload, "équipe terrain")
         return {"ok": True, "uid": uid}
 
-    @terrain.post("/{token}/incident")
-    async def terrain_add_incident(token: str, payload: IncidentCreate):
-        d, doc = await _resolve_terrain(token)
+    @terrain.post("/{upload_id}/incident")
+    async def terrain_add_incident(upload_id: str, payload: IncidentCreate):
+        d, doc = await _resolve_terrain(upload_id)
         return await _create_incident(doc["upload_id"], payload, "équipe terrain")
 
-    @terrain.delete("/{token}/incident/{incident_id}")
-    async def terrain_del_incident(token: str, incident_id: str):
-        d, doc = await _resolve_terrain(token)
+    @terrain.delete("/{upload_id}/incident/{incident_id}")
+    async def terrain_del_incident(upload_id: str, incident_id: str):
+        d, doc = await _resolve_terrain(upload_id)
         await db.suivi_docs.update_one({"upload_id": doc["upload_id"]},
                                        {"$pull": {"incidents": {"id": incident_id}}})
         return {"ok": True}
 
-    @terrain.post("/{token}/allee-photo")
-    async def terrain_add_photo(token: str, uid: str = Form(...), file: UploadFile = File(...)):
-        d, doc = await _resolve_terrain(token)
+    @terrain.post("/{upload_id}/allee-photo")
+    async def terrain_add_photo(upload_id: str, uid: str = Form(...), file: UploadFile = File(...)):
+        d, doc = await _resolve_terrain(upload_id)
         return await _add_photo(doc["upload_id"], doc, uid, file, "équipe terrain")
 
-    @terrain.get("/{token}/photo/{photo_id}")
-    async def terrain_get_photo(token: str, photo_id: str):
-        d, doc = await _resolve_terrain(token)
+    @terrain.get("/{upload_id}/photo/{photo_id}")
+    async def terrain_get_photo(upload_id: str, photo_id: str):
+        d, doc = await _resolve_terrain(upload_id)
         return _photo_response(doc, photo_id)
 
-    @terrain.delete("/{token}/photo/{photo_id}")
-    async def terrain_del_photo(token: str, photo_id: str):
-        d, doc = await _resolve_terrain(token)
+    @terrain.delete("/{upload_id}/photo/{photo_id}")
+    async def terrain_del_photo(upload_id: str, photo_id: str):
+        d, doc = await _resolve_terrain(upload_id)
         return await _delete_photo(doc["upload_id"], doc, photo_id)
 
-    @terrain.get("/{token}/rapport-nuit/{nuit}")
-    async def terrain_rapport(token: str, nuit: int):
-        d, doc = await _resolve_terrain(token)
+    @terrain.get("/{upload_id}/rapport-nuit/{nuit}")
+    async def terrain_rapport(upload_id: str, nuit: int):
+        d, doc = await _resolve_terrain(upload_id)
         return _rapport_response(d, doc, doc["upload_id"], nuit)
 
-    @terrain.patch("/{token}/allee-cam")
-    async def terrain_update_cam(token: str, payload: CamAlleeUpdate):
-        d, doc = await _resolve_terrain(token)
+    @terrain.patch("/{upload_id}/allee-cam")
+    async def terrain_update_cam(upload_id: str, payload: CamAlleeUpdate):
+        d, doc = await _resolve_terrain(upload_id)
         uid = await _apply_cam_update(doc["upload_id"], doc, payload, "équipe terrain")
         return {"ok": True, "uid": uid}
 
-    @terrain.get("/{token}/materiel")
-    async def terrain_materiel(token: str):
-        d, doc = await _resolve_terrain(token)
+    @terrain.get("/{upload_id}/materiel")
+    async def terrain_materiel(upload_id: str):
+        d, doc = await _resolve_terrain(upload_id)
         return _materiel_overview(d, doc)
 
-    @terrain.get("/{token}/materiel/{nuit}")
-    async def terrain_materiel_nuit(token: str, nuit: int):
-        d, doc = await _resolve_terrain(token)
+    @terrain.get("/{upload_id}/materiel/{nuit}")
+    async def terrain_materiel_nuit(upload_id: str, nuit: int):
+        d, doc = await _resolve_terrain(upload_id)
         return _materiel_nuit(d, doc, nuit)
 
     parent = APIRouter()

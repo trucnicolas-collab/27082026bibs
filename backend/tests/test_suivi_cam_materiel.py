@@ -3,7 +3,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://go-lang-43.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 UPLOAD_ID = "fd15443f-6d2a-4cef-bd72-c56bb29e9c42"
 CAM_UID = "1__A__R1"
 
@@ -17,11 +17,13 @@ def auth():
     return s
 
 
-@pytest.fixture(scope="module")
-def token(auth):
-    r = auth.post(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/terrain-share", json={"enabled": True})
-    assert r.status_code == 200
-    return r.json()["token"]
+@pytest.fixture(scope="module", autouse=True)
+def ensure_published(auth):
+    """Terrain routes now key on upload_id + published=true."""
+    r = auth.post(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/publish", json={"published": True})
+    assert r.status_code == 200, r.text
+    yield
+    auth.post(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/publish", json={"published": True})
 
 
 # ---------- CAM section in state --------------------------------------------
@@ -104,11 +106,11 @@ def test_patch_allee_cam_validate_marks_night_complete(auth):
 
 
 # ---------- PATCH allee-cam terrain -----------------------------------------
-def test_patch_allee_cam_terrain_public(token):
-    r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{token}/allee-cam",
+def test_patch_allee_cam_terrain_public():
+    r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee-cam",
                        json={"uid": CAM_UID, "cameras_reel": 2, "cameras_geo": 1, "geoloc_comment": ""})
     assert r.status_code == 200, r.text
-    j = requests.get(f"{BASE_URL}/api/suivi-terrain/{token}").json()
+    j = requests.get(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}").json()
     a = next(x for x in j["cam"]["allees"] if x["uid"] == CAM_UID)
     assert a["geo_gap"] == 1
     geo_alerts = [al for al in j["alerts"]
@@ -116,8 +118,8 @@ def test_patch_allee_cam_terrain_public(token):
     assert geo_alerts and geo_alerts[0]["needs_explanation"] is True
 
 
-def test_patch_allee_cam_terrain_negative_422(token):
-    r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{token}/allee-cam",
+def test_patch_allee_cam_terrain_negative_422():
+    r = requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee-cam",
                        json={"uid": CAM_UID, "cameras_reel": -2})
     assert r.status_code == 422
 
@@ -141,8 +143,8 @@ def test_materiel_overview_auth(auth):
     assert j["unassigned"]["nb_allees"] >= 1
 
 
-def test_materiel_overview_terrain(token):
-    r = requests.get(f"{BASE_URL}/api/suivi-terrain/{token}/materiel")
+def test_materiel_overview_terrain():
+    r = requests.get(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/materiel")
     assert r.status_code == 200
     j = r.json()
     assert "nights" in j and "unassigned" in j
@@ -180,8 +182,8 @@ def test_materiel_nuit_auth(auth):
     assert any("sans" in lab.lower() for lab in labels), f"expected '(sans élément)' bucket; got labels={labels}"
 
 
-def test_materiel_nuit_terrain(token):
-    r = requests.get(f"{BASE_URL}/api/suivi-terrain/{token}/materiel/2")
+def test_materiel_nuit_terrain():
+    r = requests.get(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/materiel/2")
     assert r.status_code == 200
 
 

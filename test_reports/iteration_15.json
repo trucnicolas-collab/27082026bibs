@@ -1,0 +1,35 @@
+{
+  "summary": "Validated the refonte terrain access (token PAR MAGASIN supprimé → espace commun /suivi/terrain + publish + upload_id-based endpoints + reset créateur/admin). Migrated the obsolete /app/backend/tests/test_suivi_terrain.py and adapted test_suivi_cam_materiel.py to the new publish/upload_id system. All 3 files run together: 40/40 pytest pass. Frontend: /suivi/terrain public store picker shows only published stores with 'publié par admin@vusion.local', 3 terrain tabs (pose/cam/materiel) reachable, terrain-back-btn returns to picker. Chef dashboard: publish-card renders with 'PUBLIÉ' badge, publish-toggle (Dépublier), terrain-link '.../suivi/terrain', terrain-copy, reset-suivi-btn opens confirm modal with reset-suivi-cancel / reset-suivi-confirm. Final API state: dataset fd15443f-... is PUBLIÉ (kept for next agent).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "publish-toggle label refresh", "issue": "After clicking publish-toggle, the button text (Publier/Dépublier) does not refresh within 1.2s in some cases even though the API call succeeds and state is toggled. Not a blocker (badge PUBLIÉ/NON PUBLIÉ updates correctly and API-side state is authoritative). Suggestion: setState optimistically or await refresh before returning to idle.", "affected_selectors": ["publish-toggle"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/backend/tests/test_suivi_terrain.py",
+    "/app/backend/tests/test_suivi_cam_materiel.py",
+    "/app/test_reports/pytest/iteration_15.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "suivi_deploy.py:982 reset_suivi: correctly resets allees/cam_allees/incidents/stock_received but does NOT touch published/published_by → publication is preserved as expected (verified). Nightly report and photos: photos are stored on doc.allees[].photos, which are also cleared via allees=[] — thus reset also removes all photos. Consider clarifying in UI copy: 'Effacer le suivi' also removes photos.",
+    "reset_suivi authorization: for non-admin non-creator, load_dataset(user_id=self) returns None → 404 (rather than 403). Behavior acceptable per spec (spec says 403 OR 404). Might expose slightly less info, which is fine.",
+    "terrain_stores: returns store_code/store_name empty in this dataset — labels rely on filename. OK for current data but consider ensuring store metadata is populated at upload.",
+    "TerrainApp/PublishCard: after publish/unpublish, no local optimistic label update (minor UX)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_suivi_terrain.py (rewritten for new publish/upload_id system — 16 tests)",
+    "/app/backend/tests/test_suivi_cam_materiel.py (removed obsolete `token` fixture, replaced with ensure_published autouse fixture, terrain endpoints now keyed by UPLOAD_ID)"
+  ],
+  "success_rate": {"backend": "100% (40/40 : 11 + 16 + 13)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@vusion.local / admin123 (créateur + admin) · poseur@test.local / poseur123 (role user, used to validate 403/404 on reset)",
+  "seed_data_creation": "None. Reused dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42. NB: test_reset_by_creator_clears_data_keeps_publication clears the suivi (allees/cam/incidents/stock) but publication is preserved. After the whole run the dataset is LEFT PUBLISHED and clean (0% progression) — matches the requested end-state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Three backend test files: test_suivi_deploy.py (11), test_suivi_terrain.py (16 — publish + reset + terrain endpoints via upload_id), test_suivi_cam_materiel.py (13). Run with `set -a; source /app/frontend/.env; set +a` first because tests read REACT_APP_BACKEND_URL from env. To toggle publish via API: POST /api/suivi/{id}/publish {published: true|false} (auth). Reset: DELETE /api/suivi/{id}/reset (créateur/admin). Terrain endpoints: GET /api/suivi-terrain/stores (public) + all /{upload_id}/... routes on published=true only. Dataset LEFT PUBLISHED at end of run.",
+  "rca of the issue": "N/A — all tests pass; only a minor UI reactivity note on publish-toggle label refresh."
+}

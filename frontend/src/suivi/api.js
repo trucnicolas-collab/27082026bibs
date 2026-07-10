@@ -98,12 +98,23 @@ export function makeActions(base, refresh) {
                 return null;
             }
         },
-        terrainShare: async (enabled) => {
+        publish: async (published) => {
             try {
-                const res = await axios.post(`${base}/terrain-share`, { enabled });
+                const res = await axios.post(`${base}/publish`, { published });
                 await refresh();
                 return res.data;
             } catch { toast.error("Erreur"); return null; }
+        },
+        resetSuivi: async () => {
+            try {
+                await axios.delete(`${base}/reset`);
+                await refresh();
+                toast.success("Suivi effacé — vous pouvez repartir de zéro");
+                return true;
+            } catch (e) {
+                toast.error(e?.response?.data?.detail || "Effacement impossible");
+                return false;
+            }
         },
         refresh,
     };

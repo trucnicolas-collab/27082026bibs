@@ -27,9 +27,8 @@ const TABS = [
 ];
 
 export default function SuiviApp() {
-    // Route équipe terrain : /suivi/terrain/{token} — sans compte
-    const m = window.location.pathname.match(/^\/suivi\/terrain\/([a-zA-Z0-9-]+)/);
-    if (m) return <TerrainApp token={m[1]} />;
+    // Espace équipe terrain commun : /suivi/terrain — sans compte
+    if (window.location.pathname.startsWith("/suivi/terrain")) return <TerrainApp />;
     return <ChefApp />;
 }
 

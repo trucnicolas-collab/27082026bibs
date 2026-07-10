@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
     Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin,
-    HardHat, Copy, Link2,
+    HardHat, Copy, Link2, Trash2,
 } from "lucide-react";
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
@@ -87,8 +87,8 @@ export default function SuiviDashboard({ state, actions, goTab }) {
                 <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />
             </section>
 
-            {/* Lien équipe terrain */}
-            <TerrainLinkCard terrain={state.terrain} actions={actions} />
+            {/* Publication espace terrain + effacement */}
+            <PublishCard publication={state.publication} actions={actions} />
 
             {/* Alertes */}
             <section data-testid="dash-alerts">
@@ -160,52 +160,83 @@ export default function SuiviDashboard({ state, actions, goTab }) {
     );
 }
 
-function TerrainLinkCard({ terrain, actions }) {
+function PublishCard({ publication, actions }) {
     const [busy, setBusy] = useState(false);
-    const enabled = terrain?.enabled;
-    const link = terrain?.token ? `${window.location.origin}/suivi/terrain/${terrain.token}` : "";
+    const [confirmReset, setConfirmReset] = useState(false);
+    const published = publication?.published;
+    const link = `${window.location.origin}/suivi/terrain`;
 
     const toggle = async () => {
         setBusy(true);
-        const res = await actions.terrainShare(!enabled);
+        const res = await actions.publish(!published);
         setBusy(false);
-        if (res) toast.success(res.enabled ? "Lien terrain activé" : "Lien terrain désactivé");
+        if (res) toast.success(res.published
+            ? "Magasin publié — visible par les équipes terrain"
+            : "Magasin retiré de l'espace terrain");
     };
     const copy = async () => {
         try {
             await navigator.clipboard.writeText(link);
-            toast.success("Lien copié — envoyez-le aux poseurs");
+            toast.success("Lien de l'espace terrain copié (le même pour tous les magasins)");
         } catch { toast.error("Copie impossible"); }
+    };
+    const doReset = async () => {
+        setBusy(true);
+        await actions.resetSuivi();
+        setBusy(false);
+        setConfirmReset(false);
     };
 
     return (
-        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4" data-testid="terrain-link-card">
+        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4" data-testid="publish-card">
             <div className="flex items-center gap-3 flex-wrap">
                 <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
                     <HardHat className="w-5 h-5 text-amber-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold">Accès équipe terrain</div>
-                    <div className="text-xs text-slate-400">Lien sans compte : saisie du réel + géoloc, photos, validation, rapport.</div>
+                    <div className="text-sm font-semibold flex items-center gap-2">
+                        Espace équipe terrain
+                        {published
+                            ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-bold">PUBLIÉ</span>
+                            : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-bold">NON PUBLIÉ</span>}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                        Publiez le magasin pour qu'il apparaisse sur <span className="text-slate-300">/suivi/terrain</span> (espace commun, sans compte).
+                        {publication?.published_by && published && <span className="text-slate-500"> Publié par {publication.published_by}.</span>}
+                    </div>
                 </div>
-                <button onClick={toggle} disabled={busy} data-testid="terrain-toggle"
+                <button onClick={toggle} disabled={busy} data-testid="publish-toggle"
                     className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors
-                        ${enabled ? "border border-slate-600 text-slate-300 hover:bg-slate-800" : "bg-amber-500 hover:bg-amber-400 text-slate-950"}`}>
+                        ${published ? "border border-slate-600 text-slate-300 hover:bg-slate-800" : "bg-amber-500 hover:bg-amber-400 text-slate-950"}`}>
                     {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
-                    {enabled ? "Désactiver" : "Activer le lien"}
+                    {published ? "Dépublier" : "Publier"}
                 </button>
             </div>
-            {enabled && link && (
-                <div className="mt-3 flex items-center gap-2">
-                    <code className="flex-1 min-w-0 truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-emerald-300" data-testid="terrain-link">
-                        {link}
-                    </code>
-                    <button onClick={copy} data-testid="terrain-copy"
-                        className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
-                        <Copy className="w-3.5 h-3.5" /> Copier
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <code className="flex-1 min-w-[180px] truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-emerald-300" data-testid="terrain-link">
+                    {link}
+                </code>
+                <button onClick={copy} data-testid="terrain-copy"
+                    className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                    <Copy className="w-3.5 h-3.5" /> Copier
+                </button>
+                {!confirmReset ? (
+                    <button onClick={() => setConfirmReset(true)} data-testid="reset-suivi-btn"
+                        title="Efface toutes les saisies du suivi (réservé au créateur du phasage et à l'admin)"
+                        className="h-8 px-3 rounded-lg border border-red-900 text-red-400 text-xs font-semibold flex items-center gap-1.5 hover:bg-red-950/50 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" /> Effacer le suivi
                     </button>
-                </div>
-            )}
+                ) : (
+                    <span className="flex items-center gap-1.5">
+                        <button onClick={doReset} disabled={busy} data-testid="reset-suivi-confirm"
+                            className="h-8 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
+                            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />} Confirmer l'effacement
+                        </button>
+                        <button onClick={() => setConfirmReset(false)} data-testid="reset-suivi-cancel"
+                            className="h-8 px-2.5 rounded-lg border border-slate-700 text-slate-400 text-xs hover:bg-slate-800 transition-colors">Annuler</button>
+                    </span>
+                )}
+            </div>
         </section>
     );
 }
