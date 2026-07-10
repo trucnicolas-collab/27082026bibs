@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     CheckCircle2, Ban, RotateCcw, Download, Loader2, AlertTriangle,
     MessageSquarePlus, Trash2, MoveRight, MapPin, Camera, X,
-    ChevronRight, ArrowLeft, Moon,
+    ChevronRight, ArrowLeft, Moon, Plus,
 } from "lucide-react";
 import { compressImage } from "./api";
 
@@ -109,6 +109,25 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
     const incidents = (state.incidents || []).filter((i) => i.nuit === n);
     const [incidentText, setIncidentText] = useState("");
     const [downloading, setDownloading] = useState(false);
+    const [addPanel, setAddPanel] = useState(false);
+    const [addBusy, setAddBusy] = useState(null);
+
+    // Allées des nuits suivantes (candidates au rapatriement en avance)
+    // Triées par nuit croissante puis par n° d'allée (ordre naturel)
+    const laterAllees = (state.allees || [])
+        .filter((x) => x.nuit_eff > n)
+        .sort((a, b) =>
+            a.nuit_eff !== b.nuit_eff
+                ? a.nuit_eff - b.nuit_eff
+                : String(a.allee).localeCompare(String(b.allee), "fr", { numeric: true })
+        );
+
+    const pullAllee = async (uid) => {
+        setAddBusy(uid);
+        const ok = await actions.patchAllee(uid, { nuit_reelle: n });
+        setAddBusy(null);
+        if (ok) toast.success(`Allée rapatriée dans la nuit ${n}`);
+    };
 
     return (
         <div className="space-y-2.5" data-testid={`night-screen-${n}`}>
@@ -155,6 +174,17 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                 );
             })}
 
+            {/* Ajouter une allée (rapatriement d'une nuit ultérieure — pour les avances) */}
+            <button onClick={() => setAddPanel(true)}
+                disabled={laterAllees.length === 0}
+                data-testid={`night-add-allee-${n}`}
+                className="w-full h-11 rounded-xl border border-dashed border-emerald-700/60 text-emerald-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-emerald-950/30 hover:border-emerald-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                <Plus className="w-4 h-4" />
+                {laterAllees.length > 0
+                    ? `Ajouter une allée (en avance) — ${laterAllees.length} disponible${laterAllees.length > 1 ? "s" : ""}`
+                    : "Aucune allée à rapatrier (dernière nuit ou toutes déjà planifiées ici)"}
+            </button>
+
             <div className="rounded-xl bg-slate-800/40 p-3" data-testid={`night-incidents-${n}`}>
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" /> Incidents de la nuit
@@ -179,6 +209,47 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                     </button>
                 </div>
             </div>
+
+            {/* Modale de rapatriement d'allée */}
+            {addPanel && (
+                <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-3"
+                    data-testid={`add-allee-panel-${n}`} onClick={() => setAddPanel(false)}>
+                    <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-4 space-y-3 max-h-[85vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-2">
+                            <Plus className="w-5 h-5 text-emerald-400" />
+                            <h4 className="text-sm font-bold flex-1">Rapatrier une allée dans la nuit {n}</h4>
+                            <button onClick={() => setAddPanel(false)} data-testid="add-allee-close"
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                            Sélectionnez une allée faite en avance (planifiée sur une nuit ultérieure) pour la rapatrier ici.
+                        </div>
+                        <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1.5">
+                            {laterAllees.map((x) => (
+                                <button key={x.uid}
+                                    onClick={() => pullAllee(x.uid)}
+                                    disabled={addBusy === x.uid}
+                                    data-testid={`add-allee-pick-${x.uid}`}
+                                    className="w-full flex items-center gap-2.5 rounded-xl border border-slate-700 bg-slate-950/40 hover:border-emerald-600 hover:bg-emerald-950/20 p-2.5 text-left transition-colors disabled:opacity-50">
+                                    <span className="w-8 h-8 rounded-md bg-slate-800 text-slate-200 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                        N{x.nuit_eff}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md bg-slate-700 text-slate-100 text-sm font-bold flex-shrink-0">
+                                        {x.allee}
+                                    </span>
+                                    <span className="flex-1 min-w-0 text-[11px] text-slate-400 truncate">
+                                        {x.secteur}{x.rayon ? ` · ${x.rayon}` : ""}
+                                    </span>
+                                    {addBusy === x.uid
+                                        ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400 flex-shrink-0" />
+                                        : <MoveRight className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

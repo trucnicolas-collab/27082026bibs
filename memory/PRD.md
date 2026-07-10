@@ -1,5 +1,8 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/02/2026 (v9 — Rapatriement d'allées en avance)
+- [x] **Bouton « Ajouter une allée » (en bas de la liste des allées d'une nuit)** : ouvre une modale listant les allées des nuits suivantes (triées par nuit croissante puis par n° d'allée en ordre naturel FR). Sélection une par une : le clic rapatrie immédiatement l'allée dans la nuit courante via `PATCH /allee {nuit_reelle: N}` (API existante). Le badge « plan N-x » est conservé automatiquement (existant). Désactivé si aucune allée ultérieure disponible. Fichier : `frontend/src/suivi/SuiviNuits.jsx`.
+
 ## Changelog 10/07/2026 (v8 — Suivi « tout par produit », plein écran, terrain = web)
 - [x] **Saisie PAR PRODUIT** (remplace la saisie par famille) : PATCH allee `{uid, products:[{designation, reel?, geo?}], ...}` ; agrégats familles (reel/delta/geo/geo_gap), dashboard, alertes, rythme et rapports recalculés automatiquement via `classify_family(type, désignation)` (server.py). geo saisissable uniquement sur produits rails_es/sa_15/sa_21_std/sa_21_freezer (is_geo). Désignations inconnues du fichier filtrées. Chaque allée expose `products[]`, `nb_produits`, `nb_saisis`.
 - [x] **Stock PAR PRODUIT** : chaque désignation (prévu → reçu saisi → posé auto → alerte manque nominale). `PATCH /stock {designation, recu}` (auth + PUBLIC terrain), `stock_received` en liste. UI : recherche + filtre alertes. Restant à poser = plan − déjà posé (allées non validées).
