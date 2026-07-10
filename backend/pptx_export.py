@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v19-force-black-date"
+__PPTX_VERSION__ = "2026-07-10-v20-nowifi"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -1032,13 +1032,11 @@ def _fill_slide_20(slide, nuit_es_data, nuit_cam_data, dates_map, weeks):
 
 
 # ===================================================================
-# Plans wifi — insertion d'images plein cadre dans la/les slide(s)
-# "Plan wifi magasin" (jusqu'à 2 plans → 2 slides).
+# Slides "Plan wifi magasin" — suppression (feature retirée).
+# Le template contient toujours 1 ou 2 slides "Plan wifi magasin" ;
+# on les supprime au build pour ne pas laisser de pages vides.
 # ===================================================================
 def _find_wifi_slide_indices(prs) -> list[int]:
-    """Retourne les index de TOUTES les slides dont un texte contient 'plan wifi'.
-    Le template contient 2 telles slides : la principale + une slide de réserve
-    (en fin de deck) qui sera soit remplie (2e plan), soit supprimée."""
     out: list[int] = []
     for i, s in enumerate(prs.slides):
         for sh in s.shapes:
@@ -1051,67 +1049,11 @@ def _find_wifi_slide_indices(prs) -> list[int]:
     return out
 
 
-def _fit_contain(img_w: int, img_h: int, box_w: int, box_h: int) -> tuple[int, int]:
-    """Dimensions (w, h) pour contenir l'image dans la box en gardant le ratio."""
-    if img_w <= 0 or img_h <= 0:
-        return box_w, box_h
-    scale = min(box_w / img_w, box_h / img_h)
-    return int(img_w * scale), int(img_h * scale)
-
-
-def _add_picture_fullframe(slide, image_bytes: bytes, slide_w: int, slide_h: int) -> None:
-    """Ajoute l'image centrée, mise à l'échelle pour occuper au maximum la zone
-    sous le titre (plein cadre, ratio préservé)."""
-    try:
-        from PIL import Image
-        with Image.open(BytesIO(image_bytes)) as im:
-            iw, ih = im.size
-    except Exception:
-        iw, ih = 0, 0
-    margin = 228600           # ~0.25 pouce
-    top_area = 1737360        # sous le titre "Plan wifi magasin"
-    box_w = int(slide_w - 2 * margin)
-    box_h = int(slide_h - top_area - margin)
-    w, h = _fit_contain(iw, ih, box_w, box_h)
-    left = int((slide_w - w) / 2)
-    top = int(top_area + (box_h - h) / 2)
-    slide.shapes.add_picture(BytesIO(image_bytes), left, top, width=w, height=h)
-
-
-def _move_slide(prs, from_idx: int, to_idx: int) -> None:
-    """Déplace une slide EXISTANTE (par réordonnancement du sldIdLst).
-    N'ajoute aucune partie → aucun risque de collision de nom (contrairement à
-    add_slide après suppression de slides)."""
-    xml_slides = prs.slides._sldIdLst
-    ids = list(xml_slides)
-    el = ids[from_idx]
-    xml_slides.remove(el)
-    xml_slides.insert(to_idx, el)
-
-
-def _insert_wifi_plans(prs, wifi_plans: list | None) -> None:
-    """Insère 0, 1 ou 2 plans wifi (images) dans la/les slide(s) 'Plan wifi
-    magasin'. Le template fournit 2 slides wifi (principale + réserve en fin) :
-      - 0 plan  → supprime la réserve (slide principale laissée vide)
-      - 1 plan  → remplit la principale, supprime la réserve
-      - 2 plans → remplit les deux, la réserve est déplacée juste après la principale
-    On ne crée JAMAIS de slide à l'exécution (uniquement remplir/déplacer/supprimer)."""
-    plans = [p for p in (wifi_plans or []) if p][:2]
-    idxs = _find_wifi_slide_indices(prs)
-    if not idxs:
-        return
-    slide_w, slide_h = int(prs.slide_width), int(prs.slide_height)
-    primary = idxs[0]
-    reserve = idxs[-1] if len(idxs) >= 2 else None
-    n = len(plans)
-    if n >= 1:
-        _add_picture_fullframe(prs.slides[primary], plans[0], slide_w, slide_h)
-    if n >= 2 and reserve is not None:
-        _add_picture_fullframe(prs.slides[reserve], plans[1], slide_w, slide_h)
-        _move_slide(prs, reserve, primary + 1)
-    elif reserve is not None:
-        # 0 ou 1 plan → on retire la slide de réserve inutilisée
-        _delete_slide(prs, reserve)
+def _remove_wifi_slides(prs) -> None:
+    """Supprime toutes les slides 'Plan wifi magasin' du template."""
+    # Suppression en ordre décroissant pour ne pas décaler les index.
+    for idx in sorted(_find_wifi_slide_indices(prs), reverse=True):
+        _delete_slide(prs, idx)
 
 
 
@@ -1119,8 +1061,7 @@ def _insert_wifi_plans(prs, wifi_plans: list | None) -> None:
 # Public entry point
 # ===================================================================
 def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None = None,
-               detail_cam_rows: list[tuple[int, str, str]] | None = None,
-               wifi_plans: list | None = None) -> bytes:
+               detail_cam_rows: list[tuple[int, str, str]] | None = None) -> bytes:
     """Génère le PowerPoint complet à partir des données.
 
     aggregate_fn(d) → dict avec clés : nuit_es (n -> {date, sr, allees_str, eeg, rails_es, sa, cam}),
@@ -1213,11 +1154,10 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     for idx in unused:
         if idx < len(slides):
             _delete_slide(prs, idx)
-    # Insertion des plans wifi (0, 1 ou 2 images) dans la/les slide(s)
-    # "Plan wifi magasin". Fait EN DERNIER pour ne pas décaler les index des
-    # slides remplies ci-dessus.
+    # Suppression des slides "Plan wifi magasin" du template (feature retirée).
+    # Fait EN DERNIER pour ne pas décaler les index des slides remplies ci-dessus.
     try:
-        _insert_wifi_plans(prs, wifi_plans)
+        _remove_wifi_slides(prs)
     except Exception:
         pass
     # Titres remontés + phrase de bas de page réduite (sur toutes les slides).

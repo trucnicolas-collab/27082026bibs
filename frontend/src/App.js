@@ -4,7 +4,6 @@ import { Toaster, toast } from "sonner";
 import UploadZone from "./components/UploadZone";
 import Header from "./components/Header";
 import WizardSteps from "./components/WizardSteps";
-import WifiPlanUpload from "./components/WifiPlanUpload";
 import BlockingModal from "./components/BlockingModal";
 import RawTable from "./components/RawTable";
 import RecapTable from "./components/RecapTable";
@@ -83,7 +82,7 @@ function stepSubTabs(step, dataset) {
     switch (step) {
         case 1:
             return [
-                { id: "import_home", label: "Fichier & Plan wifi" },
+                { id: "import_home", label: "Fichier" },
                 { id: "raw", label: "Données brutes", count: dataset.row_count || 0 },
             ];
         case 2: {
@@ -627,7 +626,6 @@ function MainApp() {
                                                 Importer un autre fichier
                                             </button>
                                         </div>
-                                        <WifiPlanUpload uploadId={dataset.upload_id} />
                                     </div>
                                 </div>
                             )}
@@ -693,7 +691,7 @@ function MainApp() {
                                     <div className="max-w-3xl mx-auto space-y-4">
                                         <div>
                                             <h3 className="text-sm font-semibold text-gray-800">Exports</h3>
-                                            <p className="text-xs text-gray-500 mt-1">Générez les livrables finaux. Le PowerPoint inclut automatiquement les plans wifi importés à l’étape 1.</p>
+                                            <p className="text-xs text-gray-500 mt-1">Générez les livrables finaux.</p>
                                         </div>
                                         <div className="grid sm:grid-cols-3 gap-3">
                                             <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-rtr">
@@ -712,7 +710,7 @@ function MainApp() {
                                                 <span className="text-sm font-semibold text-purple-700 flex items-center gap-1.5">
                                                     {exportingPPTX && <Loader2 className="w-3.5 h-3.5 animate-spin" />}PowerPoint
                                                 </span>
-                                                <span className="text-xs text-gray-500">CR VT + plans wifi</span>
+                                                <span className="text-xs text-gray-500">CR VT</span>
                                             </button>
                                         </div>
                                     </div>

@@ -5058,19 +5058,10 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
         # attente et Cloudflare ferme la connexion (erreur 520).
         from starlette.concurrency import run_in_threadpool
         from functools import partial
-        # Plans wifi (0, 1 ou 2 images) → insérés plein cadre dans les slides
-        # "Plan wifi magasin".
-        wifi_plans_bytes: list[bytes] = []
-        async for _wp in db.wifi_plans.find({"upload_id": upload_id}).sort("position", 1):
-            try:
-                wifi_plans_bytes.append(bytes(_wp["data"]))
-            except Exception:
-                continue
         data = await run_in_threadpool(
             partial(pptx_export.build_pptx, d,
                     aggregate_fn=_adapter, recap_rows=recap,
-                    summary=summary, detail_cam_rows=detail_rows,
-                    wifi_plans=wifi_plans_bytes),
+                    summary=summary, detail_cam_rows=detail_rows),
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -5091,101 +5082,6 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
 
 
 # ===================================================================
-# Plans wifi — upload / liste / preview / suppression
-# Stockés dans la collection `wifi_plans` (binaire), max 2 par session.
-# Insérés automatiquement dans les slides "Plan wifi magasin" du PPTX.
-# ===================================================================
-ALLOWED_WIFI_TYPES = {"image/png", "image/jpeg", "image/jpg"}
-MAX_WIFI_PLANS = 2
-MAX_WIFI_BYTES = 15 * 1024 * 1024  # 15 Mo
-
-
-async def _list_wifi_plans(upload_id: str) -> dict:
-    plans = []
-    cursor = db.wifi_plans.find({"upload_id": upload_id}, {"data": 0, "_id": 0}).sort("position", 1)
-    async for p in cursor:
-        plans.append({
-            "plan_id": p.get("plan_id"),
-            "filename": p.get("filename"),
-            "content_type": p.get("content_type"),
-            "position": p.get("position", 0),
-        })
-    return {"plans": plans, "count": len(plans), "max": MAX_WIFI_PLANS}
-
-
-@api_router.post("/dataset/{upload_id}/wifi-plan")
-async def upload_wifi_plan(upload_id: str, file: UploadFile = File(...),
-                           current_user: dict = Depends(get_current_user)):
-    """Ajoute un plan wifi (image JPG/PNG) à la session. Max 2."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset introuvable")
-    ct = (file.content_type or "").lower()
-    fn = (file.filename or "").lower()
-    is_png = ct == "image/png" or fn.endswith(".png")
-    is_jpg = ct in ("image/jpeg", "image/jpg") or fn.endswith((".jpg", ".jpeg"))
-    if not (is_png or is_jpg):
-        raise HTTPException(status_code=400, detail="Format non supporté : importez une image JPG ou PNG.")
-    count = await db.wifi_plans.count_documents({"upload_id": upload_id})
-    if count >= MAX_WIFI_PLANS:
-        raise HTTPException(status_code=400, detail=f"Maximum {MAX_WIFI_PLANS} plans wifi par session.")
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Fichier vide.")
-    if len(content) > MAX_WIFI_BYTES:
-        raise HTTPException(status_code=400, detail="Image trop volumineuse (max 15 Mo).")
-    plan_id = str(uuid.uuid4())
-    await db.wifi_plans.insert_one({
-        "plan_id": plan_id,
-        "upload_id": upload_id,
-        "user_id": str(current_user["_id"]),
-        "filename": file.filename or f"plan-wifi-{plan_id}.png",
-        "content_type": "image/png" if is_png else "image/jpeg",
-        "data": Binary(content),
-        "position": count,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    await log_audit(upload_id, current_user, "wifi_plan_added", target=file.filename)
-    return await _list_wifi_plans(upload_id)
-
-
-@api_router.get("/dataset/{upload_id}/wifi-plans")
-async def list_wifi_plans(upload_id: str, current_user: dict = Depends(get_current_user)):
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset introuvable")
-    return await _list_wifi_plans(upload_id)
-
-
-@api_router.get("/dataset/{upload_id}/wifi-plan/{plan_id}")
-async def get_wifi_plan(upload_id: str, plan_id: str,
-                        current_user: dict = Depends(get_current_user)):
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset introuvable")
-    p = await db.wifi_plans.find_one({"upload_id": upload_id, "plan_id": plan_id})
-    if not p:
-        raise HTTPException(status_code=404, detail="Plan wifi introuvable")
-    return Response(content=bytes(p["data"]),
-                    media_type=p.get("content_type") or "image/png")
-
-
-@api_router.delete("/dataset/{upload_id}/wifi-plan/{plan_id}")
-async def delete_wifi_plan(upload_id: str, plan_id: str,
-                           current_user: dict = Depends(get_current_user)):
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset introuvable")
-    res = await db.wifi_plans.delete_one({"upload_id": upload_id, "plan_id": plan_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Plan wifi introuvable")
-    # Ré-indexe les positions restantes (0, 1, ...)
-    idx = 0
-    async for pl in db.wifi_plans.find({"upload_id": upload_id}).sort("position", 1):
-        await db.wifi_plans.update_one({"_id": pl["_id"]}, {"$set": {"position": idx}})
-        idx += 1
-    await log_audit(upload_id, current_user, "wifi_plan_removed")
-    return await _list_wifi_plans(upload_id)
 
 
 class SaInstallConfig(BaseModel):
