@@ -1,5 +1,12 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/07/2026 (v5 — Suivi : équipe terrain, géolocalisation, photos)
+- [x] **Lien équipe terrain SANS compte** : `/suivi/terrain/{token}` (router public `/api/suivi-terrain/{token}/...`). Activation/désactivation + copie du lien depuis le dashboard chef (carte `terrain-link-card`, endpoint auth `POST /api/suivi/{id}/terrain-share`). Les poseurs peuvent : saisir réel posé + géolocalisé, photos, commentaires, VALIDER/bloquer les allées, déplacer de nuit, incidents, télécharger le rapport. Frontend : `TerrainApp.jsx` (header ambre « Mode équipe terrain »), actions factorisées dans `suivi/api.js` (makeActions + compressImage).
+- [x] **Géolocalisation posé VS géolocalisé** : familles Rails ES, SA 1.5, SA 2.1, SA 2.1 freezer (PAS SA 4.2/saisonnier/caisses). Champs `*_geo` (ge=0), `geo_gap` calculé si géo < posé → **alerte type 'geoloc' avec « explication demandée »** tant que `geoloc_comment` vide (bandeau rouge sur la carte allée + alerte dashboard). Rapport Excel : colonnes « Géoloc » + « Explication géoloc » + KPI « Posés non géolocalisés ».
+- [x] **Photos par allée** : upload compressé côté client (canvas 1400px JPEG), stockage **Emergent Object Storage** (EMERGENT_LLM_KEY dans backend/.env, préfixe `phasage-crf/suivi/{upload_id}/`), refs dans suivi_docs.allees[].photos. Endpoints auth + terrain (POST allee-photo multipart, GET/DELETE photo). Max 8 Mo, images uniquement. **Photos intégrées dans le rapport Excel** de la nuit (PIL + insert_image, grille 3/ligne, max 30).
+- [x] Testé : testing_agent iteration_13 — 20/20 pytest (9 terrain `tests/test_suivi_terrain.py` + 11 régression), frontend 100% (terrain mobile, dashboard chef, alertes géoloc, upload photo Playwright).
+- Backlog sécu suggéré par tests : rate-limiting des endpoints publics terrain (photos) avant grosse prod.
+
 ## Changelog 10/07/2026 (v4 — NOUVELLE APP « Suivi de déploiement » sur /suivi)
 - [x] **App séparée accessible sur `/suivi`** (même backend/DB, interface distincte dark mobile-first, login commun, lien « Suivi » dans le header de l'app phasage). Fichiers : `frontend/src/suivi/{SuiviApp,SuiviDashboard,SuiviNuits,SuiviStock}.jsx`, routage pathname dans `App.js`.
 - [x] **Backend `backend/suivi_deploy.py`** (router `/api/suivi`, collection Mongo `suivi_docs`) :
