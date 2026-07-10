@@ -32,7 +32,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v23-total-rows"
+__PPTX_VERSION__ = "2026-07-10-v24-new-template"
 
 # Palette par position dans la semaine (alignée Excel)
 WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
@@ -1222,33 +1222,36 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
     agg = aggregate_fn(d)
     prs = Presentation(str(TEMPLATE_PATH))
     slides = prs.slides
-    # NOTE (16/06/2026) : insertion de la slide "Accès et logistique" en
-    # position 7 → toutes les slides à remplir sont décalées de +1.
-    # Slide 9 (ex-8) = Commandes / 12 (ex-11) = Tableau date global / etc.
-    # NOTE (17/06/2026) : la slide 7 a été re-liée au layout
-    # `CONTENT 1 Column - Color` (FDF6E3) directement dans le template,
-    # pour matcher exactement le rendu PPTX fourni par l'utilisateur
-    # (fond crème, titre noir, pas de formes dorées).
-    # Slide 9 (index 8)
-    if len(slides) >= 9:
-        _fill_slide_8(slides[8], recap_rows)
+    # NEW TEMPLATE (10/07/2026) : le PPTX fourni par l'utilisateur contient
+    # 20 slides (au lieu de 22 précédemment). Les indices des slides à
+    # remplir sont décalés de -1 (pas de slide "Accès et logistique" ni de
+    # slide wifi de réserve).
+    #   idx 7  = Matériel à commander (ex-8)
+    #   idx 10 = Plan phasage EEG complet (ex-11)
+    #   idx 11 = Récap par nuit (ex-12)
+    #   idx 12-15 = Semaines S1-S4 (ex-13-16)
+    #   idx 16 = Plan cameras complet (ex-17)
+    #   idx 17 = Récap cameras (ex-18)
+    #   idx 18 = Détail cameras (ex-19)
+    #   idx 19 = Phasage full (ex-20)
+    if len(slides) >= 8:
+        _fill_slide_8(slides[7], recap_rows)
     # Nb nuits dynamiques pour les titres "(N nuits)"
     nb_nuits_eeg = len(agg.get("all_nights") or [])
     nb_nuits_cam = len(agg.get("cam_nights") or [])
-    # Slide 12 (index 11)
+    # Slide 11 (index 10) = Plan phasage EEG complet
+    if len(slides) >= 11:
+        _replace_nb_nuits_in_title(slides[10], nb_nuits_eeg)
+        _fill_slide_11(slides[10], agg["totals_by_nuit"], agg["dates_map"],
+                       agg["weeks"], agg["all_nights"])
+    # Slide 12 (index 11) = Récap par nuit
     if len(slides) >= 12:
         _replace_nb_nuits_in_title(slides[11], nb_nuits_eeg)
-        _fill_slide_11(slides[11], agg["totals_by_nuit"], agg["dates_map"],
-                       agg["weeks"], agg["all_nights"])
-    # Slide 13 (index 12)
-    if len(slides) >= 13:
-        _replace_nb_nuits_in_title(slides[12], nb_nuits_eeg)
-        _fill_slide_12(slides[12], agg["nuit_es"], agg["weeks"],
+        _fill_slide_12(slides[11], agg["nuit_es"], agg["weeks"],
                        hide_sa_mag=agg.get("hide_sa_mag", False))
-    # Slides 14-17 (ex-13-16) = semaines S1..S4
+    # Slides 13-16 (index 12-15) = semaines S1..S4
     weeks_list = agg["weeks"] or []
-    # Indices des slides semaine dans le template (0-based)
-    WEEK_SLIDE_INDICES = [13, 14, 15, 16]  # S1, S2, S3, S4
+    WEEK_SLIDE_INDICES = [12, 13, 14, 15]  # S1, S2, S3, S4
     cursor = 1
     used_week_slides = set()
     for wi, w in enumerate(weeks_list[:4]):
@@ -1264,27 +1267,24 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
                              agg["dates_map"], weeks_list,
                              hide_sa_mag=agg.get("hide_sa_mag", False))
             used_week_slides.add(slide_idx)
-    # Slide 18 (index 17) = Tableau date caméras
-    if len(slides) >= 18 and agg["cam_nights"]:
-        _replace_nb_nuits_in_title(slides[17], nb_nuits_cam)
-        _fill_slide_17(slides[17], agg["totals_by_nuit"], agg["dates_map"],
+    # Slide 17 (index 16) = Plan cameras complet
+    if len(slides) >= 17 and agg["cam_nights"]:
+        _replace_nb_nuits_in_title(slides[16], nb_nuits_cam)
+        _fill_slide_17(slides[16], agg["totals_by_nuit"], agg["dates_map"],
                        agg["cam_nights"], weeks_list)
-    # Slide 19 (index 18) = Phasage caméras
-    if len(slides) >= 19:
-        _replace_nb_nuits_in_title(slides[18], nb_nuits_cam)
-        _fill_slide_18(slides[18], agg["nuit_cam"], weeks_list)
-    # Slide 20 (index 19) = Détail caméras par allée
-    if len(slides) >= 20 and detail_cam_rows:
-        _fill_slide_19(slides[19], detail_cam_rows, weeks=weeks_list)
-    # Slide 21 (index 20) = Phasage full consolidé
-    if len(slides) >= 21:
-        _fill_slide_20(slides[20], agg["nuit_es"], agg["nuit_cam"],
+    # Slide 18 (index 17) = Récap caméras par nuit
+    if len(slides) >= 18:
+        _replace_nb_nuits_in_title(slides[17], nb_nuits_cam)
+        _fill_slide_18(slides[17], agg["nuit_cam"], weeks_list)
+    # Slide 19 (index 18) = Détail caméras par allée
+    if len(slides) >= 19 and detail_cam_rows:
+        _fill_slide_19(slides[18], detail_cam_rows, weeks=weeks_list)
+    # Slide 20 (index 19) = Phasage full consolidé
+    if len(slides) >= 20:
+        _fill_slide_20(slides[19], agg["nuit_es"], agg["nuit_cam"],
                        agg["dates_map"], weeks_list)
-    # Semaines au-delà de 4 (jusqu'à 20 nuits = 5 semaines de 4) : on clone la
-    # dernière slide semaine du template (index 16) pour créer les slides
-    # manquantes, insérées juste après. Fait APRÈS les fills à index fixe pour
-    # ne pas décaler les slides caméras/full déjà remplies.
-    if len(weeks_list) > 4 and len(slides) >= 17:
+    # Semaines au-delà de 4 : clone la dernière slide semaine (idx 15)
+    if len(weeks_list) > 4 and len(slides) >= 16:
         cursor2 = sum(int(w or 0) for w in weeks_list[:4]) + 1
         for j, w in enumerate(weeks_list[4:]):
             ww = int(w or 0)
@@ -1292,24 +1292,18 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
                 continue
             week_nights = list(range(cursor2, cursor2 + ww))
             cursor2 += ww
-            new_slide = _duplicate_slide(prs, 16, 17 + j)
+            new_slide = _duplicate_slide(prs, 15, 16 + j)
             _fill_slide_week(new_slide, 5 + j, week_nights,
                              agg["nuit_es"], agg["totals_by_nuit"],
                              agg["dates_map"], weeks_list,
                              hide_sa_mag=agg.get("hide_sa_mag", False))
-    # Suppression des slides semaines non utilisées (en ordre décroissant pour
-    # préserver les indices). Si magasin = 3 semaines → slide S4 supprimée.
-    # Si 2 semaines → S3 et S4 supprimées. Etc.
+    # Suppression des slides semaines non utilisées
     unused = sorted([idx for idx in WEEK_SLIDE_INDICES if idx not in used_week_slides], reverse=True)
     for idx in unused:
         if idx < len(slides):
             _delete_slide(prs, idx)
-    # Suppression des slides "Plan wifi magasin" du template (feature retirée).
-    # Fait EN DERNIER pour ne pas décaler les index des slides remplies ci-dessus.
-    try:
-        _remove_wifi_slides(prs)
-    except Exception:
-        pass
+    # Le nouveau template n'a qu'UNE slide "Plan wifi magasin" (placeholder) —
+    # on la conserve telle quelle, plus rien à supprimer.
     # Titres remontés + phrase de bas de page réduite (sur toutes les slides).
     try:
         _compact_layout(prs)

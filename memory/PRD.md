@@ -1,5 +1,13 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/07/2026 (v3 — refonte template)
+- [x] **Template PPTX remplacé par le modèle de référence utilisateur** (`rendu PPTX CR VT.pptx` du 10/07/2026). Le fichier `/app/backend/templates/cr_vt_template.pptx` est désormais le PPTX que l'utilisateur veut, garantissant un rendu identique à sa vision. L'ancien template est conservé en `cr_vt_template.OLD.pptx`.
+- [x] Indices de slides mis à jour dans `build_pptx()` : idx 7=Matériel, 10=Plan EEG complet, 11=Récap par nuit, 12-15=S1-S4, 16=Plan cam complet, 17=Récap cam, 18=Détail cam, 19=Récap full.
+- [x] Suppression du placement de tables (`_place_table` hardcodé) pour les slides — le nouveau template a déjà les bonnes dimensions.
+- [x] Wifi placeholder conservé (le nouveau template n'a qu'UNE slide "Plan wifi magasin", plus aucune slide à supprimer).
+- Vérifié : PPTX 39 Mo, 20 slides, layouts matchent 1:1 le modèle de référence sur 16 nuits de test.
+- Version marker : `X-PPTX-Version: 2026-07-10-v24-new-template`
+
 ## Changelog 10/07/2026 (v2 — soir)
 - [x] **BUGS PPTX PROD RÉELLEMENT CORRIGÉS** (fichier utilisateur `Export MONT ST AIGNAN` du 10/07 02:37 disséqué → 3 vrais défauts confirmés par LibreOffice→PDF→PNG et XML) :
   - **Slide 13 (Récap par nuit) — colonne Date trop étroite** : ratios `[12,7,18,22,7,7,6,6,7,7,7]` donnaient 6.25% à Date → "27/07/2026" wrappait sur **3 lignes** → lignes gonflées → **Nuit 16 débordait sous le pied de page**. Fix : nouveaux ratios `[8,11,16,20,7,7,6,6,7,6,6]` (Date passe à 9.8%) + row_h réduit `280000 → 240000` EMU pour tenir 20 nuits max.
