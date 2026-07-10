@@ -1,0 +1,228 @@
+import React, { useState } from "react";
+import { toast } from "sonner";
+import {
+    AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
+    Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight,
+} from "lucide-react";
+
+const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
+
+export default function SuiviDashboard({ state, actions, goTab }) {
+    const st = state.stats || {};
+    const alerts = state.alerts || [];
+    const ruptures = alerts.filter((a) => a.type === "rupture");
+    const blocages = alerts.filter((a) => a.type === "blocage");
+    const pct = Math.min(100, st.pct || 0);
+    const avance = st.avance_nuits;
+
+    return (
+        <div className="space-y-4" data-testid="suivi-dashboard">
+            {/* Progression globale */}
+            <section className="rounded-2xl bg-slate-900 border border-slate-800 p-5">
+                <div className="flex items-end justify-between mb-3">
+                    <div>
+                        <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Avancement pose EEG</div>
+                        <div className="text-3xl font-bold mt-1" data-testid="dash-pct">
+                            {pct.toLocaleString("fr-FR")}<span className="text-lg text-slate-400"> %</span>
+                        </div>
+                    </div>
+                    <div className="text-right text-sm text-slate-400">
+                        <span className="text-emerald-400 font-semibold">{fmt(st.eeg_posees)}</span> / {fmt(st.eeg_prevues)} EEG
+                    </div>
+                </div>
+                <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-700"
+                        style={{ width: `${pct}%` }} />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                    <Kpi label="Allées validées" value={`${st.allees_validees || 0} / ${st.allees_total || 0}`} icon={CheckCircle2} color="text-emerald-400" testid="dash-allees" />
+                    <Kpi label="Allées bloquées" value={st.allees_bloquees || 0} icon={Ban} color={st.allees_bloquees ? "text-red-400" : "text-slate-400"} testid="dash-bloquees" />
+                    <Kpi label="Nuits terminées" value={`${st.nuits_terminees || 0} / ${state.nb_nuits || 0}`} icon={Moon} color="text-sky-400" testid="dash-nuits" />
+                    <Kpi label="Rythme réel / prévu" value={`${fmt(st.rythme_reel) || "—"} / ${fmt(st.rythme_prevu)}`} icon={TrendingUp} color="text-amber-400" testid="dash-rythme" />
+                </div>
+            </section>
+
+            {/* Avance / retard */}
+            <section className={`rounded-2xl border p-4 flex items-center gap-4
+                ${avance === null || avance === undefined ? "bg-slate-900 border-slate-800"
+                    : avance > 0 ? "bg-emerald-950/50 border-emerald-800/60"
+                        : avance < 0 ? "bg-red-950/40 border-red-900/60" : "bg-slate-900 border-slate-800"}`}
+                data-testid="dash-avance">
+                {avance === null || avance === undefined ? (
+                    <>
+                        <Turtle className="w-8 h-8 text-slate-600 flex-shrink-0" />
+                        <div>
+                            <div className="font-semibold text-sm">Pas encore de rythme mesuré</div>
+                            <div className="text-xs text-slate-400">Validez toutes les allées d'une nuit pour mesurer votre vitesse réelle.</div>
+                        </div>
+                    </>
+                ) : avance > 0 ? (
+                    <>
+                        <Zap className="w-8 h-8 text-emerald-400 flex-shrink-0" />
+                        <div className="flex-1">
+                            <div className="font-semibold text-sm text-emerald-300">En avance d'environ {avance} nuit{avance > 1 ? "s" : ""} ⚡</div>
+                            <div className="text-xs text-slate-400">
+                                Restant estimé : {st.nuits_estimees_restantes} nuit(s) au rythme réel ({fmt(st.rythme_reel)} EEG/nuit).
+                            </div>
+                        </div>
+                    </>
+                ) : avance < 0 ? (
+                    <>
+                        <TrendingDown className="w-8 h-8 text-red-400 flex-shrink-0" />
+                        <div className="flex-1">
+                            <div className="font-semibold text-sm text-red-300">Retard estimé : {Math.abs(avance)} nuit{Math.abs(avance) > 1 ? "s" : ""}</div>
+                            <div className="text-xs text-slate-400">
+                                Il faudrait {st.nuits_estimees_restantes} nuit(s) au rythme actuel pour finir.
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <CheckCircle2 className="w-8 h-8 text-emerald-400 flex-shrink-0" />
+                        <div className="font-semibold text-sm">Parfaitement dans le planning ✔</div>
+                    </>
+                )}
+                <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />
+            </section>
+
+            {/* Alertes */}
+            <section data-testid="dash-alerts">
+                <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Alertes ({alerts.length})
+                </h3>
+                {alerts.length === 0 ? (
+                    <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 text-sm text-slate-500 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Aucune alerte — tout est sous contrôle.
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {ruptures.map((a, i) => (
+                            <button key={`r${i}`} onClick={() => goTab("stock")} data-testid={`alert-rupture-${a.family}`}
+                                className="w-full text-left rounded-xl bg-red-950/40 border border-red-900/60 p-3.5 flex items-start gap-3 hover:border-red-700 transition-colors">
+                                <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                                <div className="text-sm text-red-200">{a.message}</div>
+                            </button>
+                        ))}
+                        {blocages.map((a, i) => (
+                            <button key={`b${i}`} onClick={() => goTab("nuits")} data-testid={`alert-blocage-${i}`}
+                                className="w-full text-left rounded-xl bg-amber-950/40 border border-amber-900/60 p-3.5 flex items-start gap-3 hover:border-amber-700 transition-colors">
+                                <Ban className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                                <div className="text-sm text-amber-200">{a.message}</div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            {/* Aperçu des nuits */}
+            <section>
+                <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2">Nuits</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(state.nights || []).map((n) => (
+                        <button key={n.nuit} onClick={() => goTab("nuits")} data-testid={`dash-night-${n.nuit}`}
+                            className={`rounded-xl border p-3 text-left transition-colors hover:border-emerald-700
+                                ${n.complete ? "bg-emerald-950/40 border-emerald-900/60" : n.started ? "bg-slate-900 border-sky-900/60" : "bg-slate-900 border-slate-800"}`}>
+                            <div className="flex items-center justify-between">
+                                <div className="text-sm font-semibold">
+                                    Nuit {n.nuit}
+                                    {n.date && <span className="text-slate-500 font-normal text-xs ml-2">{new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
+                                </div>
+                                {n.complete ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                    : n.started ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold">EN COURS</span>
+                                        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">À VENIR</span>}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+                                {n.nb_validees}/{n.nb_allees} allées · {fmt(n.eeg_reel)} / {fmt(n.eeg_plan)} EEG
+                                {n.delta_eeg !== null && n.delta_eeg !== undefined && (
+                                    <span className={n.delta_eeg > 0 ? "text-emerald-400" : n.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}>
+                                        {n.delta_eeg > 0 ? "+" : ""}{fmt(n.delta_eeg)}
+                                    </span>
+                                )}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </section>
+        </div>
+    );
+}
+
+function Kpi({ label, value, icon: Icon, color, testid }) {
+    return (
+        <div className="rounded-xl bg-slate-800/50 p-3" data-testid={testid}>
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                <Icon className={`w-3.5 h-3.5 ${color}`} /> {label}
+            </div>
+            <div className="text-base font-bold mt-1">{value}</div>
+        </div>
+    );
+}
+
+export function ReplanButton({ actions, canReplan }) {
+    const [busy, setBusy] = useState(false);
+    const [preview, setPreview] = useState(null);
+
+    const openPreview = async () => {
+        setBusy(true);
+        const res = await actions.replan(false);
+        setBusy(false);
+        if (res) setPreview(res);
+    };
+    const apply = async () => {
+        setBusy(true);
+        const res = await actions.replan(true);
+        setBusy(false);
+        if (res) setPreview(null);
+    };
+
+    return (
+        <>
+            <button onClick={openPreview} disabled={!canReplan || busy} data-testid="replan-button"
+                title={canReplan ? "Recalculer le phasage restant selon le rythme réel" : "Terminez au moins une nuit d'abord"}
+                className="flex-shrink-0 h-9 px-3 rounded-lg bg-violet-600/90 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                <span className="hidden sm:inline">Replanifier</span>
+            </button>
+
+            {preview && (
+                <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" data-testid="replan-modal">
+                    <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-700 p-5">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="font-bold flex items-center gap-2"><Wand2 className="w-4 h-4 text-violet-400" /> Proposition de replanification</h3>
+                            <button onClick={() => setPreview(null)} className="p-1 rounded hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+                        </div>
+                        <div className="text-sm text-slate-300 mb-3 space-y-1">
+                            <p>Rythme réel mesuré : <b className="text-emerald-400">{Number(preview.rythme_reel).toLocaleString("fr-FR")} EEG/nuit</b> (prévu : {Number(preview.rythme_prevu).toLocaleString("fr-FR")}).</p>
+                            <p>Capacité retenue : <b>{Number(preview.capacity).toLocaleString("fr-FR")} EEG/nuit</b> · {preview.allees_deplacees} allée(s) déplacée(s).</p>
+                            {preview.nuits_gagnees > 0 ? (
+                                <p className="text-emerald-300 font-semibold">🎉 {preview.nuits_gagnees} nuit(s) gagnée(s) sur le planning initial !</p>
+                            ) : preview.nuits_gagnees < 0 ? (
+                                <p className="text-red-300 font-semibold">⚠️ {Math.abs(preview.nuits_gagnees)} nuit(s) supplémentaire(s) nécessaire(s).</p>
+                            ) : (
+                                <p className="text-slate-400">Même nombre de nuits, charge rééquilibrée.</p>
+                            )}
+                        </div>
+                        <div className="space-y-1.5 mb-4">
+                            {(preview.preview || []).map((p) => (
+                                <div key={p.nuit} className="rounded-lg bg-slate-800/60 px-3 py-2 text-xs flex items-center justify-between">
+                                    <span className="font-semibold">Nuit {p.nuit}{p.date ? ` · ${new Date(p.date + "T00:00:00").toLocaleDateString("fr-FR")}` : ""}</span>
+                                    <span className="text-slate-400">{p.nb_allees} allées · {Number(p.eeg).toLocaleString("fr-FR")} EEG</span>
+                                </div>
+                            ))}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mb-3">Une sauvegarde du phasage actuel est créée automatiquement (restaurable depuis l'app Phasage).</p>
+                        <div className="flex gap-2 justify-end">
+                            <button onClick={() => setPreview(null)} data-testid="replan-cancel"
+                                className="h-9 px-4 rounded-lg border border-slate-700 text-sm text-slate-300 hover:bg-slate-800 transition-colors">Annuler</button>
+                            <button onClick={apply} disabled={busy} data-testid="replan-apply"
+                                className="h-9 px-4 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold flex items-center gap-1.5 transition-colors">
+                                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                                Appliquer au phasage
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}

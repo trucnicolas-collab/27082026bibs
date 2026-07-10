@@ -19,6 +19,7 @@ import LoadingState from "./components/LoadingState";
 import ForgotPasswordScreen from "./components/ForgotPasswordScreen";
 import ResetPasswordScreen from "./components/ResetPasswordScreen";
 import SharedView from "./components/SharedView";
+import SuiviApp from "./suivi/SuiviApp";
 import { useAuth } from "./contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 import "./App.css";
@@ -41,6 +42,15 @@ function getUrlParam(name) {
 //  ?reset=token     → ResetPasswordScreen
 //  sinon            → MainApp (gateé par auth)
 export default function App() {
+    // App séparée « Suivi de déploiement » sur /suivi
+    if (window.location.pathname.startsWith("/suivi")) {
+        return (
+            <>
+                <Toaster position="top-center" richColors closeButton expand visibleToasts={5} theme="dark" />
+                <SuiviApp />
+            </>
+        );
+    }
     const shareToken = getUrlParam("share");
     const resetTokenParam = getUrlParam("reset") || getUrlParam("token");
 

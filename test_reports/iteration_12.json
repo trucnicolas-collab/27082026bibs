@@ -1,0 +1,36 @@
+{
+  "summary": "Full backend + frontend testing of the new 'Suivi de déploiement' app on /suivi. 11/11 backend pytest cases passed against the shared dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42. Frontend UI verified via Playwright: login, session picker, dashboard KPIs, tabs Nuits/Stock, allee card interactions, incidents add/delete, stock recu input, replan modal, night report button, and main app regression with open-suivi-app link.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SuiviNuits.jsx (AlleeCard - move night <select>)", "issue": "React hydration warning: <span> cannot be a child of <option>. Caused by wrapping <option> label with the injected debug <span data-ve-dynamic> element. Non-blocking but pollutes console. Consider disabling ve-dynamic on <option> children or using plain string children.", "selector": "[data-testid='allee-move-1__A__R1'] option", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/test_reports/pytest/suivi_results.xml"
+  ],
+  "action_items": [
+    "Optional: silence React <option><span> hydration warning inside SuiviNuits.jsx move-night select (rendering-only, no functional impact)."
+  ],
+  "critical_code_review_comments": [
+    "suivi_deploy.py replan(): save_phasage_snapshot exception is silently swallowed (except: pass). OK for best-effort but log a warning for traceability.",
+    "PATCH /suivi/{id}/allee: allows arbitrary numerical values for *_reel including negatives (no validation). Consider Field(ge=0) on the AlleeUpdate model.",
+    "suivi_deploy.py: _build_state re-reads dataset for every rapport/replan; acceptable for now but the compute_phasage_summary call is not cheap on large datasets. Could be memoised per request."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_suivi_deploy.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "~95% (all critical testids present, only console hydration warning)"},
+  "test_credentials": "admin@vusion.local / admin123 (already in /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — reused the existing dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42 and cleaned up TEST_ incidents after each test. Final state: allée 1__A__R1 validated with es_15_reel=100, es_15 stock reset to theoretical.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend suite lives at /app/backend/tests/test_suivi_deploy.py; run with `pytest backend/tests/test_suivi_deploy.py -v`. Uses the shared dataset UPLOAD_ID=fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (upload_id de la session 'sample_full.xlsx' d'admin). Allée UID = '1__A__R1'. Replan test only covers 400 case because dataset only has 1 assigned allée (per user note). Frontend testids conform to spec; note the allee-validate button is only rendered when status != 'validee' (mutually exclusive with allee-reopen).",
+  "rca of the issue": "N/A — no failing tests. The lone frontend console warning is caused by the emergent visual-editing wrapper injecting <span data-ve-dynamic> children into <option> elements in SuiviNuits.jsx (line 195). It is a hydration warning, not a runtime error; select and move-night action still work."
+}

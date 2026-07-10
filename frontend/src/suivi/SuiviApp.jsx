@@ -1,0 +1,254 @@
+import React, { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import { Toaster, toast } from "sonner";
+import { useAuth } from "../contexts/AuthContext";
+import AuthScreen from "../components/AuthScreen";
+import SuiviDashboard from "./SuiviDashboard";
+import SuiviNuits from "./SuiviNuits";
+import SuiviStock from "./SuiviStock";
+import {
+    LayoutDashboard, Moon, Package, ChevronLeft, LogOut,
+    Loader2, ClipboardList, Store, ChevronRight,
+} from "lucide-react";
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const LS_KEY = "suivi.lastUploadId";
+
+const TABS = [
+    { id: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
+    { id: "nuits", label: "Nuits", icon: Moon },
+    { id: "stock", label: "Stock", icon: Package },
+];
+
+export default function SuiviApp() {
+    const { user, logout } = useAuth();
+    const [uploadId, setUploadId] = useState(() => {
+        try { return localStorage.getItem(LS_KEY) || null; } catch { return null; }
+    });
+    const [sessions, setSessions] = useState(null);
+    const [state, setState] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [tab, setTab] = useState("dashboard");
+
+    const fetchSessions = useCallback(async () => {
+        try {
+            const res = await axios.get(`${API}/datasets`);
+            setSessions(res.data.datasets || []);
+        } catch { setSessions([]); }
+    }, []);
+
+    const fetchState = useCallback(async (id) => {
+        if (!id) return;
+        setLoading(true);
+        try {
+            const res = await axios.get(`${API}/suivi/${id}`);
+            setState(res.data);
+        } catch (e) {
+            toast.error("Impossible de charger le suivi de ce magasin");
+            setUploadId(null);
+            try { localStorage.removeItem(LS_KEY); } catch { }
+        } finally { setLoading(false); }
+    }, []);
+
+    useEffect(() => { if (user && user !== false) fetchSessions(); }, [user, fetchSessions]);
+    useEffect(() => { if (user && user !== false && uploadId) fetchState(uploadId); }, [user, uploadId, fetchState]);
+
+    const openSession = (id) => {
+        setUploadId(id);
+        setState(null);
+        try { localStorage.setItem(LS_KEY, id); } catch { }
+    };
+    const closeSession = () => {
+        setUploadId(null); setState(null); setTab("dashboard");
+        try { localStorage.removeItem(LS_KEY); } catch { }
+    };
+
+    // --- Actions API partagées ---
+    const patchAllee = useCallback(async (uid, fields) => {
+        try {
+            await axios.patch(`${API}/suivi/${uploadId}/allee`, { uid, ...fields });
+            await fetchState(uploadId);
+            return true;
+        } catch (e) {
+            toast.error(e?.response?.data?.detail || "Erreur d'enregistrement");
+            return false;
+        }
+    }, [uploadId, fetchState]);
+
+    const patchStock = useCallback(async (family, recu) => {
+        try {
+            await axios.patch(`${API}/suivi/${uploadId}/stock`, { family, recu });
+            await fetchState(uploadId);
+        } catch { toast.error("Erreur d'enregistrement du stock"); }
+    }, [uploadId, fetchState]);
+
+    const addIncident = useCallback(async (nuit, text) => {
+        try {
+            await axios.post(`${API}/suivi/${uploadId}/incident`, { nuit, text });
+            await fetchState(uploadId);
+            toast.success("Incident enregistré");
+        } catch { toast.error("Erreur"); }
+    }, [uploadId, fetchState]);
+
+    const delIncident = useCallback(async (id) => {
+        try {
+            await axios.delete(`${API}/suivi/${uploadId}/incident/${id}`);
+            await fetchState(uploadId);
+        } catch { toast.error("Erreur"); }
+    }, [uploadId, fetchState]);
+
+    const downloadReport = useCallback(async (nuit) => {
+        try {
+            const res = await fetch(`${API}/suivi/${uploadId}/rapport-nuit/${nuit}`, { credentials: "include" });
+            if (!res.ok) throw new Error();
+            const blob = await res.blob();
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `Rapport_nuit_${nuit}.xlsx`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        } catch { toast.error("Impossible de générer le rapport"); }
+    }, [uploadId]);
+
+    const replan = useCallback(async (apply) => {
+        try {
+            const res = await axios.post(`${API}/suivi/${uploadId}/replan`, { apply });
+            if (apply) {
+                toast.success(`Phasage replanifié — ${res.data.allees_deplacees} allée(s) déplacée(s)`);
+                await fetchState(uploadId);
+            }
+            return res.data;
+        } catch (e) {
+            toast.error(e?.response?.data?.detail || "Replanification impossible");
+            return null;
+        }
+    }, [uploadId, fetchState]);
+
+    // ---- Rendus ----
+    if (user === null) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+            </div>
+        );
+    }
+    if (user === false) {
+        return (
+            <div data-testid="suivi-auth">
+                <AuthScreen />
+            </div>
+        );
+    }
+
+    const actions = { patchAllee, patchStock, addIncident, delIncident, downloadReport, replan, refresh: () => fetchState(uploadId) };
+
+    return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 antialiased" data-testid="suivi-app">
+            <header className="sticky top-0 z-40 h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-4">
+                <div className="flex items-center gap-3 min-w-0">
+                    {uploadId && (
+                        <button onClick={closeSession} data-testid="suivi-back-btn"
+                            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors">
+                            <ChevronLeft className="w-5 h-5" />
+                        </button>
+                    )}
+                    <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center flex-shrink-0">
+                        <ClipboardList className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="min-w-0">
+                        <h1 className="text-sm font-bold leading-tight truncate" data-testid="suivi-title">Suivi de déploiement</h1>
+                        {state && (
+                            <p className="text-[11px] text-slate-400 truncate">
+                                {state.store_name || state.filename}{state.store_code ? ` · ${state.store_code}` : ""}
+                            </p>
+                        )}
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <a href="/" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors hidden sm:block">
+                        ← App Phasage
+                    </a>
+                    <button onClick={logout} data-testid="suivi-logout"
+                        className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-red-400 transition-colors">
+                        <LogOut className="w-4 h-4" />
+                    </button>
+                </div>
+            </header>
+
+            {!uploadId ? (
+                <SessionPicker sessions={sessions} onOpen={openSession} />
+            ) : loading || !state ? (
+                <div className="flex items-center justify-center py-32">
+                    <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+                </div>
+            ) : (
+                <>
+                    <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur border-t border-slate-800 sm:sticky sm:top-14 sm:bottom-auto sm:border-t-0 sm:border-b sm:bg-slate-900/80">
+                        <div className="max-w-5xl mx-auto flex">
+                            {TABS.map((t) => {
+                                const Icon = t.icon;
+                                const active = tab === t.id;
+                                const alertCount = t.id === "stock" ? (state.alerts || []).filter(a => a.type === "rupture").length : 0;
+                                return (
+                                    <button key={t.id} onClick={() => setTab(t.id)}
+                                        data-testid={`suivi-tab-${t.id}`}
+                                        className={`flex-1 sm:flex-none sm:px-6 py-2.5 flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-[11px] sm:text-sm font-medium transition-colors relative
+                                            ${active ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"}`}>
+                                        <Icon className="w-5 h-5 sm:w-4 sm:h-4" />
+                                        {t.label}
+                                        {alertCount > 0 && (
+                                            <span className="absolute top-1 right-[calc(50%-22px)] sm:static sm:ml-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">
+                                                {alertCount}
+                                            </span>
+                                        )}
+                                        {active && <span className="absolute bottom-0 inset-x-4 h-0.5 bg-emerald-400 rounded-full hidden sm:block" />}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </nav>
+                    <main className="max-w-5xl mx-auto px-3 sm:px-6 pt-4 pb-24 sm:pb-10">
+                        {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} />}
+                        {tab === "nuits" && <SuiviNuits state={state} actions={actions} />}
+                        {tab === "stock" && <SuiviStock state={state} actions={actions} />}
+                    </main>
+                </>
+            )}
+        </div>
+    );
+}
+
+function SessionPicker({ sessions, onOpen }) {
+    return (
+        <main className="max-w-2xl mx-auto px-4 py-8" data-testid="suivi-session-picker">
+            <h2 className="text-lg font-bold mb-1">Choisir un magasin</h2>
+            <p className="text-sm text-slate-400 mb-5">Le suivi reprend automatiquement le phasage validé de la session.</p>
+            {sessions === null ? (
+                <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-emerald-400 animate-spin" /></div>
+            ) : sessions.length === 0 ? (
+                <div className="text-center py-16 text-slate-500 text-sm">
+                    Aucune session. Créez d'abord un phasage dans l'<a href="/" className="text-emerald-400 underline">app Phasage</a>.
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {sessions.map((s) => (
+                        <button key={s.upload_id} onClick={() => onOpen(s.upload_id)}
+                            data-testid={`suivi-session-${s.upload_id}`}
+                            className="w-full flex items-center gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-600/60 hover:bg-slate-900/60 transition-all text-left group">
+                            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-900/40 transition-colors">
+                                <Store className="w-5 h-5 text-emerald-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold truncate">{s.label || s.filename}</div>
+                                <div className="text-[11px] text-slate-500">
+                                    {s.row_count?.toLocaleString("fr-FR")} lignes · {s.uploaded_at ? new Date(s.uploaded_at).toLocaleDateString("fr-FR") : ""}
+                                </div>
+                            </div>
+                            <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-emerald-400 transition-colors" />
+                        </button>
+                    ))}
+                </div>
+            )}
+        </main>
+    );
+}

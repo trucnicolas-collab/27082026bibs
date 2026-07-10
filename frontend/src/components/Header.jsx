@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation } from "lucide-react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation, ClipboardList } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 import ActivityPanel from "./ActivityPanel";
 
@@ -52,6 +52,17 @@ export default function Header({
                         />
                     </div>
                 )}
+                <a
+                    href="/suivi"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="open-suivi-app"
+                    title="Ouvrir l'app Suivi de déploiement"
+                    className="h-8 px-3 bg-slate-900 text-emerald-400 text-sm rounded hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
+                >
+                    <ClipboardList className="w-4 h-4" />
+                    <span className="hidden sm:inline">Suivi</span>
+                </a>
                 <SessionsMenu
                     currentUploadId={dataset?.upload_id}
                     onOpen={onOpenSession}
