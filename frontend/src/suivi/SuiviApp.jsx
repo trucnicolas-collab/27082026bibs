@@ -112,7 +112,9 @@ function ChefApp() {
                         <h1 className="text-sm font-bold leading-tight truncate" data-testid="suivi-title">Suivi de déploiement</h1>
                         {state && (
                             <p className="text-[11px] text-slate-400 truncate">
-                                {state.store_name || state.filename}{state.store_code ? ` · ${state.store_code}` : ""}
+                                {state.store_name
+                                    ? `${state.store_name}${state.store_code ? ` (${state.store_code})` : ""}`
+                                    : state.filename}
                             </p>
                         )}
                     </div>

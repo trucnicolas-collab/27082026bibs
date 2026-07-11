@@ -249,6 +249,24 @@ function MainApp() {
     const [exportingCarrefour, setExportingCarrefour] = useState(false);
     const [exportingPPTX, setExportingPPTX] = useState(false);
 
+    // Base du nom de fichier des exports : "Export {store} ({code}) DD-MM-YYYY HH-MM"
+    // Aligné strictement sur le backend (server.py::_export_basename).
+    const exportBase = useCallback(() => {
+        const name = (dataset?.store_name || "").trim();
+        const code = (dataset?.store_code || "").trim();
+        let store;
+        if (name && code) store = `${name} (${code})`;
+        else if (name) store = name;
+        else {
+            const stem = (dataset?.filename || "export").replace(/\.xlsx?$/i, "");
+            store = stem.replace(/\s+\d{2}-\d{2}-\d{4}\s+\d{2}[-h:]\d{2}(?:\s+\S+@\S+)?\s*$/, "").trim() || "export";
+        }
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        const stamp = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}-${pad(d.getMinutes())}`;
+        return `Export ${store} ${stamp}`;
+    }, [dataset]);
+
     const handleExport = useCallback(async () => {
         if (!dataset?.upload_id || exportingRTR) return;
         setExportingRTR(true);
@@ -261,8 +279,7 @@ function MainApp() {
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement("a");
             link.href = url;
-            const base = dataset.filename.replace(/\.xlsx?$/i, "");
-            link.setAttribute("download", `${base}_RTR.xlsx`);
+            link.setAttribute("download", `${exportBase()}_RTR.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -273,7 +290,7 @@ function MainApp() {
         } finally {
             setExportingRTR(false);
         }
-    }, [dataset, exportingRTR]);
+    }, [dataset, exportingRTR, exportBase]);
 
     const handleExportCarrefour = useCallback(async () => {
         if (!dataset?.upload_id || exportingCarrefour) return;
@@ -287,8 +304,7 @@ function MainApp() {
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement("a");
             link.href = url;
-            const base = dataset.filename.replace(/\.xlsx?$/i, "");
-            link.setAttribute("download", `${base}_Carrefour.xlsx`);
+            link.setAttribute("download", `${exportBase()}_Carrefour.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -299,7 +315,7 @@ function MainApp() {
         } finally {
             setExportingCarrefour(false);
         }
-    }, [dataset, exportingCarrefour]);
+    }, [dataset, exportingCarrefour, exportBase]);
 
     const handleExportPPTX = useCallback(async () => {
         if (!dataset?.upload_id || exportingPPTX) return;
@@ -313,8 +329,7 @@ function MainApp() {
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement("a");
             link.href = url;
-            const base = dataset.filename.replace(/\.xlsx?$/i, "");
-            link.setAttribute("download", `${base}_CR_VT.pptx`);
+            link.setAttribute("download", `${exportBase()}_CR_VT.pptx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -328,7 +343,7 @@ function MainApp() {
         } finally {
             setExportingPPTX(false);
         }
-    }, [dataset, exportingPPTX]);
+    }, [dataset, exportingPPTX, exportBase]);
 
     const handleReset = useCallback(() => {
         setDataset(null);

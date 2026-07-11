@@ -1,5 +1,13 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 11/02/2026 (v11 — Noms d'exports normalisés + affichage magasin propre + owner visible)
+- [x] **Renommage de tous les exports** — format unique `Export {store_name} ({store_code}) DD-MM-YYYY HH-MM_{suffix}.{ext}` (date = heure de Paris au moment du téléchargement).
+  - Concerne : Export RTR (`_RTR.xlsx`), Export Carrefour (`_Carrefour.xlsx`), PowerPoint CR VT (`_CR_VT.pptx`), Rapport nuit suivi (`_Rapport_nuit_N.xlsx`).
+  - Helpers `server.py::_display_store(d)` + `_export_basename(d)` (source de vérité) ; fallback nettoyage regex du filename si store_name absent. Frontend `App.js::exportBase()` répliqué à l'identique (override du `Content-Disposition` par l'attr `download`).
+- [x] **Affichage magasin propre dans le Suivi** — header chef & terrain + store picker terrain : `ST PIERRE DES CORPS (H7351)` (parenthèses au lieu de `· H7351`). Fichiers : `SuiviApp.jsx`, `TerrainApp.jsx`.
+- [x] **Owner visible pour le superadmin** — `GET /api/datasets` enrichit chaque item avec `owner_email` + `owner_name` uniquement pour le superadmin. Affichage `· par email@x` (emerald) sur chaque tuile dans `SessionsMenu.jsx`. Testid `session-owner-{uid}`.
+- [x] Testé : 52/52 tests pytest suivi passent, curl HTTP validé (`Content-Disposition: Export ST PIERRE DES CORPS (H7351) 11-07-2026 02-35_Carrefour.xlsx` conforme).
+
 ## Changelog 10/02/2026 (v10 — Super-admin créateur + badge « en avance »)
 - [x] **Rôle `superadmin`** (créateur de l'outil) : accès en lecture/écriture à TOUS les phasages de tous les utilisateurs.
   - Seed via env `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` dans `backend/.env` + `backend/auth.py::setup_auth`.

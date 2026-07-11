@@ -221,6 +221,11 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                             <div className="text-xs text-gray-500 truncate">
                                 {s.label ? <span className="text-gray-400 italic">{s.filename} · </span> : null}
                                 {formatDate(s.uploaded_at)} · {s.row_count?.toLocaleString("fr-FR") || 0} lignes · {formatSize(s.compressed_bytes || s.size_bytes)}
+                                {s.owner_email && (
+                                    <span className="ml-1.5 text-emerald-700 font-medium" data-testid={`session-owner-${s.upload_id}`}>
+                                        · par {s.owner_email}
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </button>

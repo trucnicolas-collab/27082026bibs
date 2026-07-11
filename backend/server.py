@@ -25,9 +25,39 @@ from datetime import datetime, timezone
 from typing import Optional, Union, Any
 from pydantic import BaseModel
 from bson.binary import Binary
+from bson import ObjectId
 
 import pandas as pd
 import numpy as np
+
+try:
+    from zoneinfo import ZoneInfo
+    _PARIS_TZ = ZoneInfo("Europe/Paris")
+except Exception:
+    _PARIS_TZ = None
+
+
+def _display_store(d: dict) -> str:
+    """Nom d'affichage propre : 'ST PIERRE DES CORPS (H7351)'.
+    Fallback : nettoyage du filename (retire ' DD-MM-YYYY HH-MM email@x')."""
+    name = (d.get("store_name") or "").strip()
+    code = (d.get("store_code") or "").strip()
+    if name and code:
+        return f"{name} ({code})"
+    if name:
+        return name
+    stem = Path(d.get("filename") or "export").stem
+    # Retire un éventuel suffixe " DD-MM-YYYY HH-MM email@x"
+    stem = re.sub(r"\s+\d{2}-\d{2}-\d{4}\s+\d{2}[-h:]\d{2}(?:\s+\S+@\S+)?\s*$", "", stem).strip()
+    return stem or "export"
+
+
+def _export_basename(d: dict) -> str:
+    """Base des noms d'exports : 'Export {store} ({code}) DD-MM-YYYY HH-MM'.
+    La date est celle du téléchargement, heure de Paris."""
+    now = datetime.now(_PARIS_TZ) if _PARIS_TZ else datetime.now()
+    stamp = now.strftime("%d-%m-%Y %H-%M")
+    return f"Export {_display_store(d)} {stamp}"
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1181,9 +1211,23 @@ async def list_datasets(current_user: dict = Depends(get_current_user)):
         _owner_filter(user_id),
         {"_id": 0, "upload_id": 1, "filename": 1, "uploaded_at": 1,
          "row_count": 1, "size_bytes": 1, "compressed_bytes": 1,
-         "label": 1, "share_enabled": 1, "share_token": 1},
+         "label": 1, "share_enabled": 1, "share_token": 1, "user_id": 1},
     ).sort("uploaded_at", -1)
     items = await cursor.to_list(length=500)
+    # Pour le superadmin (créateur de l'outil) : ajouter l'email du propriétaire à chaque dataset
+    if user_id is None and items:
+        owner_ids = list({it.get("user_id") for it in items if it.get("user_id")})
+        if owner_ids:
+            owners_cursor = db.users.find(
+                {"_id": {"$in": [ObjectId(oid) for oid in owner_ids if ObjectId.is_valid(oid)]}},
+                {"email": 1, "name": 1},
+            )
+            owner_map = {str(u["_id"]): {"email": u.get("email") or "", "name": u.get("name") or ""}
+                         async for u in owners_cursor}
+            for it in items:
+                info = owner_map.get(it.get("user_id") or "", {})
+                it["owner_email"] = info.get("email") or ""
+                it["owner_name"] = info.get("name") or ""
     return {"datasets": items}
 
 
@@ -4990,7 +5034,7 @@ async def _build_export(d: dict, sheet: str = "all"):
                 ws.freeze_panes(1, 0)
 
     output.seek(0)
-    filename = f"{Path(d['filename']).stem}_traité.xlsx"
+    filename = f"{_export_basename(d)}_RTR.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -5185,7 +5229,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
         raise HTTPException(status_code=500, detail=f"Erreur PowerPoint : {e}")
 
     await log_audit(upload_id, current_user, "pptx_export_downloaded")
-    base = Path(d["filename"]).stem
+    base = _export_basename(d)
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -5792,7 +5836,7 @@ async def _build_carrefour_export(d: dict):
             logger.warning(f"Recap par secteur (Carrefour) failed: {e}")
 
     output.seek(0)
-    filename = f"{Path(d['filename']).stem}_Carrefour.xlsx"
+    filename = f"{_export_basename(d)}_Carrefour.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

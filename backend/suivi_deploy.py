@@ -978,8 +978,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
         wb.close()
         buf.seek(0)
-        safe_store = "".join(ch for ch in store if ch.isalnum() or ch in " -_")[:40].strip().replace(" ", "_")
-        fname = f"Rapport_nuit_{nuit}_{safe_store}.xlsx"
+        from server import _export_basename  # lazy import (évite dep circulaire)
+        fname = f"{_export_basename(d)}_Rapport_nuit_{nuit}.xlsx"
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

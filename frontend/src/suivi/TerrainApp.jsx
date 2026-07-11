@@ -84,7 +84,11 @@ export default function TerrainApp() {
                 </div>
                 <div className="min-w-0 flex-1">
                     <h1 className="text-sm font-bold leading-tight truncate" data-testid="terrain-title">
-                        {uploadId && state ? (state.store_name || state.filename) : "Suivi de pose"}
+                        {uploadId && state
+                            ? (state.store_name
+                                ? `${state.store_name}${state.store_code ? ` (${state.store_code})` : ""}`
+                                : state.filename)
+                            : "Suivi de pose"}
                     </h1>
                     <p className="text-[11px] text-amber-400/90 font-semibold">Espace équipe terrain</p>
                 </div>
@@ -158,8 +162,9 @@ function TerrainStorePicker({ stores, onOpen }) {
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="text-sm font-semibold truncate">
-                                    {s.store_name || s.label || s.filename}
-                                    {s.store_code && <span className="text-slate-500 font-normal text-xs ml-2">{s.store_code}</span>}
+                                    {s.store_name
+                                        ? `${s.store_name}${s.store_code ? ` (${s.store_code})` : ""}`
+                                        : (s.label || s.filename)}
                                 </div>
                                 {s.published_by && <div className="text-[11px] text-slate-500">publié par {s.published_by}</div>}
                             </div>
