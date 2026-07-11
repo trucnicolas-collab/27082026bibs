@@ -158,7 +158,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     terrain = APIRouter(prefix="/suivi-terrain")
 
     async def _load(upload_id: str, current_user: dict) -> dict:
-        d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+        # Superadmin (créateur) : pas de restriction de propriétaire
+        scope = None if current_user.get("role") == "superadmin" else str(current_user["_id"])
+        d = await load_dataset(upload_id, user_id=scope)
         if d is None:
             raise HTTPException(status_code=404, detail="Dataset introuvable")
         return d
@@ -307,6 +309,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             validated = sum(1 for x in items if x["status"] == "validee")
             blocked = sum(1 for x in items if x["status"] == "bloquee")
             a_finaliser = sum(1 for x in items if x["status"] == "a_finaliser")
+            # Allées rapatriées en avance = allées dont la nuit planifiée était postérieure
+            nb_rapatriees = sum(1 for x in items if (x.get("nuit_plan") or 0) > n)
             started = any(x["has_reel"] or x["status"] != "a_faire" for x in items)
             complete = bool(items) and validated == len(items)
             date_n = str(dates.get(str(n)) or dates.get(n) or "")
@@ -315,6 +319,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nb_allees": len(items),
                 "nb_validees": validated, "nb_bloquees": blocked,
                 "nb_a_finaliser": a_finaliser,
+                "nb_rapatriees": nb_rapatriees,
                 "eeg_plan": _r(plan_eeg), "eeg_reel": _r(reel_eeg),
                 "delta_eeg": _r(reel_eeg - plan_eeg) if started else None,
                 "complete": complete, "started": started,
@@ -1279,7 +1284,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     async def reset_suivi(upload_id: str, current_user: dict = Depends(get_current_user)):
         """Efface toutes les données du suivi (saisies, caméras, incidents, stock, photos).
         Réservé au créateur du phasage et à l'administrateur."""
-        is_admin = (current_user.get("role") == "admin")
+        is_admin = (current_user.get("role") in ("admin", "superadmin"))
         d = await load_dataset(upload_id, user_id=None if is_admin else str(current_user["_id"]))
         if d is None:
             raise HTTPException(status_code=404, detail="Dataset introuvable")

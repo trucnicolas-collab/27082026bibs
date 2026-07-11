@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     CheckCircle2, Ban, RotateCcw, Download, Loader2, AlertTriangle,
     MessageSquarePlus, Trash2, MoveRight, MapPin, Camera, X,
-    ChevronRight, ArrowLeft, Moon, Plus,
+    ChevronRight, ArrowLeft, Moon, Plus, Zap,
 } from "lucide-react";
 import { compressImage } from "./api";
 
@@ -81,6 +81,13 @@ function NightRow({ night, actions, onOpen }) {
                         {night.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         {night.nb_bloquees > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-bold">{night.nb_bloquees} bloquée(s)</span>}
                         {night.nb_a_finaliser > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-bold" data-testid={`night-a-finaliser-${night.nuit}`}>{night.nb_a_finaliser} à finaliser</span>}
+                        {night.nb_rapatriees > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/90 text-slate-900 font-bold flex items-center gap-0.5"
+                                data-testid={`night-rapatriees-${night.nuit}`}
+                                title={`${night.nb_rapatriees} allée(s) rapatriée(s) en avance`}>
+                                <Zap className="w-3 h-3" /> {night.nb_rapatriees} en avance
+                            </span>
+                        )}
                     </div>
                     <div className="text-xs text-slate-400">
                         {night.nb_validees}/{night.nb_allees} allées validées · {fmt(night.eeg_reel)} / {fmt(night.eeg_plan)} EEG

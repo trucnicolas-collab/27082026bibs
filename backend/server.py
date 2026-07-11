@@ -82,6 +82,23 @@ async def _on_startup():
 PHASAGE_SNAPSHOTS_MAX_PER_UPLOAD = 20
 
 
+def _scope(user: Optional[dict]) -> Optional[str]:
+    """Retourne l'user_id à utiliser pour filtrer les datasets.
+    Pour un superadmin (créateur de l'outil) → None = accès à TOUS les phasages."""
+    if user and user.get("role") == "superadmin":
+        return None
+    return str(user["_id"]) if user else None
+
+
+def _owner_filter(user_id: Optional[str], include_legacy: bool = False) -> dict:
+    """Fragment de filtre Mongo par owner. Pour superadmin (user_id=None) → {} (pas de restriction)."""
+    if user_id is None:
+        return {}
+    if include_legacy:
+        return {"$or": [{"user_id": user_id}, {"user_id": {"$exists": False}}]}
+    return {"user_id": user_id}
+
+
 async def save_phasage_snapshot(upload_id: str, user: Optional[dict],
                                 phasage: dict) -> Optional[str]:
     """Insère un snapshot complet du phasage et purge les plus anciens
@@ -1103,7 +1120,7 @@ async def upload_excel(file: UploadFile = File(...), current_user: dict = Depend
     raw_records = df_to_records(df)
     logger.info(f"Raw records: {len(raw_records)} rows")
 
-    user_id = str(current_user["_id"])
+    user_id = str(current_user["_id"])  # creation ownership (do not scope)
     upload_id = str(uuid.uuid4())
     DATASTORE[upload_id] = {
         "filename": file.filename,
@@ -1159,9 +1176,9 @@ async def upload_excel(file: UploadFile = File(...), current_user: dict = Depend
 async def list_datasets(current_user: dict = Depends(get_current_user)):
     """Liste les sessions de l'utilisateur connecté (métadonnées légères).
     Triées de la plus récente à la plus ancienne."""
-    user_id = str(current_user["_id"])
+    user_id = _scope(current_user)
     cursor = db.datasets.find(
-        {"user_id": user_id},
+        _owner_filter(user_id),
         {"_id": 0, "upload_id": 1, "filename": 1, "uploaded_at": 1,
          "row_count": 1, "size_bytes": 1, "compressed_bytes": 1,
          "label": 1, "share_enabled": 1, "share_token": 1},
@@ -1173,7 +1190,7 @@ async def list_datasets(current_user: dict = Depends(get_current_user)):
 @api_router.get("/dataset/{upload_id}")
 async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Récupère métadonnées + recap + secteur (PAS les raw records, voir /raw)."""
-    user_id = str(current_user["_id"])
+    user_id = _scope(current_user)
     d = await load_dataset(upload_id, user_id=user_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
@@ -1222,10 +1239,10 @@ async def get_dataset(upload_id: str, current_user: dict = Depends(get_current_u
 @api_router.delete("/dataset/{upload_id}")
 async def delete_dataset(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Supprime un dataset (libère l'espace serveur + cache mémoire)."""
-    user_id = str(current_user["_id"])
+    user_id = _scope(current_user)
     res = await db.datasets.delete_one({
         "upload_id": upload_id,
-        "$or": [{"user_id": user_id}, {"user_id": {"$exists": False}}],
+        **_owner_filter(user_id, include_legacy=True),
     })
     DATASTORE.pop(upload_id, None)
     if res.deleted_count == 0:
@@ -1244,10 +1261,10 @@ async def update_dataset_label(upload_id: str, payload: DatasetLabelUpdate,
                                current_user: dict = Depends(get_current_user)):
     """Définit un libellé personnalisé pour une session.
     Le label peut être vide (= retour au filename brut)."""
-    user_id = str(current_user["_id"])
+    user_id = _scope(current_user)
     new_label = (payload.label or "").strip()[:200]
     res = await db.datasets.update_one(
-        {"upload_id": upload_id, "user_id": user_id},
+        {"upload_id": upload_id, **_owner_filter(user_id, include_legacy=True)},
         {"$set": {"label": new_label}},
     )
     if res.matched_count == 0:
@@ -1266,10 +1283,10 @@ import secrets as _secrets
 async def enable_share(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Active (ou régénère) un lien de partage public lecture-seule.
     Retourne le `share_token` à utiliser dans l'URL frontend (ex: /share/<token>)."""
-    user_id = str(current_user["_id"])
+    user_id = _scope(current_user)
     token = _secrets.token_urlsafe(24)
     res = await db.datasets.update_one(
-        {"upload_id": upload_id, "user_id": user_id},
+        {"upload_id": upload_id, **_owner_filter(user_id, include_legacy=True)},
         {"$set": {"share_token": token, "share_enabled": True}},
     )
     if res.matched_count == 0:
@@ -1282,9 +1299,9 @@ async def enable_share(upload_id: str, current_user: dict = Depends(get_current_
 @api_router.delete("/dataset/{upload_id}/share")
 async def disable_share(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Désactive le partage : le lien existant ne fonctionne plus."""
-    user_id = str(current_user["_id"])
+    user_id = _scope(current_user)
     res = await db.datasets.update_one(
-        {"upload_id": upload_id, "user_id": user_id},
+        {"upload_id": upload_id, **_owner_filter(user_id, include_legacy=True)},
         {"$set": {"share_enabled": False}, "$unset": {"share_token": ""}},
     )
     if res.matched_count == 0:
@@ -1366,7 +1383,7 @@ async def export_shared(share_token: str, sheet: str = "all"):
 @api_router.get("/dataset/{upload_id}/raw")
 async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Récupère les données brutes (~9 MB pour 19780 lignes, mais gzippé HTTP ~600 KB)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     return {
@@ -1380,7 +1397,7 @@ async def get_dataset_raw(upload_id: str, current_user: dict = Depends(get_curre
 async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne l'historique des modifications d'une session (max 200 entrées, plus récentes d'abord)."""
     # Vérifie propriété
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cursor = db.audit_log.find(
@@ -1399,7 +1416,7 @@ async def get_dataset_activity(upload_id: str, current_user: dict = Depends(get_
 @api_router.get("/dataset/{upload_id}/phasage-snapshots")
 async def list_phasage_snapshots(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Liste les snapshots versionnés du phasage (20 derniers max, 30j TTL)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cursor = db.phasage_snapshots.find(
@@ -1420,7 +1437,7 @@ async def restore_phasage_snapshot(upload_id: str, snapshot_id: str,
                                     current_user: dict = Depends(get_current_user)):
     """Restaure le phasage à partir d'un snapshot versionné."""
     from bson import ObjectId
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     try:
@@ -1474,7 +1491,7 @@ def _filter_autre_rows(d: dict) -> list[dict]:
 async def get_dataset_autre(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne les lignes de fixation 'AUTRE*' du fichier original (lecture seule).
     Endpoint léger : ne renvoie que les lignes filtrées (typiquement <50)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = _filter_autre_rows(d)
@@ -1606,7 +1623,7 @@ def _refresh_vcare_block(rows: list[dict]) -> list[dict]:
 async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, current_user: dict = Depends(get_current_user)):
     """Met à jour une ligne du récapitulatif. Toutes les lignes sont éditables
     sauf les en-têtes de section (kind='header')."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
@@ -1676,7 +1693,7 @@ async def update_recap_row(upload_id: str, index: int, payload: RecapRowUpdate, 
 @api_router.post("/dataset/{upload_id}/recap-row")
 async def add_recap_row(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Ajoute une nouvelle ligne vide à la fin du récapitulatif."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
@@ -1702,7 +1719,7 @@ async def update_dongles(upload_id: str, payload: DonglesUpdate, current_user: d
     """Définit le nombre de dongles à inclure dans la commande.
     Le nombre est ajouté à `total_plus_spare` de la ligne Dongle (sans spare).
     La référence reste fixée à 16639. La quantité de base reste vide (info)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if "recap_rows" not in d:
         raise HTTPException(status_code=404, detail="Recap rows not found")
     qty = int(payload.quantity or 0)
@@ -1745,7 +1762,7 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
       • Si une ligne cible n'existe pas dans le fichier, on crée une ligne
         dédiée (kind='surface_added') avec uniquement total_plus_spare = delta.
     """
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cat = payload.category
@@ -1899,7 +1916,7 @@ async def update_surface(upload_id: str, payload: SurfaceUpdate, current_user: d
 @api_router.delete("/dataset/{upload_id}/recap-row/{index}")
 async def delete_recap_row(upload_id: str, index: int, current_user: dict = Depends(get_current_user)):
     """Supprime une ligne du récapitulatif (sauf en-têtes de section)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     rows = d["recap_rows"]
@@ -1930,7 +1947,7 @@ class CommentTableUpdate(BaseModel):
 @api_router.patch("/dataset/{upload_id}/comment-table")
 async def update_comment_table(upload_id: str, payload: CommentTableUpdate, current_user: dict = Depends(get_current_user)):
     """Met à jour le tableau de commentaires (colonnes + lignes)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     d["comment_table"] = {"columns": payload.columns, "rows": payload.rows}
@@ -2456,7 +2473,7 @@ def _normalize_phasage(stored: Any) -> dict:
 async def get_phasage_summary(upload_id: str, current_user: dict = Depends(get_current_user)):
     """Retourne la liste des allées avec leurs comptes ES / Rails ES / Caméras
     + les totaux globaux + l'état du phasage (ES, Cam, Suivi)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     summary = compute_phasage_summary(d)
@@ -2515,7 +2532,7 @@ def _sanitize_planning(p: PhasagePlanning) -> dict:
 @api_router.patch("/dataset/{upload_id}/phasage")
 async def update_phasage(upload_id: str, payload: PhasageFullUpdate, current_user: dict = Depends(get_current_user)):
     """Sauvegarde l'état complet : ES + Caméras + Suivi (réalité)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     es = _sanitize_planning(payload.es)
@@ -4636,7 +4653,7 @@ async def export_excel(upload_id: str, sheet: str = "all", current_user: dict = 
 
     sheet : 'all' | 'raw' | 'recap' | 'secteur' | 'parsecteur' | 'comment'
     """
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     _check_export_refs(d)
@@ -4990,7 +5007,7 @@ async def _build_export(d: dict, sheet: str = "all"):
 
 @api_router.get("/export-carrefour/{upload_id}")
 async def export_carrefour(upload_id: str, current_user: dict = Depends(get_current_user)):
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     _check_export_refs(d)
@@ -5005,7 +5022,7 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
     1-7, 9 et 10 restent inchangées."""
     from pathlib import Path
     import pptx_export
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     _check_export_refs(d)
@@ -5200,7 +5217,7 @@ class SaInstallConfig(BaseModel):
 async def update_sa_install(upload_id: str, payload: SaInstallConfig,
                             current_user: dict = Depends(get_current_user)):
     """Enregistre la config d'installation des EEG SA (hors saisonnier)."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     cfg = payload.dict()
@@ -5215,7 +5232,7 @@ async def step2_validation(upload_id: str, current_user: dict = Depends(get_curr
     """Valide l'étape 2 (Traitement commande) avant de passer au phasage.
     Bloque tant que : (a) des lignes « Autre » ne sont pas traitées (réf. vide ou
     non numérique), (b) la surface n'est pas +/-10000 m², (c) dongles <= 0."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     recap = d.get("recap_rows") or []
@@ -5271,7 +5288,7 @@ async def wizard_status(upload_id: str, current_user: dict = Depends(get_current
     des badges de progression dans le stepper.
       • step3_ready : au moins une ligne ES assignée à une nuit (phasage démarré).
       • step4_ready : toutes les nuits du plan (union ES + Cam) ont une date saisie."""
-    d = await load_dataset(upload_id, user_id=str(current_user["_id"]))
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
     ph = _normalize_phasage(d.get("phasage"))

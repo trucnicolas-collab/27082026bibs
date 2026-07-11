@@ -352,3 +352,27 @@ async def setup_auth(db):
             {"$set": {"password_hash": hash_password(admin_password)}},
         )
         logger.info(f"Admin password updated: {admin_email}")
+
+    # Seed super-admin (créateur de l'outil : accès à TOUS les phasages)
+    super_email = _normalize_email(os.environ.get("SUPERADMIN_EMAIL", "") or "")
+    super_password = os.environ.get("SUPERADMIN_PASSWORD", "") or ""
+    if super_email and super_password:
+        existing_su = await db.users.find_one({"email": super_email})
+        if existing_su is None:
+            await db.users.insert_one({
+                "email": super_email,
+                "password_hash": hash_password(super_password),
+                "name": "Créateur",
+                "role": "superadmin",
+                "created_at": datetime.now(timezone.utc),
+            })
+            logger.info(f"Superadmin user seeded: {super_email}")
+        else:
+            updates = {}
+            if not verify_password(super_password, existing_su["password_hash"]):
+                updates["password_hash"] = hash_password(super_password)
+            if existing_su.get("role") != "superadmin":
+                updates["role"] = "superadmin"
+            if updates:
+                await db.users.update_one({"email": super_email}, {"$set": updates})
+                logger.info(f"Superadmin refreshed: {super_email}")

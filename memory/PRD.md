@@ -1,5 +1,13 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 10/02/2026 (v10 — Super-admin créateur + badge « en avance »)
+- [x] **Rôle `superadmin`** (créateur de l'outil) : accès en lecture/écriture à TOUS les phasages de tous les utilisateurs.
+  - Seed via env `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` dans `backend/.env` + `backend/auth.py::setup_auth`.
+  - Helpers `_scope(user)` et `_owner_filter(user_id, include_legacy)` dans `server.py` : bypass propriétaire quand rôle = superadmin. Appliqués à tous les endpoints datasets/phasage (list, get, delete, label, share, patch, exports). `suivi_deploy.py::_load` et `reset` idem (admin **ou** superadmin).
+  - Isolation user standard préservée : un `user` ne voit toujours QUE ses propres phasages (validé par curl : superadmin voit 2/2, admin/poseur voient 1/1).
+  - 52/52 tests pytest suivi passent (aucune régression).
+- [x] **Badge « ⚡ N en avance »** sur les tuiles de nuit (chef & terrain) — compte les allées dont `nuit_plan > nuit_eff` (rapatriées depuis une nuit ultérieure). Champ `nb_rapatriees` exposé par `_build_state`. Testid `night-rapatriees-{n}`.
+
 ## Changelog 10/02/2026 (v9 — Rapatriement d'allées en avance)
 - [x] **Bouton « Ajouter une allée » (en bas de la liste des allées d'une nuit)** : ouvre une modale listant les allées des nuits suivantes (triées par nuit croissante puis par n° d'allée en ordre naturel FR). Sélection une par une : le clic rapatrie immédiatement l'allée dans la nuit courante via `PATCH /allee {nuit_reelle: N}` (API existante). Le badge « plan N-x » est conservé automatiquement (existant). Désactivé si aucune allée ultérieure disponible. Fichier : `frontend/src/suivi/SuiviNuits.jsx`.
 
