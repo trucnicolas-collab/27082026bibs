@@ -40,6 +40,18 @@ JUSTIF_THRESHOLD = 0.05  # 5% d'écart prévu/réel → justification
 MAX_EEG_PER_NIGHT = 4900.0
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
+# Statuts d'allée valides côté suivi (au-delà de a_faire par défaut)
+ALLEE_STATUSES = {"a_faire", "validee", "bloquee", "a_finaliser", "non_faite"}
+
+
+def is_camera_fixation(desig: str, typ: str) -> bool:
+    """True si le produit est une fixation destinée aux caméras Captana.
+    Ces produits appartiennent au phasage caméra, PAS au phasage EEG — ils doivent
+    être exclus de la liste produits d'une allée EEG."""
+    d = (desig or "").lower()
+    t = (typ or "").lower()
+    return "fixation" in t and ("captana" in d or "camera" in d or "caméra" in d)
+
 # ---------------------------------------------------------------- Object storage
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 APP_PREFIX = "phasage-crf"
@@ -115,11 +127,12 @@ class AlleeUpdate(BaseModel):
     uid: str
     products: Optional[List[ProductEntry]] = None
     extra_products: Optional[List[ExtraProduct]] = None  # produits posés non prévus
-    status: Optional[str] = None  # a_faire | validee | bloquee | a_finaliser
+    status: Optional[str] = None  # a_faire | validee | bloquee | a_finaliser | non_faite
     comment: Optional[str] = None
     geoloc_comment: Optional[str] = None
     justification: Optional[str] = None  # écart > 5% EEG/rails
     nuit_reelle: Optional[int] = None  # 0 → retour à la nuit planifiée
+    nuit_rattrapage: Optional[int] = None  # nuit prévue pour rattraper une allée non faite
 
 
 class CamAlleeUpdate(BaseModel):
@@ -153,7 +166,7 @@ class PublishUpdate(BaseModel):
 
 def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summary,
                        normalize_phasage, save_phasage_snapshot, persist_phasage,
-                       classify_family):
+                       classify_family, compute_node_sa_install=None):
     router = APIRouter(prefix="/suivi")
     terrain = APIRouter(prefix="/suivi-terrain")
 
@@ -203,6 +216,29 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 nuit_by_uid[str(row.get("allee") or row.get("id"))] = int(n)
         entries = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
         matidx = _materiel_par_allee(d)
+        cfg_sa = d.get("sa_install") or {}
+
+        def _sa_families_off(node_uid: str) -> set:
+            """Retourne l'ensemble des familles SA à NE PAS poser pour une allée
+            (basé sur la config sa_install du phasage)."""
+            a = by_uid.get(node_uid) or {}
+            if not cfg_sa or not cfg_sa.get("enabled"):
+                return set()
+            inst = compute_node_sa_install(a, cfg_sa) if compute_node_sa_install else {}
+            off = set()
+            # sa_15
+            if not inst.get("sa_15") and float(a.get("sa_15") or 0) > 0:
+                off.add("sa_15")
+            # sa_21_std (le champ inst["sa_21"] correspond à sa_21_std)
+            if not inst.get("sa_21") and float(a.get("sa_21_std") or a.get("sa_21") or 0) > 0:
+                off.add("sa_21_std")
+            # sa_21_freezer
+            if not inst.get("freezer") and float(a.get("sa_21_freezer") or 0) > 0:
+                off.add("sa_21_freezer")
+            # sa_42
+            if not inst.get("sa_42") and float(a.get("sa_42") or 0) > 0:
+                off.add("sa_42")
+            return off
 
         allees = []
         for uid, nuit_plan in nuit_by_uid.items():
@@ -210,6 +246,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             e = entries.get(uid) or {}
             plan = _plan_for_allee(a)
             mat = matidx.get(uid) or {"totals": {}, "types": {}}
+            sa_off = _sa_families_off(uid)
             pentries = {str(p.get("designation")): p for p in (e.get("products") or [])}
             products = []
             reel_fam = {k: None for k in FAMILY_KEYS}
@@ -219,7 +256,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             for desig in sorted(mat["totals"].keys(), key=lambda s: s.lower()):
                 pplan = _r(mat["totals"][desig])
                 typ = (mat.get("types") or {}).get(desig) or ""
+                # (J) Fixations caméras → suivi caméras, pas EEG
+                if is_camera_fixation(desig, typ):
+                    continue
                 fam = classify_family(typ, desig)
+                # (I) Filtrer les SA marquées « à ne pas poser » dans le phasage
+                if fam in sa_off:
+                    continue
                 is_geo = fam in GEO_KEYS
                 pe = pentries.get(desig) or {}
                 preel = pe.get("reel")
@@ -272,6 +315,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nuit_plan": nuit_plan,
                 "nuit_reelle": nuit_reelle,
                 "nuit_eff": eff,
+                "nuit_rattrapage": e.get("nuit_rattrapage"),
                 "plan": plan,
                 "reel": reel,
                 "delta": delta,
@@ -309,6 +353,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             validated = sum(1 for x in items if x["status"] == "validee")
             blocked = sum(1 for x in items if x["status"] == "bloquee")
             a_finaliser = sum(1 for x in items if x["status"] == "a_finaliser")
+            non_faites = sum(1 for x in items if x["status"] == "non_faite")
             # Allées rapatriées en avance = allées dont la nuit planifiée était postérieure
             nb_rapatriees = sum(1 for x in items if (x.get("nuit_plan") or 0) > n)
             started = any(x["has_reel"] or x["status"] != "a_faire" for x in items)
@@ -319,6 +364,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nb_allees": len(items),
                 "nb_validees": validated, "nb_bloquees": blocked,
                 "nb_a_finaliser": a_finaliser,
+                "nb_non_faites": non_faites,
                 "nb_rapatriees": nb_rapatriees,
                 "eeg_plan": _r(plan_eeg), "eeg_reel": _r(reel_eeg),
                 "delta_eeg": _r(reel_eeg - plan_eeg) if started else None,
@@ -395,6 +441,17 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     "label": f"Allée {x['allee']}",
                     "uid": x["uid"], "nuit": x["nuit_eff"],
                     "message": (f"Allée {x['allee']} ({x['secteur']}) — nuit {x['nuit_eff']} À FINALISER une autre nuit"
+                                + (f" : {x['comment']}" if x["comment"] else "")),
+                })
+            if x["status"] == "non_faite":
+                nr = x.get("nuit_rattrapage")
+                alerts.append({
+                    "type": "non_faite", "family": None,
+                    "label": f"Allée {x['allee']}",
+                    "uid": x["uid"], "nuit": x["nuit_eff"],
+                    "nuit_rattrapage": nr,
+                    "message": (f"Allée {x['allee']} ({x['secteur']}) — nuit {x['nuit_eff']} NON FAITE"
+                                + (f", rattrapage nuit {nr}" if nr else "")
                                 + (f" : {x['comment']}" if x["comment"] else "")),
                 })
             if x["status"] == "bloquee":
@@ -557,7 +614,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         uid = fields.pop("uid")
         prods = fields.pop("products", None)
         extras = fields.pop("extra_products", None)
-        if "status" in fields and fields["status"] not in (None, "a_faire", "validee", "bloquee", "a_finaliser"):
+        if "status" in fields and fields["status"] not in (None,) and fields["status"] not in ALLEE_STATUSES:
             raise HTTPException(status_code=400, detail="Statut invalide")
         if fields.get("nuit_reelle") == 0:
             fields["nuit_reelle"] = None
@@ -720,6 +777,33 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         for label, val in kpis:
             ws.write(row, 0, label, f_kpi_l)
             ws.write(row, 2, val)
+            row += 1
+        # Compteur "non faites"
+        nb_non_faites = sum(1 for x in items if x["status"] == "non_faite")
+        if nb_non_faites:
+            ws.write(row, 0, "Allées non faites", f_kpi_l)
+            ws.write(row, 2, nb_non_faites)
+            row += 1
+
+        # ---- Alerte stock : produits en risque de manque ----
+        stock_alerts = [s for s in (state.get("stock") or []) if s.get("alert")]
+        if stock_alerts:
+            row += 1
+            f_alert_title = wb.add_format({"bold": True, "font_size": 12, "font_color": "#B91C1C"})
+            ws.write(row, 0, f"⚠ Risque de manque de stock ({len(stock_alerts)} produit(s))", f_alert_title)
+            row += 1
+            for c, h in enumerate(["Produit", "Prévu", "Reçu", "Posé", "Restant stock", "Restant à poser", "Manque"]):
+                ws.write(row, c, h, f_h)
+            row += 1
+            for s in stock_alerts:
+                ws.write(row, 0, s["designation"], f_cl)
+                ws.write(row, 1, s["prevu"], f_c)
+                ws.write(row, 2, s["recu"] if s.get("recu") is not None else "—", f_c)
+                ws.write(row, 3, s["pose"], f_c)
+                ws.write(row, 4, s["restant_stock"], f_c)
+                ws.write(row, 5, s["restant_a_poser"], f_c)
+                ws.write(row, 6, s["manque"], f_geo_bad)
+                row += 1
             row += 1
         if isinstance(delta_n, (int, float)):
             verdict = ("⚡ Plus rapide que prévu" if delta_n > 0 else
@@ -1157,11 +1241,61 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 out.append(desig)
         return out
 
+    def _check_geoloc_gap(matnode: dict, entry: dict, fields: dict) -> list:
+        """(F) Retourne la liste des produits géolocalisables où le nombre géolocalisé
+        est strictement inférieur au nombre posé (après application du payload)."""
+        merged = {str(p.get("designation")): dict(p) for p in ((entry or {}).get("products") or [])}
+        for item in (fields.get("products") or []):
+            d0 = str(item.get("designation") or "")
+            node = merged.setdefault(d0, {"designation": d0})
+            if "reel" in item:
+                node["reel"] = item["reel"]
+            if "geo" in item:
+                node["geo"] = item["geo"]
+        out = []
+        totals = (matnode or {}).get("totals") or {}
+        types = (matnode or {}).get("types") or {}
+        for desig in totals.keys():
+            typ = types.get(desig) or ""
+            if is_camera_fixation(desig, typ):
+                continue
+            fam = classify_family(typ, desig)
+            if fam not in GEO_KEYS:
+                continue
+            m = merged.get(desig) or {}
+            reel = m.get("reel")
+            geo = m.get("geo")
+            if reel is None or float(reel or 0) <= 0:
+                continue
+            if geo is None or float(geo or 0) < float(reel):
+                gap = float(reel) - float(geo or 0)
+                out.append(f"{desig} : {int(gap) if gap.is_integer() else round(gap, 2)} posé(s) non géolocalisé(s)")
+        return out
+
     async def _guarded_allee_update(d: dict, doc: dict, payload: AlleeUpdate, author: str):
         matnode = _materiel_par_allee(d).get(payload.uid) or {}
         fields = payload.dict(exclude_unset=True)
-        if fields.get("status") == "validee":
+        new_status = fields.get("status")
+        # (G) Statut "non_faite" — commentaire + nuit de rattrapage obligatoires
+        if new_status == "non_faite":
+            entry_g = next((e for e in (doc.get("allees") or []) if str(e.get("uid")) == payload.uid), {})
+            has_comment = bool((fields.get("comment") or entry_g.get("comment") or "").strip())
+            has_nr = fields.get("nuit_rattrapage") is not None or entry_g.get("nuit_rattrapage") is not None
+            if not has_comment or not has_nr:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Allée « non faite » : commentaire et nuit de rattrapage obligatoires")
+        if new_status == "validee":
             entry = next((e for e in (doc.get("allees") or []) if str(e.get("uid")) == payload.uid), {})
+            # (F) Géoloc = nombre de produits posés (validation bloquante sauf explication)
+            gap_details = _check_geoloc_gap(matnode, entry, fields)
+            if gap_details:
+                geo_comment = (fields.get("geoloc_comment") or entry.get("geoloc_comment") or "").strip()
+                if not geo_comment:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Écart de géolocalisation : " + " · ".join(gap_details)
+                               + " → renseigne le commentaire de géolocalisation avant de valider")
             justifs = _justifs_after_update(matnode, entry, fields)
             if justifs and not (fields.get("justification") or "").strip() and not (entry.get("justification") or "").strip():
                 raise HTTPException(

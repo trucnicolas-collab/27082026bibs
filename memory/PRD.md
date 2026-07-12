@@ -1,5 +1,39 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 12/02/2026 (v14 — P3 backlog terrain : F, G, H, I, J)
+### (F) Géoloc = nombre de produits posés — validation bloquante
+- Nouveau helper backend `_check_geoloc_gap` dans `suivi_deploy.py`.
+- À la validation d'une allée (status → `validee`), pour chaque produit géolocalisable (rails ES, SA 1.5, SA 2.1, SA 2.1 freezer) : si `geo < reel` → 400 "Écart de géolocalisation : ..." avec la liste des produits en écart, sauf si un `geoloc_comment` est renseigné (justification).
+
+### (G) Bouton « Non fait » avec commentaire + nuit de rattrapage
+- Nouveau statut d'allée `non_faite` (en plus de a_faire / validee / bloquee / a_finaliser).
+- Backend `_guarded_allee_update` bloque 400 si status → `non_faite` sans `comment` OU sans `nuit_rattrapage`.
+- Modèle enrichi : `AlleeUpdate.nuit_rattrapage: Optional[int]`.
+- Alerte dashboard `type=non_faite` avec message "nuit X NON FAITE, rattrapage nuit Y : commentaire".
+- Compteur `nb_non_faites` par nuit + badge rouge sur la tuile de nuit.
+- Frontend : bouton rouge « Allée non faite » avec modale (textarea comment + select nuit rattrapage) sur l'écran allée.
+
+### (H) État stock dans rapport nuit + alerte dashboard "risque manque"
+- Rapport Excel nuit enrichi : section "⚠ Risque de manque de stock" listant les produits en manque (Prévu / Reçu / Posé / Restant stock / Restant à poser / Manque). N'apparaît que s'il y a des alertes de rupture pour la nuit.
+- Dashboard : alerte "Risque de manque" en gras rouge (le libellé est explicite) — cliquable pour aller sur l'onglet Stock.
+
+### (I) Filtrer les SA à ne pas poser
+- Backend `_build_state` utilise désormais `compute_node_sa_install(node, cfg_sa)` pour chaque allée.
+- Les familles SA marquées comme "à ne pas poser" dans le phasage (`sa_install` config avec `enabled=True`) sont automatiquement exclues de la liste des produits du suivi de cette allée.
+- Aucune modification du phasage nécessaire côté user : c'est la config déjà présente dans l'outil de phasage qui est prise en compte.
+
+### (J) Fixations caméras Captana distinctes des EEG
+- Nouveau helper `is_camera_fixation(desig, typ)` : True si type contient "fixation" ET désignation contient "captana" ou "cam"/"caméra".
+- Ces produits sont exclus de la liste EEG d'une allée (ils apparaissent déjà côté suivi caméra où ils sont pertinents).
+
+### Testé
+- 52/52 tests pytest suivi passent.
+- Validation non_faite testée par curl (400 sans comment/rattrapage, OK sinon).
+- Smoke visuel terrain OK.
+
+### Reste à faire (backlog)
+- Confirmation manuelle par utilisateur sur mobile réel des flows F/G/H/I/J.
+
 ## Changelog 12/02/2026 (v13 — Panneau superadmin de gestion des utilisateurs)
 - [x] **Bouton « Utilisateurs »** dans le header (badge ambre) visible uniquement pour le rôle `superadmin`. Ouvre un panneau modal `AdminUsersPanel.jsx` avec la liste complète des comptes.
 - [x] **Actions par utilisateur** :

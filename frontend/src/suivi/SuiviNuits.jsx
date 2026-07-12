@@ -14,6 +14,7 @@ const STATUS_CHIP = {
     validee: ["Validée", "bg-emerald-600 text-white"],
     bloquee: ["Bloquée", "bg-red-600 text-white"],
     a_finaliser: ["À finaliser", "bg-red-500 text-white"],
+    non_faite: ["Non faite", "bg-red-700 text-white"],
 };
 const JUSTIF_FAMS = ["es_15", "es_21", "sa_15", "sa_21_std", "sa_21_freezer", "sa_42", "rails_es"];
 
@@ -68,11 +69,11 @@ function NightRow({ night, actions, onOpen }) {
     };
     return (
         <section className={`rounded-2xl border overflow-hidden transition-colors
-            ${night.nb_a_finaliser > 0 || night.nb_bloquees > 0 ? "border-red-800/80 bg-red-950/20" : night.complete ? "border-emerald-900/70 bg-emerald-950/20" : night.started ? "border-sky-900/70 bg-slate-900" : "border-slate-800 bg-slate-900"}`}
+            ${night.nb_a_finaliser > 0 || night.nb_bloquees > 0 || night.nb_non_faites > 0 ? "border-red-800/80 bg-red-950/20" : night.complete ? "border-emerald-900/70 bg-emerald-950/20" : night.started ? "border-sky-900/70 bg-slate-900" : "border-slate-800 bg-slate-900"}`}
             data-testid={`night-block-${night.nuit}`}>
             <button onClick={onOpen} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" data-testid={`night-open-${night.nuit}`}>
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold flex-shrink-0
-                    ${night.nb_a_finaliser > 0 ? "bg-red-600 text-white" : night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
+                    ${night.nb_a_finaliser > 0 || night.nb_non_faites > 0 ? "bg-red-600 text-white" : night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
                     {night.nuit}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -82,6 +83,7 @@ function NightRow({ night, actions, onOpen }) {
                         {night.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         {night.nb_bloquees > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-bold">{night.nb_bloquees} bloquée(s)</span>}
                         {night.nb_a_finaliser > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-bold" data-testid={`night-a-finaliser-${night.nuit}`}>{night.nb_a_finaliser} à finaliser</span>}
+                        {night.nb_non_faites > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white font-bold" data-testid={`night-non-faites-${night.nuit}`}>{night.nb_non_faites} non faite(s)</span>}
                         {night.nb_rapatriees > 0 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/90 text-slate-900 font-bold flex items-center gap-0.5"
                                 data-testid={`night-rapatriees-${night.nuit}`}
@@ -167,7 +169,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                     <button key={a.uid} onClick={() => onOpenAllee(a.uid)}
                         data-testid={`allee-open-${a.uid}`}
                         className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-colors hover:border-emerald-700
-                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60" : a.status === "bloquee" || a.status === "a_finaliser" ? "bg-red-950/20 border-red-900/60" : "bg-slate-900 border-slate-800"}`}>
+                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60" : a.status === "bloquee" || a.status === "a_finaliser" || a.status === "non_faite" ? "bg-red-950/20 border-red-900/60" : "bg-slate-900 border-slate-800"}`}>
                         <span className="px-2 py-1 rounded-md bg-slate-700 text-slate-100 text-sm font-bold flex-shrink-0">
                             {a.allee}
                         </span>
@@ -270,6 +272,9 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
     // Bouton retour natif Android → remonte à la liste des allées
     useMobileBack(onBack, true);
     const goBack = () => window.history.back();
+    const [nonFaitPanel, setNonFaitPanel] = useState(false);
+    const [nonFaitComment, setNonFaitComment] = useState("");
+    const [nonFaitNuit, setNonFaitNuit] = useState("");
     const [vals, setVals] = useState(() => {
         const v = {};
         (a.products || []).forEach((p) => { v[p.designation] = { reel: p.reel ?? "", geo: p.geo ?? "" }; });
@@ -331,6 +336,25 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             .map((x) => ({ designation: x.designation.trim(), qty: Number(x.qty) }));
         const ok = await actions.patchAllee(a.uid, fields);
         if (ok) { toast.success(`Allée ${a.allee} validée`); setPanel(false); }
+        setSaving(false);
+    };
+
+    const confirmNonFait = async () => {
+        if (!nonFaitComment.trim()) {
+            toast.error("Un commentaire est obligatoire pour marquer une allée non faite");
+            return;
+        }
+        if (!nonFaitNuit) {
+            toast.error("Choisis la nuit de rattrapage");
+            return;
+        }
+        setSaving(true);
+        const ok = await actions.patchAllee(a.uid, {
+            status: "non_faite",
+            comment: nonFaitComment.trim(),
+            nuit_rattrapage: Number(nonFaitNuit),
+        });
+        if (ok) { toast.warning(`Allée ${a.allee} marquée non faite — rattrapage nuit ${nonFaitNuit}`); setNonFaitPanel(false); }
         setSaving(false);
     };
 
@@ -559,19 +583,33 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     </button>
                 )}
             </div>
-            <div className="pb-4">
-                {a.status !== "a_finaliser" ? (
+            <div className="pb-4 space-y-2">
+                {a.status !== "a_finaliser" && a.status !== "non_faite" ? (
                     a.status !== "validee" && (
-                        <button onClick={() => setStatus("a_finaliser")} disabled={saving} data-testid={`allee-finaliser-${a.uid}`}
-                            className="w-full h-10 rounded-xl border border-red-700/70 text-red-300 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-red-950/40 transition-colors">
-                            <Moon className="w-3.5 h-3.5" /> Je vais finaliser cette allée une autre nuit
-                        </button>
+                        <>
+                            <button onClick={() => setStatus("a_finaliser")} disabled={saving} data-testid={`allee-finaliser-${a.uid}`}
+                                className="w-full h-10 rounded-xl border border-red-700/70 text-red-300 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-red-950/40 transition-colors">
+                                <Moon className="w-3.5 h-3.5" /> Je vais finaliser cette allée une autre nuit
+                            </button>
+                            <button onClick={() => { setNonFaitComment(a.comment || ""); setNonFaitNuit(""); setNonFaitPanel(true); }}
+                                disabled={saving} data-testid={`allee-non-fait-${a.uid}`}
+                                className="w-full h-10 rounded-xl border border-red-800 bg-red-950/30 text-red-400 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-red-950/60 transition-colors">
+                                <Ban className="w-3.5 h-3.5" /> Allée non faite (préciser pourquoi + nuit de rattrapage)
+                            </button>
+                        </>
                     )
                 ) : (
                     <button onClick={() => setStatus("a_faire")} disabled={saving} data-testid={`allee-reprendre-${a.uid}`}
                         className="w-full h-10 rounded-xl border border-slate-600 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-slate-800 transition-colors">
-                        <RotateCcw className="w-3.5 h-3.5" /> Reprendre la saisie (annuler « à finaliser »)
+                        <RotateCcw className="w-3.5 h-3.5" /> Reprendre la saisie (annuler « {a.status === "non_faite" ? "non faite" : "à finaliser"} »)
                     </button>
+                )}
+                {a.status === "non_faite" && (
+                    <div className="rounded-xl bg-red-950/40 border border-red-900/60 p-3 text-[11px] text-red-200" data-testid={`allee-non-fait-info-${a.uid}`}>
+                        <div className="font-bold flex items-center gap-1.5"><Ban className="w-3.5 h-3.5" /> Allée non faite</div>
+                        {a.nuit_rattrapage && <div className="mt-1">→ rattrapage prévu <b>nuit {a.nuit_rattrapage}</b></div>}
+                        {a.comment && <div className="mt-1 italic">« {a.comment} »</div>}
+                    </div>
                 )}
             </div>
 
@@ -643,6 +681,51 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             <button onClick={confirmValidate} disabled={saving} data-testid={`validate-confirm-${a.uid}`}
                                 className="flex-1 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmer la validation
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {nonFaitPanel && (
+                <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-3"
+                    data-testid={`allee-non-fait-panel-${a.uid}`} onClick={() => setNonFaitPanel(false)}>
+                    <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-red-900/60 p-4 space-y-3"
+                        onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-2">
+                            <Ban className="w-5 h-5 text-red-400" />
+                            <h4 className="text-sm font-bold flex-1">Allée {a.allee} non faite</h4>
+                            <button onClick={() => setNonFaitPanel(false)} data-testid="non-fait-close"
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Pourquoi cette allée n&apos;a pas été faite ? *</label>
+                            <textarea rows={3} value={nonFaitComment}
+                                onChange={(e) => setNonFaitComment(e.target.value)}
+                                placeholder="Ex: temps insuffisant, secteur inaccessible, matériel manquant..."
+                                data-testid="non-fait-comment"
+                                className="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none resize-none" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Nuit de rattrapage prévue *</label>
+                            <select value={nonFaitNuit} onChange={(e) => setNonFaitNuit(e.target.value)}
+                                data-testid="non-fait-nuit"
+                                className="mt-1 w-full h-10 px-2 rounded-lg bg-slate-800 border border-slate-700 text-xs focus:border-red-500 outline-none">
+                                <option value="">— Choisir une nuit —</option>
+                                {(state.nights || []).filter((n) => n.nuit !== a.nuit_eff).map((n) => (
+                                    <option key={n.nuit} value={n.nuit}>Nuit {n.nuit}{n.date ? ` (${new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })})` : ""}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setNonFaitPanel(false)} data-testid="non-fait-cancel"
+                                className="h-10 px-4 rounded-xl border border-slate-600 text-slate-300 text-xs font-semibold hover:bg-slate-800 transition-colors">
+                                Annuler
+                            </button>
+                            <button onClick={confirmNonFait} disabled={saving}
+                                data-testid="non-fait-confirm"
+                                className="flex-1 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />} Marquer non faite
                             </button>
                         </div>
                     </div>

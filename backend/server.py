@@ -6140,7 +6140,8 @@ api_router.include_router(build_auth_router(db))
 from suivi_deploy import build_suivi_router  # noqa: E402
 api_router.include_router(build_suivi_router(
     db, load_dataset, get_current_user, compute_phasage_summary,
-    _normalize_phasage, save_phasage_snapshot, persist_phasage, classify_family))
+    _normalize_phasage, save_phasage_snapshot, persist_phasage, classify_family,
+    compute_node_sa_install=compute_node_sa_install))
 
 app.include_router(api_router)
 

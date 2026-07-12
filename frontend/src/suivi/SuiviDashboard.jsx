@@ -14,6 +14,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
     const ruptures = alerts.filter((a) => a.type === "rupture");
     const blocages = alerts.filter((a) => a.type === "blocage");
     const geolocs = alerts.filter((a) => a.type === "geoloc");
+    const nonFaites = alerts.filter((a) => a.type === "non_faite");
     const pct = Math.min(100, st.pct || 0);
     const avance = st.avance_nuits;
     const [nightSummary, setNightSummary] = useState(null); // { night, allees } ou null
@@ -106,6 +107,15 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
                             <button key={`r${i}`} onClick={() => goTab("stock")} data-testid={`alert-rupture-${a.family}`}
                                 className="w-full text-left rounded-xl bg-red-950/40 border border-red-900/60 p-3.5 flex items-start gap-3 hover:border-red-700 transition-colors">
                                 <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                                <div className="text-sm text-red-200">
+                                    <b className="text-red-100">Risque de manque</b> — {a.message}
+                                </div>
+                            </button>
+                        ))}
+                        {nonFaites.map((a, i) => (
+                            <button key={`nf${i}`} onClick={() => goTab("nuits")} data-testid={`alert-non-faite-${i}`}
+                                className="w-full text-left rounded-xl bg-red-950/40 border border-red-800 p-3.5 flex items-start gap-3 hover:border-red-700 transition-colors">
+                                <Ban className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                                 <div className="text-sm text-red-200">{a.message}</div>
                             </button>
                         ))}
