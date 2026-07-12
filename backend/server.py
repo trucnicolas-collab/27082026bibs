@@ -1124,7 +1124,7 @@ async def root():
 
 # Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
 # Incrémente ce numéro à chaque changement de logique auth critique.
-APP_BUILD_TAG = "pose-geoloc-split-2026-02-12-v7"
+APP_BUILD_TAG = "pose-geoloc-clear-labels-2026-02-12-v8"
 
 
 @api_router.get("/version")

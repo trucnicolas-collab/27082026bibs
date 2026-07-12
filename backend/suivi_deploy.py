@@ -887,7 +887,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             if k in GEO_KEYS:
                 headers.append("Géoloc")
             headers.append("Δ")
-        headers += ["Statut", "Justification écart >5%", "Commentaire", "Explication géoloc"]
+        headers += ["Statut", "Justification écart >5%", "Commentaire POSE", "Commentaire GÉOLOC"]
         for c, h in enumerate(headers):
             ws.write(row, c, h, f_h)
         ws.set_column(0, 0, 8)

@@ -185,7 +185,7 @@ def test_terrain_rapport_nuit_has_geo_and_images():
         flat = "\n".join(" | ".join(str(c) if c is not None else "" for c in row)
                         for row in ws.iter_rows(values_only=True))
         assert "Géoloc" in flat
-        assert "Explication géoloc" in flat
+        assert "Commentaire GÉOLOC" in flat
         assert len(ws._images) >= 1
     finally:
         requests.delete(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/photo/{pid}")

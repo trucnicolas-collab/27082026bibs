@@ -505,16 +505,16 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             {gapProducts.length > 0 && (
                 <div className="rounded-xl bg-red-950/40 border border-red-900/60 p-3" data-testid={`allee-geo-explain-${a.uid}`}>
                     <div className="text-[11px] text-red-300 font-semibold flex items-start gap-1.5 mb-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                         <span>
-                            {gapProducts.map((p) => `${p.designation} : ${fmt(p.gap)} posé(s) non géolocalisé(s)`).join(" · ")}
+                            <b className="text-red-100">Commentaire GÉOLOC</b> — {gapProducts.map((p) => `${p.designation} : ${fmt(p.gap)} posé(s) non géolocalisé(s)`).join(" · ")}
                             {!geoComment && " — explication demandée"}
                         </span>
                     </div>
                     <input value={geoComment} onChange={(e) => setGeoComment(e.target.value)}
                         readOnly={a.status === "validee"}
                         onBlur={() => { if (geoComment !== (a.geoloc_comment || "")) actions.patchAllee(a.uid, { geoloc_comment: geoComment }); }}
-                        placeholder="Pourquoi ? (ex: zone sans signal, scan à refaire demain...)"
+                        placeholder="Pourquoi les produits ne sont pas géolocalisés ? (zone sans signal, scan à refaire...)"
                         data-testid={`allee-geo-comment-${a.uid}`}
                         className={`w-full h-9 px-2.5 rounded-lg border text-xs placeholder:text-slate-600 outline-none
                             ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
@@ -573,15 +573,20 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 </div>
             )}
 
-            {/* Commentaire + actions */}
-            <input value={comment} onChange={(e) => setComment(e.target.value)}
-                readOnly={a.status === "validee"}
-                onBlur={() => { if (comment !== (a.comment || "")) actions.patchAllee(a.uid, { comment }); }}
-                placeholder="Commentaire (manque produit, casse...)"
-                data-testid={`allee-comment-${a.uid}`}
-                className={`w-full h-10 px-3 rounded-xl border text-xs placeholder:text-slate-600 outline-none
-                    ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
-                                             : "bg-slate-900 border-slate-800 focus:border-emerald-600"}`} />
+            {/* Commentaire pose + actions */}
+            <div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1 flex items-center gap-1.5">
+                    <MessageSquarePlus className="w-3 h-3" /> Commentaire POSE
+                </div>
+                <input value={comment} onChange={(e) => setComment(e.target.value)}
+                    readOnly={a.status === "validee"}
+                    onBlur={() => { if (comment !== (a.comment || "")) actions.patchAllee(a.uid, { comment }); }}
+                    placeholder="Manque de produit, casse, difficultés d'accès..."
+                    data-testid={`allee-comment-${a.uid}`}
+                    className={`w-full h-10 px-3 rounded-xl border text-xs placeholder:text-slate-600 outline-none
+                        ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
+                                                 : "bg-slate-900 border-slate-800 focus:border-emerald-600"}`} />
+            </div>
             <div className="flex items-center gap-2">
                 {a.status !== "validee" ? (
                     <button onClick={() => setPanel(true)} disabled={saving} data-testid={`allee-validate-${a.uid}`}
