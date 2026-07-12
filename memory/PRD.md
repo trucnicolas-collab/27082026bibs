@@ -1,5 +1,17 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 12/02/2026 (v13 — Panneau superadmin de gestion des utilisateurs)
+- [x] **Bouton « Utilisateurs »** dans le header (badge ambre) visible uniquement pour le rôle `superadmin`. Ouvre un panneau modal `AdminUsersPanel.jsx` avec la liste complète des comptes.
+- [x] **Actions par utilisateur** :
+    - **Reset MDP** : génère un nouveau mot de passe temporaire (14 chars par défaut), affiché UNE SEULE FOIS avec bouton copier, invalide l'ancien MDP + efface les tentatives échouées.
+    - **Débloquer** : efface les tentatives échouées pour cet email (utile si compte lock par brute-force).
+    - **Changer le rôle** : dropdown user / admin / superadmin (superadmin ne peut pas se rétrograder lui-même).
+    - **Supprimer** : suppression du compte (impossible sur son propre compte), phasages laissés orphelins en DB.
+- [x] **Info par ligne** : nom, email, badge de rôle (Créateur/Admin/User avec icône), badge VOUS pour l'user connecté, badge BLOQUÉ si tentatives échouées, dates création + dernière connexion, nombre de phasages.
+- [x] **Backend** : endpoints `/api/admin/users` (list), `/api/admin/users/{id}/reset-password`, `/unlock`, `/role`, `DELETE` — tous protégés par `_require_super()` (403 pour non-superadmin, testé). Colonne `last_login_at` ajoutée dans `users` (mise à jour à chaque login).
+- [x] Endpoints d'urgence conservés : `/api/version`, `/api/auth/emergency-reseed-superadmin` (avec clear brute-force intégré), `/api/auth/emergency-debug-user`, `/api/auth/emergency-trace-login` — protégés par `X-Superadmin-Secret = SUPERADMIN_PASSWORD`.
+- [x] Testé : curl (reset MDP, unlock, role change, guardrails self-demote et 403 non-superadmin) + smoke visuel OK.
+
 ## Changelog 11/02/2026 (v12 — Fixes bloquants terrain + UX validation)
 ### Bugs bloquants corrigés
 - [x] **(A) Plus d'auto-remplissage posé = prévu** à la validation d'une allée vide. Les valeurs non saisies restent nulles → l'allée est validée mais le rapport reflète les vrais chiffres (0 posé sur X prévu si rien n'a été fait). Fichier : `SuiviNuits.jsx::confirmValidate`.

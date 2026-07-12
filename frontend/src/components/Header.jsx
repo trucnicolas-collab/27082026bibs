@@ -1,7 +1,8 @@
-import React from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation, ClipboardList } from "lucide-react";
+import React, { useState } from "react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation, ClipboardList, Users } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 import ActivityPanel from "./ActivityPanel";
+import AdminUsersPanel from "./AdminUsersPanel";
 
 export default function Header({
     dataset,
@@ -20,6 +21,7 @@ export default function Header({
     user,
     onLogout,
 }) {
+    const [showAdmin, setShowAdmin] = useState(false);
     return (
         <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -84,6 +86,17 @@ export default function Header({
                         </button>
                     </>
                 )}
+                {user?.role === "superadmin" && (
+                    <button
+                        onClick={() => setShowAdmin(true)}
+                        data-testid="open-admin-users"
+                        title="Gestion des utilisateurs (Créateur)"
+                        className="h-8 px-3 bg-amber-50 border border-amber-300 text-amber-800 text-sm rounded hover:bg-amber-100 flex items-center gap-1.5 transition-colors font-semibold"
+                    >
+                        <Users className="w-4 h-4" />
+                        <span className="hidden sm:inline">Utilisateurs</span>
+                    </button>
+                )}
                 {user && (
                     <div className="flex items-center gap-2 pl-2 ml-1 border-l border-gray-200" data-testid="user-area">
                         <div className="hidden md:flex flex-col items-end leading-tight">
@@ -103,6 +116,7 @@ export default function Header({
                     </div>
                 )}
             </div>
+            {showAdmin && <AdminUsersPanel currentUser={user} onClose={() => setShowAdmin(false)} />}
         </header>
     );
 }

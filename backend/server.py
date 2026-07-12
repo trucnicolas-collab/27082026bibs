@@ -23,7 +23,7 @@ from collections import Counter
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Union, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from bson.binary import Binary
 from bson import ObjectId
 
@@ -1124,7 +1124,7 @@ async def root():
 
 # Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
 # Incrémente ce numéro à chaque changement de logique auth critique.
-APP_BUILD_TAG = "auth-hardening-2026-02-11-v4"
+APP_BUILD_TAG = "admin-users-panel-2026-02-11-v5"
 
 
 @api_router.get("/version")
@@ -1274,6 +1274,143 @@ async def emergency_trace_login(request: Request):
     step("user_to_public", lambda: _user_to_public(user))
 
     return {"final": "ok", "verify_result": bool(ok_pwd), "identifier": identifier, "steps": steps}
+
+
+# ============================================================================
+# Superadmin — Gestion des utilisateurs
+# ============================================================================
+def _require_super(user: dict) -> None:
+    if not user or user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Réservé au superadmin (créateur)")
+
+
+def _user_summary(u: dict, dataset_count: int = 0) -> dict:
+    """Vue publique d'un user pour le panneau admin (sans password_hash)."""
+    return {
+        "id": str(u["_id"]),
+        "email": u.get("email") or "",
+        "name": u.get("name") or "",
+        "role": u.get("role") or "user",
+        "created_at": u.get("created_at").isoformat() if isinstance(u.get("created_at"), datetime) else u.get("created_at"),
+        "last_login_at": u.get("last_login_at").isoformat() if isinstance(u.get("last_login_at"), datetime) else u.get("last_login_at"),
+        "dataset_count": dataset_count,
+    }
+
+
+@api_router.get("/admin/users")
+async def admin_list_users(current_user: dict = Depends(get_current_user)):
+    """Liste TOUS les utilisateurs (superadmin uniquement).
+    Inclut nombre de phasages, date de dernière connexion, statut lock."""
+    _require_super(current_user)
+    users = await db.users.find({}).sort("created_at", -1).to_list(length=1000)
+    if not users:
+        return {"users": []}
+    # Comptes de datasets par owner (une seule requête d'agrégation)
+    pipeline = [{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}]
+    counts = {str(x["_id"]): x["n"] async for x in db.datasets.aggregate(pipeline)}
+    # Statut de brute-force par email
+    attempts_by_email = {}
+    async for a in db.login_attempts.find({}, {"identifier": 1, "attempts": 1, "locked_until": 1}):
+        ident = a.get("identifier") or ""
+        if ":" in ident:
+            _, email = ident.split(":", 1)
+            existing = attempts_by_email.get(email, {"attempts": 0, "locked": False})
+            existing["attempts"] += int(a.get("attempts") or 0)
+            lu = a.get("locked_until")
+            if isinstance(lu, datetime) and lu > datetime.now(timezone.utc):
+                existing["locked"] = True
+            attempts_by_email[email] = existing
+    out = []
+    for u in users:
+        s = _user_summary(u, dataset_count=counts.get(str(u["_id"]), 0))
+        att = attempts_by_email.get(s["email"], {})
+        s["failed_attempts"] = att.get("attempts", 0)
+        s["locked"] = att.get("locked", False)
+        out.append(s)
+    return {"users": out}
+
+
+class AdminResetPasswordPayload(BaseModel):
+    length: int = Field(default=14, ge=8, le=64)
+
+
+@api_router.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password(user_id: str, payload: AdminResetPasswordPayload = None,
+                                current_user: dict = Depends(get_current_user)):
+    """Génère un nouveau mot de passe temporaire pour un utilisateur.
+    Le mot de passe est renvoyé UNE SEULE FOIS dans la réponse — à transmettre à l'user
+    par un canal sûr. Nettoie aussi les tentatives échouées."""
+    _require_super(current_user)
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="user_id invalide")
+    from auth import hash_password
+    import secrets as _secrets_local, string as _string
+    length = (payload.length if payload else 14) or 14
+    # MDP temporaire lisible : lettres + chiffres + 1 caractère spécial
+    alphabet = _string.ascii_letters + _string.digits
+    new_pwd = "".join(_secrets_local.choice(alphabet) for _ in range(length - 1)) + _secrets_local.choice("!@#$%&*")
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"password_hash": hash_password(new_pwd), "must_change_password": True}},
+    )
+    # Nettoie les tentatives échouées
+    await db.login_attempts.delete_many({"identifier": {"$regex": f".*{user['email']}$"}})
+    return {"ok": True, "email": user["email"], "temp_password": new_pwd,
+            "note": "À transmettre à l'utilisateur par un canal sûr. Ce mot de passe ne sera plus jamais affiché."}
+
+
+@api_router.post("/admin/users/{user_id}/unlock")
+async def admin_unlock_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Efface les tentatives échouées d'un utilisateur (débloque le compte)."""
+    _require_super(current_user)
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="user_id invalide")
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    res = await db.login_attempts.delete_many({"identifier": {"$regex": f".*{user['email']}$"}})
+    return {"ok": True, "cleared_attempts": res.deleted_count}
+
+
+class AdminUpdateRolePayload(BaseModel):
+    role: str = Field(..., pattern=r"^(user|admin|superadmin)$")
+
+
+@api_router.patch("/admin/users/{user_id}/role")
+async def admin_update_role(user_id: str, payload: AdminUpdateRolePayload,
+                             current_user: dict = Depends(get_current_user)):
+    """Change le rôle d'un utilisateur (user / admin / superadmin).
+    Sécurité : le superadmin ne peut pas se rétrograder lui-même (pour éviter le lock-out)."""
+    _require_super(current_user)
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="user_id invalide")
+    if str(current_user["_id"]) == user_id and payload.role != "superadmin":
+        raise HTTPException(status_code=400, detail="Impossible de rétrograder votre propre compte superadmin")
+    res = await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"role": payload.role}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    return {"ok": True, "role": payload.role}
+
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Supprime un utilisateur. Ses phasages restent en DB (orphelins) mais ne sont plus
+    accessibles à ce user. Sécurité : impossible de supprimer son propre compte."""
+    _require_super(current_user)
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="user_id invalide")
+    if str(current_user["_id"]) == user_id:
+        raise HTTPException(status_code=400, detail="Impossible de supprimer votre propre compte")
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    n_datasets = await db.datasets.count_documents({"user_id": user_id})
+    await db.users.delete_one({"_id": ObjectId(user_id)})
+    await db.login_attempts.delete_many({"identifier": {"$regex": f".*{user['email']}$"}})
+    return {"ok": True, "email": user["email"], "orphaned_datasets": n_datasets}
 
 
 @api_router.post("/upload-excel")

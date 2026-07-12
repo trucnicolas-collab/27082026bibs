@@ -210,6 +210,8 @@ def build_auth_router(db) -> APIRouter:
             raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
         await _clear_attempts(db, identifier)
+        # Traçabilité : dernière connexion (pour le panneau admin)
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": datetime.now(timezone.utc)}})
         user_id = str(user["_id"])
         access = create_access_token(user_id, email)
         refresh = create_refresh_token(user_id)
