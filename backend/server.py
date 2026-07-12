@@ -1124,7 +1124,7 @@ async def root():
 
 # Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
 # Incrémente ce numéro à chaque changement de logique auth critique.
-APP_BUILD_TAG = "auth-hardening-2026-02-11-v3"
+APP_BUILD_TAG = "auth-hardening-2026-02-11-v4"
 
 
 @api_router.get("/version")
@@ -1169,7 +1169,9 @@ async def emergency_reseed_superadmin(request: Request):
             "created_at": existing.get("created_at") if isinstance(existing.get("created_at"), datetime) else datetime.now(timezone.utc),
         }},
     )
-    return {"ok": True, "action": "updated", "email": email, "role": "superadmin"}
+    # Nettoie aussi les tentatives de login échouées pour ne pas être bloqué par le brute-force
+    n_del = await db.login_attempts.delete_many({"identifier": {"$regex": f".*{email}$"}})
+    return {"ok": True, "action": "updated", "email": email, "role": "superadmin", "cleared_attempts": n_del.deleted_count}
 
 
 @api_router.post("/auth/emergency-debug-user")
@@ -1216,8 +1218,10 @@ async def emergency_trace_login(request: Request):
     import traceback as _tb
     from auth import (
         _normalize_email, verify_password, create_access_token,
-        create_refresh_token, _user_to_public,
+        create_refresh_token, _user_to_public, _check_brute_force,
+        _record_failed_attempt, _clear_attempts, _set_auth_cookies,
     )
+    from fastapi.responses import JSONResponse
     secret_header = request.headers.get("X-Superadmin-Secret", "") or ""
     expected = os.environ.get("SUPERADMIN_PASSWORD", "") or ""
     if not expected or secret_header != expected:
@@ -1228,6 +1232,8 @@ async def emergency_trace_login(request: Request):
         body = {}
     email = _normalize_email(body.get("email") or "")
     password = body.get("password") or ""
+    ip = request.client.host if request.client else "unknown"
+    identifier = f"{ip}:{email}"
     steps = []
     def step(name, fn):
         try:
@@ -1246,16 +1252,28 @@ async def emergency_trace_login(request: Request):
             steps.append({"step": name, "ok": False, "error": f"{type(e).__name__}: {e}", "trace": _tb.format_exc()[-1500:]})
             return None
 
+    # 0. Brute-force check
+    await astep("check_brute_force", _check_brute_force(db, identifier))
+    # 1. Find user
     user = await astep("find_user", db.users.find_one({"email": email}))
     if not user:
         return {"final": "user_not_found", "steps": steps}
+    # 2. Verify password
     hp = user.get("password_hash")
-    step("verify_password", lambda: verify_password(password, hp) if hp else False)
+    ok_pwd = step("verify_password", lambda: verify_password(password, hp) if hp else False)
+    # 3. Clear attempts
+    await astep("clear_attempts", _clear_attempts(db, identifier))
+    # 4. Tokens
     uid = step("str_id", lambda: str(user["_id"]))
-    step("create_access_token", lambda: create_access_token(uid or "", email))
-    step("create_refresh_token", lambda: create_refresh_token(uid or ""))
+    access = step("create_access_token", lambda: create_access_token(uid or "", email))
+    refresh = step("create_refresh_token", lambda: create_refresh_token(uid or ""))
+    # 5. Set cookies (utilise une Response temporaire)
+    dummy = JSONResponse(content={})
+    step("set_auth_cookies", lambda: _set_auth_cookies(dummy, access or "", refresh or ""))
+    # 6. User to public
     step("user_to_public", lambda: _user_to_public(user))
-    return {"final": "ok", "steps": steps}
+
+    return {"final": "ok", "verify_result": bool(ok_pwd), "identifier": identifier, "steps": steps}
 
 
 @api_router.post("/upload-excel")
