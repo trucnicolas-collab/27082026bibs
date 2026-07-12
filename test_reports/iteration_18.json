@@ -1,0 +1,36 @@
+{
+  "summary": "Bug 'clic sur une allée ne fait rien' REPRODUIT et RCA identifié. Le hook useMobileBack casse la navigation forward interne (Night→Allée) parce que son cleanup appelle history.back() de façon asynchrone, ce qui déclenche un popstate qui referme immédiatement l'écran fraîchement monté.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SuiviNuits / useMobileBack",
+        "issue": "Le clic sur une allée (allee-open-*) monte brièvement AlleeScreen puis retourne immédiatement à NightScreen. En dev/StrictMode, le clic sur une nuit (night-open-*) est aussi cassé pour la même raison. Nav events observés après clic Night: [pushState, history.back, pushState, popstate] → night-screen=0.",
+        "selector": "[data-testid^='allee-open-'] et [data-testid^='night-open-']",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix urgent dans /app/frontend/src/suivi/useMobileBack.js : le cleanup ne doit PAS appeler history.back() de façon inconditionnelle. history.back() est asynchrone; quand un écran plus profond (AlleeScreen) monte juste après (via setView interne), son useEffect appelle pushState AVANT que le popstate du back() ne soit délivré. Le popstate arrive donc alors que le NOUVEAU listener (celui d'AlleeScreen) est actif → AlleeScreen appelle son onBack et se ferme.",
+    "Fix proposé (à valider par main agent) : marquer l'entrée pushée avec un id unique et ne faire history.back() que si history.state?._suiviBack === marker AU MOMENT du cleanup. Sinon, un écran plus profond a déjà pushé par-dessus → ne rien faire, l'entrée sera nettoyée par le cleanup de l'écran plus profond quand il se démontera à son tour.",
+    "Alternative simple : supprimer complètement le history.back() du cleanup et laisser la stack accumuler quelques entrées bidon. Le bouton back Android déclenchera le popstate qui fait onBack (comportement voulu), et à la sortie complète du flux les entrées bidon sont détruites avec la page.",
+    "Alternative plus robuste : abandonner pushState/popstate et n'utiliser qu'un listener global 'popstate' au niveau de SuiviNuits qui remonte view.level d'un cran (nights <- allees <- allee), avec UNE SEULE entrée pushée quand on entre dans le flux, retirée quand on en sort."
+  ],
+  "critical_code_review_comments": [
+    "useMobileBack.js:35 — history.back() dans le cleanup est asynchrone : quand deux écrans s'échangent dans le même commit React (cleanup A + mount B), le back() de A est mis en file et déclenche un popstate APRÈS le pushState de B. Résultat : le listener de B intercepte le popstate destiné à A et lance son onBack, refermant B. Impossible de naviguer plus profond que 1 niveau tant que ce hook est utilisé.",
+    "SuiviNuits.jsx:38-47 — le dispatcher setView monte/démonte NightScreen ↔ AlleeScreen sans conserver de contexte de navigation. Combiné à useMobileBack, cela génère le bug ci-dessus. Envisager de garder les deux écrans montés (visibility hidden) ou de gérer l'historique au niveau SuiviNuits.",
+    "SuiviNuits.jsx:120 & 343 — utilisation identique de `window.history.back()` dans les boutons UI 'goBack'. C'est cohérent avec le hook, mais si le hook est corrigé pour ne pas pop en cleanup, les goBack UI continueront de fonctionner via le popstate → onBack."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "Bug reproduit"},
+  "test_credentials": "admin@vusion.local / admin123 — mais bug reproductible sur /suivi/terrain (public, sans compte)",
+  "seed_data_creation": "Aucune. Dataset existant fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (ST PIERRE DES CORPS H7351) réutilisé.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Après fix de useMobileBack.js, revalider: (1) sur /suivi/terrain → ST PIERRE → onglet Nuits → click Night 2 → click une allée → attendre allee-back visible et product-reel-* visibles ; (2) tester bouton back Android (page.go_back()) qui doit remonter d'un cran; (3) tester chips de filtre 'filter-*' puis clic allée filtrée; (4) vérifier que la stack d'historique ne diverge pas après plusieurs allers-retours.",
+  "rca of the issue": "RCA — Le hook useMobileBack (useMobileBack.js) fait pushState au mount et history.back() au cleanup si popstate n'a pas été déclenché par l'utilisateur. Lors d'une navigation interne forward (setView de {level:'allees'} vers {level:'allee'}), NightScreen se démonte (son cleanup appelle history.back() — asynchrone) puis AlleeScreen monte immédiatement dans le même commit React et appelle pushState. Le popstate de history.back() est délivré au tick suivant, alors que le nouveau listener (celui d'AlleeScreen) est en place ; AlleeScreen intercepte ce popstate destiné à NightScreen et exécute son onBack (setView vers 'allees'), refermant AlleeScreen dans la foulée. L'utilisateur voit un flash puis retour à la liste des allées → « le clic ne fait rien ». Reproduction: click sur night-open-2 en dev (StrictMode) → 4 nav events consécutifs pushState, history.back, pushState, popstate, et night-screen invisible après. En prod, même pattern sur click allée. Fix cible: useMobileBack.js ligne 35. Voir action_items pour propositions."
+}
