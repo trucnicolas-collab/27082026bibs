@@ -5,7 +5,7 @@ Reçoit un fichier Excel, le traite et génère :
 - Onglet "Récapitulatif produits" : totaux par Type+Référence, Spare (+5%), Inclineur, 3 lignes vides
 - Onglet "Par Secteur/Allée" : comptage EEG (ES/SA), Rails, Caméras
 """
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, Response
 from starlette.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
@@ -1120,6 +1120,48 @@ def sanitize_dict(d: dict) -> dict:
 @api_router.get("/")
 async def root():
     return {"message": "Excel Inventory API", "version": "1.0"}
+
+
+# Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
+# Incrémente ce numéro à chaque changement de logique auth critique.
+APP_BUILD_TAG = "auth-hardening-2026-02-11-v1"
+
+
+@api_router.get("/version")
+async def version():
+    return {"build": APP_BUILD_TAG}
+
+
+@api_router.post("/auth/emergency-reseed-superadmin")
+async def emergency_reseed_superadmin(request: Request):
+    """Endpoint de secours : force la (ré)création du compte superadmin.
+    Utilité : si le seeding au démarrage a échoué en prod et que l'admin est bloqué dehors.
+    Auth : header ``X-Superadmin-Secret`` doit correspondre exactement à la variable
+    d'env ``SUPERADMIN_PASSWORD`` (secret partagé connu du seul déployeur)."""
+    from auth import hash_password, _normalize_email
+    secret_header = request.headers.get("X-Superadmin-Secret", "") or ""
+    expected = os.environ.get("SUPERADMIN_PASSWORD", "") or ""
+    if not expected or secret_header != expected:
+        raise HTTPException(status_code=401, detail="Secret invalide ou SUPERADMIN_PASSWORD non configuré")
+    email = _normalize_email(os.environ.get("SUPERADMIN_EMAIL", "") or "")
+    if not email:
+        raise HTTPException(status_code=500, detail="SUPERADMIN_EMAIL non configuré côté serveur")
+    hashed = hash_password(expected)
+    existing = await db.users.find_one({"email": email})
+    if existing is None:
+        await db.users.insert_one({
+            "email": email,
+            "password_hash": hashed,
+            "name": "Créateur",
+            "role": "superadmin",
+            "created_at": datetime.now(timezone.utc),
+        })
+        return {"ok": True, "action": "created", "email": email, "role": "superadmin"}
+    await db.users.update_one(
+        {"email": email},
+        {"$set": {"password_hash": hashed, "role": "superadmin"}},
+    )
+    return {"ok": True, "action": "updated", "email": email, "role": "superadmin"}
 
 
 @api_router.post("/upload-excel")
