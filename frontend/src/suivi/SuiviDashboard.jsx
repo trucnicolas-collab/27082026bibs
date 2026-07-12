@@ -16,6 +16,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
     const geolocs = alerts.filter((a) => a.type === "geoloc");
     const pct = Math.min(100, st.pct || 0);
     const avance = st.avance_nuits;
+    const [nightSummary, setNightSummary] = useState(null); // { night, allees } ou null
 
     return (
         <div className="space-y-4" data-testid="suivi-dashboard">
@@ -132,7 +133,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
                 <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2">Nuits</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {(state.nights || []).map((n) => (
-                        <button key={n.nuit} onClick={() => goTab("nuits")} data-testid={`dash-night-${n.nuit}`}
+                        <button key={n.nuit} onClick={() => setNightSummary(n)} data-testid={`dash-night-${n.nuit}`}
                             className={`rounded-xl border p-3 text-left transition-colors hover:border-emerald-700
                                 ${n.complete ? "bg-emerald-950/40 border-emerald-900/60" : n.started ? "bg-slate-900 border-sky-900/60" : "bg-slate-900 border-slate-800"}`}>
                             <div className="flex items-center justify-between">
@@ -156,6 +157,103 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
                     ))}
                 </div>
             </section>
+
+            {nightSummary && (
+                <NightSummaryModal night={nightSummary} state={state} onClose={() => setNightSummary(null)} goTab={goTab} />
+            )}
+        </div>
+    );
+}
+
+function NightSummaryModal({ night, state, onClose, goTab }) {
+    const allees = (state.allees || []).filter((a) => a.nuit_eff === night.nuit);
+    const eegRestant = Math.max(0, (night.eeg_plan || 0) - (night.eeg_reel || 0));
+    return (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-3"
+            data-testid={`night-summary-${night.nuit}`} onClick={onClose}>
+            <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 p-4 space-y-3 max-h-[85vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start gap-2">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold flex-shrink-0
+                        ${night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
+                        {night.nuit}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-bold" data-testid="night-summary-title">
+                            Résumé Nuit {night.nuit}
+                            {night.date && <span className="text-slate-400 font-normal ml-2 text-xs">{new Date(night.date + "T00:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long" })}</span>}
+                        </h4>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                            {night.complete ? "Nuit terminée" : night.started ? "En cours" : "À venir"}
+                        </div>
+                    </div>
+                    <button onClick={onClose} data-testid="night-summary-close"
+                        className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
+                </div>
+                {/* KPI */}
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-slate-800/50 p-2.5">
+                        <div className="text-[10px] uppercase text-slate-500 font-semibold">Allées</div>
+                        <div className="text-lg font-bold" data-testid="night-summary-allees">{night.nb_validees} / {night.nb_allees}</div>
+                        {night.nb_bloquees > 0 && <div className="text-[10px] text-red-400">{night.nb_bloquees} bloquée(s)</div>}
+                    </div>
+                    <div className="rounded-lg bg-slate-800/50 p-2.5">
+                        <div className="text-[10px] uppercase text-slate-500 font-semibold">EEG posées</div>
+                        <div className="text-lg font-bold" data-testid="night-summary-eeg">{fmt(night.eeg_reel)} / {fmt(night.eeg_plan)}</div>
+                        {night.delta_eeg !== null && night.delta_eeg !== undefined && (
+                            <div className={`text-[10px] font-semibold ${night.delta_eeg > 0 ? "text-emerald-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
+                                {night.delta_eeg > 0 ? "+" : ""}{fmt(night.delta_eeg)}
+                            </div>
+                        )}
+                    </div>
+                </div>
+                {eegRestant > 0 && !night.complete && (
+                    <div className="rounded-lg bg-amber-950/40 border border-amber-900/60 p-2 text-[11px] text-amber-200">
+                        Restant à poser : <b>{fmt(eegRestant)} EEG</b>
+                    </div>
+                )}
+                {night.nb_a_finaliser > 0 && (
+                    <div className="rounded-lg bg-red-950/40 border border-red-900/60 p-2 text-[11px] text-red-200 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" /> {night.nb_a_finaliser} allée(s) à finaliser une autre nuit
+                    </div>
+                )}
+                {/* Liste des allées */}
+                <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1">
+                    <div className="text-[10px] uppercase text-slate-500 font-semibold mb-1">Allées de la nuit</div>
+                    {allees.length === 0 && <div className="text-xs text-slate-500 italic">Aucune allée assignée.</div>}
+                    {allees.map((a) => {
+                        const status = a.status || "a_faire";
+                        const color =
+                            status === "validee" ? "text-emerald-400 bg-emerald-950/40" :
+                            status === "bloquee" ? "text-red-400 bg-red-950/40" :
+                            status === "a_finaliser" ? "text-red-300 bg-red-950/40" :
+                            "text-slate-400 bg-slate-800/40";
+                        const dot =
+                            status === "validee" ? "bg-emerald-500" :
+                            status === "bloquee" ? "bg-red-500" :
+                            status === "a_finaliser" ? "bg-red-400" :
+                            "bg-slate-600";
+                        return (
+                            <div key={a.uid}
+                                className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${color}`}
+                                data-testid={`night-summary-allee-${a.uid}`}>
+                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />
+                                <span className="text-xs font-bold w-8 flex-shrink-0">{a.allee}</span>
+                                <span className="text-[11px] flex-1 min-w-0 truncate text-slate-300">
+                                    {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                                </span>
+                                <span className="text-[10px] font-semibold tabular-nums">
+                                    {a.nb_saisis}/{a.nb_produits}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+                <button onClick={() => { onClose(); goTab && goTab("nuits"); }} data-testid="night-summary-open"
+                    className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                    Ouvrir la nuit <ArrowRight className="w-4 h-4" />
+                </button>
+            </div>
         </div>
     );
 }

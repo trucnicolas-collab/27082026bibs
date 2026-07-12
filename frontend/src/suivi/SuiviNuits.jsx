@@ -5,6 +5,7 @@ import {
     MessageSquarePlus, Trash2, MoveRight, MapPin, Camera, X,
     ChevronRight, ArrowLeft, Moon, Plus, Zap,
 } from "lucide-react";
+import { useMobileBack } from "./useMobileBack";
 import { compressImage } from "./api";
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
@@ -112,6 +113,9 @@ function NightRow({ night, actions, onOpen }) {
 // ---- Niveau 2 : allées de la nuit ----
 function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
     const n = night.nuit;
+    // Bouton retour natif Android → remonte d'un cran
+    useMobileBack(onBack, true);
+    const goBack = () => window.history.back();
     const items = (state.allees || []).filter((x) => x.nuit_eff === n);
     const incidents = (state.incidents || []).filter((i) => i.nuit === n);
     const [incidentText, setIncidentText] = useState("");
@@ -139,7 +143,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
     return (
         <div className="space-y-2.5" data-testid={`night-screen-${n}`}>
             <div className="flex items-center gap-2">
-                <button onClick={onBack} data-testid="night-back"
+                <button onClick={goBack} data-testid="night-back"
                     className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
                     <ArrowLeft className="w-4 h-4" /> Nuits
                 </button>
@@ -263,6 +267,9 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
 
 // ---- Niveau 3 : allée PLEIN ÉCRAN, saisie par produit ----
 function AlleeScreen({ allee: a, state, actions, onBack }) {
+    // Bouton retour natif Android → remonte à la liste des allées
+    useMobileBack(onBack, true);
+    const goBack = () => window.history.back();
     const [vals, setVals] = useState(() => {
         const v = {};
         (a.products || []).forEach((p) => { v[p.designation] = { reel: p.reel ?? "", geo: p.geo ?? "" }; });
@@ -292,6 +299,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
     });
 
     const saveField = async (designation, field) => {
+        if (a.status === "validee") return; // verrouillé : rouvrir l'allée d'abord
         const raw = vals[designation]?.[field];
         const num = raw === "" ? null : Number(raw);
         if (raw !== "" && (isNaN(num) || num < 0)) { toast.error("Valeur invalide"); return; }
@@ -314,11 +322,9 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             return;
         }
         setSaving(true);
+        // Ne PAS auto-remplir posé = prévu si rien n'a été saisi : les valeurs vides restent nulles
+        // (l'allée est validée mais les produits non saisis restent à 0 posé — visible dans le rapport)
         const fields = { status: "validee" };
-        const fill = (a.products || [])
-            .filter((p) => p.reel === null && (vals[p.designation]?.reel ?? "") === "")
-            .map((p) => ({ designation: p.designation, reel: p.plan || 0 }));
-        if (fill.length) fields.products = fill;
         if (justif.trim()) fields.justification = justif.trim();
         fields.extra_products = extras
             .filter((x) => x.designation.trim() && Number(x.qty) > 0)
@@ -350,7 +356,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
         <div className="space-y-3" data-testid={`allee-screen-${a.uid}`}>
             {/* En-tête */}
             <div className="flex items-center gap-2">
-                <button onClick={onBack} data-testid="allee-back"
+                <button onClick={goBack} data-testid="allee-back"
                     className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
                     <ArrowLeft className="w-4 h-4" /> Nuit {a.nuit_eff}
                 </button>
@@ -377,44 +383,75 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 </div>
             </div>
 
-            {/* Produits */}
+            {/* Produits — 1 ligne par produit : nom complet en haut, chiffres dessous */}
             <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden" data-testid={`allee-products-${a.uid}`}>
-                <div className="grid grid-cols-[1fr_52px_64px_64px_44px] gap-1 px-3 py-2 text-[10px] uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-800">
-                    <span>Produit</span><span className="text-center">Prévu</span>
-                    <span className="text-center">Posé</span><span className="text-center">Géoloc</span><span className="text-center">Δ</span>
-                </div>
-                {(a.products || []).map((p) => (
+                {a.status === "validee" && (
+                    <div className="px-3 py-2 bg-emerald-950/40 border-b border-emerald-900/60 text-[11px] text-emerald-300 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Allée validée — rouvrez pour modifier
+                    </div>
+                )}
+                {(a.products || []).map((p) => {
+                    const locked = a.status === "validee";
+                    return (
                     <div key={p.designation}
-                        className={`grid grid-cols-[1fr_52px_64px_64px_44px] gap-1 items-center px-3 py-2 border-b border-slate-800/60 last:border-0 ${p.gap ? "bg-red-950/20" : ""}`}
+                        className={`px-3 py-2.5 border-b border-slate-800/60 last:border-0 space-y-1.5 ${p.gap ? "bg-red-950/20" : ""}`}
                         data-testid={`product-row-${a.uid}-${p.designation}`}>
-                        <div className="min-w-0">
-                            <div className="text-xs text-slate-200 truncate" title={p.designation}>{p.designation}</div>
-                            {p.is_geo && <div className="text-[9px] text-sky-500 flex items-center gap-0.5"><MapPin className="w-2.5 h-2.5" /> à géolocaliser</div>}
+                        {/* Ligne 1 : nom complet du produit */}
+                        <div className="flex items-start gap-2">
+                            <div className="text-xs text-slate-200 flex-1 min-w-0 break-words leading-snug" title={p.designation}>{p.designation}</div>
+                            {p.is_geo && (
+                                <span className="text-[9px] text-sky-400 flex items-center gap-0.5 flex-shrink-0 mt-0.5">
+                                    <MapPin className="w-2.5 h-2.5" /> géoloc
+                                </span>
+                            )}
                         </div>
-                        <div className="text-xs text-slate-400 text-center tabular-nums">{fmt(p.plan)}</div>
-                        <input type="number" min="0" inputMode="numeric" placeholder="—"
-                            value={vals[p.designation]?.reel ?? ""}
-                            onChange={(e) => setVals((s) => ({ ...s, [p.designation]: { ...s[p.designation], reel: e.target.value } }))}
-                            onBlur={() => saveField(p.designation, "reel")}
-                            data-testid={`product-reel-${p.designation}`}
-                            className="h-8 px-1 rounded bg-slate-800 border border-slate-700 text-xs text-center focus:border-emerald-500 outline-none placeholder:text-slate-600" />
-                        {p.is_geo ? (
-                            <input type="number" min="0" inputMode="numeric" placeholder="—"
-                                value={vals[p.designation]?.geo ?? ""}
-                                onChange={(e) => setVals((s) => ({ ...s, [p.designation]: { ...s[p.designation], geo: e.target.value } }))}
-                                onBlur={() => saveField(p.designation, "geo")}
-                                data-testid={`product-geo-${p.designation}`}
-                                className={`h-8 px-1 rounded bg-slate-800 border text-xs text-center outline-none placeholder:text-slate-600
-                                    ${p.gap ? "border-red-700 focus:border-red-500 text-red-300" : "border-slate-700 focus:border-sky-500"}`} />
-                        ) : (
-                            <div className="text-center text-slate-700 text-xs">—</div>
-                        )}
-                        <div className={`text-xs text-center font-bold tabular-nums
-                            ${p.delta === null || p.delta === undefined ? "text-slate-700" : p.delta === 0 ? "text-emerald-400" : p.delta < 0 ? "text-red-400" : "text-amber-400"}`}>
-                            {p.delta === null || p.delta === undefined ? "" : (p.delta > 0 ? "+" : "") + fmt(p.delta)}
+                        {/* Ligne 2 : Prévu / Posé / Géoloc / Δ */}
+                        <div className="grid grid-cols-4 gap-1.5 items-center">
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] uppercase text-slate-500 font-semibold">Prévu</span>
+                                <span className="text-xs text-slate-300 tabular-nums font-semibold" data-testid={`product-plan-${p.designation}`}>{fmt(p.plan)}</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] uppercase text-slate-500 font-semibold">Posé</span>
+                                <input type="number" min="0" inputMode="numeric" placeholder="—"
+                                    value={vals[p.designation]?.reel ?? ""}
+                                    readOnly={locked}
+                                    onChange={(e) => setVals((s) => ({ ...s, [p.designation]: { ...s[p.designation], reel: e.target.value } }))}
+                                    onBlur={() => saveField(p.designation, "reel")}
+                                    data-testid={`product-reel-${p.designation}`}
+                                    className={`w-full h-8 px-1 rounded text-xs text-center outline-none placeholder:text-slate-600
+                                        ${locked ? "bg-slate-950 border border-slate-800 text-slate-400 cursor-not-allowed"
+                                                 : "bg-slate-800 border border-slate-700 focus:border-emerald-500"}`} />
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] uppercase text-slate-500 font-semibold">Géoloc</span>
+                                {p.is_geo ? (
+                                    <input type="number" min="0" inputMode="numeric" placeholder="—"
+                                        value={vals[p.designation]?.geo ?? ""}
+                                        readOnly={locked}
+                                        onChange={(e) => setVals((s) => ({ ...s, [p.designation]: { ...s[p.designation], geo: e.target.value } }))}
+                                        onBlur={() => saveField(p.designation, "geo")}
+                                        data-testid={`product-geo-${p.designation}`}
+                                        className={`w-full h-8 px-1 rounded text-xs text-center outline-none placeholder:text-slate-600
+                                            ${locked ? "bg-slate-950 border border-slate-800 text-slate-400 cursor-not-allowed"
+                                                     : p.gap ? "bg-slate-800 border border-red-700 focus:border-red-500 text-red-300"
+                                                             : "bg-slate-800 border border-slate-700 focus:border-sky-500"}`} />
+                                ) : (
+                                    <span className="text-slate-700 text-xs">—</span>
+                                )}
+                            </div>
+                            <div className="flex flex-col items-center">
+                                <span className="text-[9px] uppercase text-slate-500 font-semibold">Δ</span>
+                                <span className={`text-xs font-bold tabular-nums
+                                    ${p.delta === null || p.delta === undefined ? "text-slate-700" : p.delta === 0 ? "text-emerald-400" : p.delta < 0 ? "text-red-400" : "text-amber-400"}`}
+                                    data-testid={`product-delta-${p.designation}`}>
+                                    {p.delta === null || p.delta === undefined ? "—" : (p.delta > 0 ? "+" : "") + fmt(p.delta)}
+                                </span>
+                            </div>
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* Explication géoloc */}
@@ -428,10 +465,13 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                         </span>
                     </div>
                     <input value={geoComment} onChange={(e) => setGeoComment(e.target.value)}
+                        readOnly={a.status === "validee"}
                         onBlur={() => { if (geoComment !== (a.geoloc_comment || "")) actions.patchAllee(a.uid, { geoloc_comment: geoComment }); }}
                         placeholder="Pourquoi ? (ex: zone sans signal, scan à refaire demain...)"
                         data-testid={`allee-geo-comment-${a.uid}`}
-                        className="w-full h-9 px-2.5 rounded-lg bg-slate-900 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none" />
+                        className={`w-full h-9 px-2.5 rounded-lg border text-xs placeholder:text-slate-600 outline-none
+                            ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
+                                                     : "bg-slate-900 border-red-900/70 focus:border-red-500"}`} />
                 </div>
             )}
 
@@ -488,10 +528,13 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
 
             {/* Commentaire + actions */}
             <input value={comment} onChange={(e) => setComment(e.target.value)}
+                readOnly={a.status === "validee"}
                 onBlur={() => { if (comment !== (a.comment || "")) actions.patchAllee(a.uid, { comment }); }}
                 placeholder="Commentaire (manque produit, casse...)"
                 data-testid={`allee-comment-${a.uid}`}
-                className="w-full h-10 px-3 rounded-xl bg-slate-900 border border-slate-800 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                className={`w-full h-10 px-3 rounded-xl border text-xs placeholder:text-slate-600 outline-none
+                    ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
+                                             : "bg-slate-900 border-slate-800 focus:border-emerald-600"}`} />
             <div className="flex items-center gap-2">
                 {a.status !== "validee" ? (
                     <button onClick={() => setPanel(true)} disabled={saving} data-testid={`allee-validate-${a.uid}`}

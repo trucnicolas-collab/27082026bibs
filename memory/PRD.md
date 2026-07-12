@@ -1,5 +1,25 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 11/02/2026 (v12 — Fixes bloquants terrain + UX validation)
+### Bugs bloquants corrigés
+- [x] **(A) Plus d'auto-remplissage posé = prévu** à la validation d'une allée vide. Les valeurs non saisies restent nulles → l'allée est validée mais le rapport reflète les vrais chiffres (0 posé sur X prévu si rien n'a été fait). Fichier : `SuiviNuits.jsx::confirmValidate`.
+- [x] **(B) Allée validée = inputs verrouillés** : posé, géoloc, commentaire, comm. géoloc en `readOnly` + fond assombri + curseur `not-allowed`. Bandeau explicite « Allée validée — rouvrez pour modifier ». Le bouton « Rouvrir » reste actif. Backend `saveField` bloque aussi côté client pour éviter les patchs sur allée validée.
+- [x] **(C) Retour Android** : hook `useMobileBack` dans `SuiviNuits.jsx`. Chaque écran (NightScreen, AlleeScreen) empile une entrée d'historique à l'ouverture et intercepte popstate → onBack. Les flèches UI passent par `history.back()` pour garder la stack propre. Un back sur l'écran racine sort de l'app (comportement browser natif) sans plus quitter l'app en cascade.
+
+### UX terrain
+- [x] **(D) Ligne produit sur toute la largeur** : nom complet du produit sur la première ligne (wrap si besoin, plus de troncature), et Prévu / Posé / Géoloc / Δ répartis sur une 2e ligne en grid 4-cols. Badge « géoloc » discret à droite du nom pour les produits géolocalisables. Fichier : `SuiviNuits.jsx`.
+- [x] **(E) Dashboard : clic sur une nuit → mini-résumé modal** au lieu d'aller sur l'onglet Nuits. Affiche KPI (allées, EEG posées/prévues, restant), badges (bloquées, à finaliser), liste des allées avec statut coloré, bouton « Ouvrir la nuit » pour basculer sur l'onglet. Testids `night-summary-*`, `night-summary-allee-*`. Fichier : `SuiviDashboard.jsx`.
+
+### Testé
+- 52/52 tests pytest suivi passent, lint pass, smoke visuel OK (terrain + chef).
+
+### Reste à faire (P3 — logique métier, prochaine vague)
+- (F) Géoloc = nombre de produits posés (validation bloquante)
+- (G) Bouton « Non fait » sur une allée : commentaire obligatoire + choix de nuit de rattrapage + alerte dashboard
+- (H) État du stock dans le rapport nuit + alerte dashboard « risque de manque »
+- (I) Filtrer les SA à ne pas poser (basé sur le phasage EEG existant : étiquettes marquées « à ne pas poser »)
+- (J) Matériel caméras distinct des EEG : fixations Captana selon l'onglet Commande du phasage
+
 ## Changelog 11/02/2026 (v11 — Noms d'exports normalisés + affichage magasin propre + owner visible)
 - [x] **Renommage de tous les exports** — format unique `Export {store_name} ({store_code}) DD-MM-YYYY HH-MM_{suffix}.{ext}` (date = heure de Paris au moment du téléchargement).
   - Concerne : Export RTR (`_RTR.xlsx`), Export Carrefour (`_Carrefour.xlsx`), PowerPoint CR VT (`_CR_VT.pptx`), Rapport nuit suivi (`_Rapport_nuit_N.xlsx`).
