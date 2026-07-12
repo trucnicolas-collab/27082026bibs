@@ -124,6 +124,25 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
     const [downloading, setDownloading] = useState(false);
     const [addPanel, setAddPanel] = useState(false);
     const [addBusy, setAddBusy] = useState(null);
+    const [filter, setFilter] = useState("all"); // all | pose_todo | geo_todo | not_validated | validated
+
+    const allItems = items;
+    const filteredItems = allItems.filter((a) => {
+        if (filter === "all") return true;
+        if (filter === "pose_todo") return !a.pose_complete && a.status !== "validee";
+        if (filter === "geo_todo") return (a.geo_total || 0) > 0 && !a.geo_complete && a.status !== "validee";
+        if (filter === "not_validated") return a.status !== "validee";
+        if (filter === "validated") return a.status === "validee";
+        return true;
+    });
+
+    const filterCounts = {
+        all: allItems.length,
+        pose_todo: allItems.filter((a) => !a.pose_complete && a.status !== "validee").length,
+        geo_todo: allItems.filter((a) => (a.geo_total || 0) > 0 && !a.geo_complete && a.status !== "validee").length,
+        not_validated: allItems.filter((a) => a.status !== "validee").length,
+        validated: allItems.filter((a) => a.status === "validee").length,
+    };
 
     // Allées des nuits suivantes (candidates au rapatriement en avance)
     // Triées par nuit croissante puis par n° d'allée (ordre naturel)
@@ -162,7 +181,37 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                 <span className="text-xs text-slate-400 font-normal">· {night.nb_validees}/{night.nb_allees} validées</span>
             </h3>
 
-            {items.map((a) => {
+            {/* Barre de filtres */}
+            <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-1" data-testid={`night-filters-${n}`}>
+                {[
+                    { k: "all", label: "Toutes", cls: "bg-slate-700 border-slate-600 text-slate-100" },
+                    { k: "pose_todo", label: "Pose à finir", cls: "bg-emerald-950/50 border-emerald-800 text-emerald-300" },
+                    { k: "geo_todo", label: "Géoloc à finir", cls: "bg-sky-950/50 border-sky-800 text-sky-300" },
+                    { k: "not_validated", label: "Non validées", cls: "bg-orange-950/50 border-orange-800 text-orange-300" },
+                    { k: "validated", label: "Validées", cls: "bg-emerald-950/40 border-emerald-900 text-emerald-400" },
+                ].map((f) => {
+                    const active = filter === f.k;
+                    const count = filterCounts[f.k];
+                    return (
+                        <button key={f.k}
+                            onClick={() => setFilter(f.k)}
+                            data-testid={`filter-${f.k}`}
+                            className={`h-7 px-2.5 rounded-full border text-[11px] font-semibold whitespace-nowrap flex items-center gap-1 transition-all
+                                ${active ? f.cls + " ring-1 ring-white/20" : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700"}`}>
+                            {f.label}
+                            <span className={`text-[9px] px-1 rounded ${active ? "bg-black/30" : "bg-slate-800"}`}>{count}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {filteredItems.length === 0 && (
+                <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 text-center text-xs text-slate-500">
+                    Aucune allée ne correspond à ce filtre.
+                </div>
+            )}
+
+            {filteredItems.map((a) => {
                 const [lbl, cls] = STATUS_CHIP[a.status] || STATUS_CHIP.a_faire;
                 const hasGap = Object.keys(a.geo_gap || {}).length > 0;
                 const isDeplacee = a.is_deplacee && a.status !== "validee";
