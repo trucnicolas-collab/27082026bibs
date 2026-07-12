@@ -205,7 +205,7 @@ def build_auth_router(db) -> APIRouter:
         await _check_brute_force(db, identifier)
 
         user = await db.users.find_one({"email": email})
-        if not user or not verify_password(payload.password, user["password_hash"]):
+        if not user or not user.get("password_hash") or not verify_password(payload.password, user["password_hash"]):
             await _record_failed_attempt(db, identifier)
             raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
@@ -346,7 +346,7 @@ async def setup_auth(db):
             "created_at": datetime.now(timezone.utc),
         })
         logger.info(f"Admin user seeded: {admin_email}")
-    elif not verify_password(admin_password, existing["password_hash"]):
+    elif not verify_password(admin_password, existing.get("password_hash") or ""):
         await db.users.update_one(
             {"email": admin_email},
             {"$set": {"password_hash": hash_password(admin_password)}},
@@ -369,7 +369,7 @@ async def setup_auth(db):
             logger.info(f"Superadmin user seeded: {super_email}")
         else:
             updates = {}
-            if not verify_password(super_password, existing_su["password_hash"]):
+            if not verify_password(super_password, existing_su.get("password_hash") or ""):
                 updates["password_hash"] = hash_password(super_password)
             if existing_su.get("role") != "superadmin":
                 updates["role"] = "superadmin"
