@@ -165,18 +165,38 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
             {items.map((a) => {
                 const [lbl, cls] = STATUS_CHIP[a.status] || STATUS_CHIP.a_faire;
                 const hasGap = Object.keys(a.geo_gap || {}).length > 0;
+                const isDeplacee = a.is_deplacee && a.status !== "validee";
                 return (
                     <button key={a.uid} onClick={() => onOpenAllee(a.uid)}
                         data-testid={`allee-open-${a.uid}`}
                         className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-colors hover:border-emerald-700
-                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60" : a.status === "bloquee" || a.status === "a_finaliser" || a.status === "non_faite" ? "bg-red-950/20 border-red-900/60" : "bg-slate-900 border-slate-800"}`}>
-                        <span className="px-2 py-1 rounded-md bg-slate-700 text-slate-100 text-sm font-bold flex-shrink-0">
+                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60"
+                                : isDeplacee ? "bg-orange-950/30 border-orange-700/60"
+                                : a.status === "bloquee" || a.status === "a_finaliser" || a.status === "non_faite" ? "bg-red-950/20 border-red-900/60"
+                                : "bg-slate-900 border-slate-800"}`}>
+                        <span className={`px-2 py-1 rounded-md text-sm font-bold flex-shrink-0
+                            ${isDeplacee ? "bg-orange-700 text-white" : "bg-slate-700 text-slate-100"}`}>
                             {a.allee}
                         </span>
                         <div className="flex-1 min-w-0">
-                            <div className="text-xs text-slate-300 truncate">{a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}</div>
-                            <div className="text-[11px] text-slate-500">
-                                {a.nb_saisis}/{a.nb_produits} produits saisis · {fmt(a.eeg_reel)} / {fmt(a.eeg_plan)} EEG
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs text-slate-300 truncate">{a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}</span>
+                                {isDeplacee && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-500/90 text-slate-900" title={`Planifiée nuit ${a.nuit_plan}, faite nuit ${a.nuit_eff}`}>
+                                        DÉPLACÉE (plan N{a.nuit_plan})
+                                    </span>
+                                )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
+                                <span className={a.pose_complete ? "text-emerald-400 font-semibold" : ""}>
+                                    Pose {a.pose_saisis}/{a.pose_total}
+                                </span>
+                                {a.geo_total > 0 && (
+                                    <span className={a.geo_complete ? "text-emerald-400 font-semibold" : "text-sky-400"}>
+                                        · Géoloc {a.geo_saisis}/{a.geo_total}
+                                    </span>
+                                )}
+                                <span>· {fmt(a.eeg_reel)}/{fmt(a.eeg_plan)} EEG</span>
                             </div>
                         </div>
                         {hasGap && <MapPin className="w-4 h-4 text-red-400 flex-shrink-0" title="Géoloc incomplète" />}

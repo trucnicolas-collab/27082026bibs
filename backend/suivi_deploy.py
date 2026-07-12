@@ -307,6 +307,19 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             photos = [{"id": p.get("id"), "author": p.get("author") or "",
                        "created_at": p.get("created_at") or ""}
                       for p in (e.get("photos") or [])]
+            # === Métriques Pose vs Géoloc (indépendantes) ===
+            # Pose : sur tous les produits à poser (plan > 0), combien ont reel saisi
+            pose_products = [p for p in products if (p["plan"] or 0) > 0]
+            pose_saisis = sum(1 for p in pose_products if p["reel"] is not None)
+            pose_pose = sum(1 for p in pose_products if (p["reel"] or 0) >= (p["plan"] or 0))
+            pose_complete = bool(pose_products) and pose_saisis == len(pose_products)
+            # Géoloc : uniquement sur les produits géolocalisables avec plan > 0 (ou reel > 0)
+            geo_products = [p for p in products if p["is_geo"] and ((p["reel"] or 0) > 0 or (p["plan"] or 0) > 0)]
+            geo_saisis = sum(1 for p in geo_products if p["geo"] is not None)
+            geo_ok = sum(1 for p in geo_products if (p["geo"] or 0) >= (p["reel"] or 0))
+            geo_complete = bool(geo_products) and geo_ok == len(geo_products)
+            # Allée déplacée = nuit_reelle explicitement différente de nuit_plan
+            is_deplacee = nuit_reelle is not None and int(nuit_reelle) != int(nuit_plan)
             allees.append({
                 "uid": uid,
                 "allee": a.get("allee") or uid.split("__")[0],
@@ -316,6 +329,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nuit_reelle": nuit_reelle,
                 "nuit_eff": eff,
                 "nuit_rattrapage": e.get("nuit_rattrapage"),
+                "is_deplacee": is_deplacee,
                 "plan": plan,
                 "reel": reel,
                 "delta": delta,
@@ -326,6 +340,15 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "products": products,
                 "nb_produits": len(products),
                 "nb_saisis": sum(1 for p in products if p["reel"] is not None),
+                # Séparation pose / géoloc
+                "pose_total": len(pose_products),
+                "pose_saisis": pose_saisis,
+                "pose_pose": pose_pose,
+                "pose_complete": pose_complete,
+                "geo_total": len(geo_products),
+                "geo_saisis": geo_saisis,
+                "geo_ok": geo_ok,
+                "geo_complete": geo_complete,
                 "eeg_plan": _r(_eeg_sum(plan)),
                 "eeg_reel": _r(_eeg_sum({k: (reel[k] or 0) for k in FAMILY_KEYS})) if has_reel else None,
                 "justification": e.get("justification") or "",
@@ -354,6 +377,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             blocked = sum(1 for x in items if x["status"] == "bloquee")
             a_finaliser = sum(1 for x in items if x["status"] == "a_finaliser")
             non_faites = sum(1 for x in items if x["status"] == "non_faite")
+            nb_deplacees = sum(1 for x in items if x.get("is_deplacee") and x["status"] != "validee")
+            # Séparation pose / géoloc au niveau nuit
+            pose_saisis_tot = sum(int(x.get("pose_saisis") or 0) for x in items)
+            pose_total_tot = sum(int(x.get("pose_total") or 0) for x in items)
+            geo_saisis_tot = sum(int(x.get("geo_saisis") or 0) for x in items)
+            geo_total_tot = sum(int(x.get("geo_total") or 0) for x in items)
+            nb_pose_complete = sum(1 for x in items if x.get("pose_complete"))
+            nb_geo_complete = sum(1 for x in items if x.get("geo_complete"))
             # Allées rapatriées en avance = allées dont la nuit planifiée était postérieure
             nb_rapatriees = sum(1 for x in items if (x.get("nuit_plan") or 0) > n)
             started = any(x["has_reel"] or x["status"] != "a_faire" for x in items)
@@ -365,7 +396,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "nb_validees": validated, "nb_bloquees": blocked,
                 "nb_a_finaliser": a_finaliser,
                 "nb_non_faites": non_faites,
+                "nb_deplacees": nb_deplacees,
                 "nb_rapatriees": nb_rapatriees,
+                "nb_pose_complete": nb_pose_complete,
+                "nb_geo_complete": nb_geo_complete,
+                "pose_saisis": pose_saisis_tot,
+                "pose_total": pose_total_tot,
+                "geo_saisis": geo_saisis_tot,
+                "geo_total": geo_total_tot,
                 "eeg_plan": _r(plan_eeg), "eeg_reel": _r(reel_eeg),
                 "delta_eeg": _r(reel_eeg - plan_eeg) if started else None,
                 "complete": complete, "started": started,
@@ -588,6 +626,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "eeg_prevues": total_eeg_plan,
                 "eeg_posees": total_eeg_reel,
                 "pct": _r(100.0 * total_eeg_reel / total_eeg_plan) if total_eeg_plan else 0,
+                # Séparation pose / géoloc (agrégat toutes nuits)
+                "pose_saisis": sum(int(x.get("pose_saisis") or 0) for x in allees),
+                "pose_total": sum(int(x.get("pose_total") or 0) for x in allees),
+                "pose_pct": _r(100.0 * sum(int(x.get("pose_saisis") or 0) for x in allees) / max(1, sum(int(x.get("pose_total") or 0) for x in allees))) if any(x.get("pose_total") for x in allees) else 0,
+                "geo_saisis": sum(int(x.get("geo_saisis") or 0) for x in allees),
+                "geo_total": sum(int(x.get("geo_total") or 0) for x in allees),
+                "geo_pct": _r(100.0 * sum(int(x.get("geo_saisis") or 0) for x in allees) / max(1, sum(int(x.get("geo_total") or 0) for x in allees))) if any(x.get("geo_total") for x in allees) else 0,
+                "allees_deplacees": sum(1 for x in allees if x.get("is_deplacee") and x["status"] != "validee"),
                 "allees_total": len(allees),
                 "allees_validees": n_valid,
                 "allees_bloquees": n_block,
@@ -832,8 +878,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             row += 1
         row += 1
 
-        # Tableau des allées (prévu / réel / géo / Δ)
-        headers = ["Allée", "Secteur", "Rayon"]
+        # Tableau des allées (prévu / réel / géo / Δ) + colonnes distinctes Pose vs Géoloc
+        headers = ["Allée", "Secteur", "Rayon", "Pose", "Géoloc", "Déplacée ?"]
         col_plan = {}
         for k in fams:
             col_plan[k] = len(headers)
@@ -850,7 +896,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         ws.set_column(len(headers) - 3, len(headers) - 1, 28)
         row += 1
         status_lbl = {"a_faire": "À faire", "validee": "Validée", "bloquee": "BLOQUÉE",
-                      "a_finaliser": "À FINALISER"}
+                      "a_finaliser": "À FINALISER", "non_faite": "NON FAITE"}
         tot_plan = {k: 0.0 for k in fams}
         tot_reel = {k: 0.0 for k in fams}
         tot_geo = {k: 0.0 for k in fams}
@@ -859,6 +905,23 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             ws.write(row, c, x["allee"], f_c); c += 1
             ws.write(row, c, x["secteur"], f_cl); c += 1
             ws.write(row, c, x["rayon"], f_cl); c += 1
+            # Pose X/Y — écart en rouge si non complet
+            ws.write(row, c, f"{x.get('pose_saisis') or 0}/{x.get('pose_total') or 0}",
+                     f_c if x.get("pose_complete") else f_geo_bad)
+            c += 1
+            # Géoloc A/B (— si aucun produit à géolocaliser)
+            if (x.get("geo_total") or 0) > 0:
+                ws.write(row, c, f"{x.get('geo_saisis') or 0}/{x.get('geo_total') or 0}",
+                         f_c if x.get("geo_complete") else f_geo_bad)
+            else:
+                ws.write(row, c, "—", f_c)
+            c += 1
+            # Déplacée ?
+            if x.get("is_deplacee"):
+                ws.write(row, c, f"Depuis N{x['nuit_plan']}", f_geo_bad)
+            else:
+                ws.write(row, c, "", f_c)
+            c += 1
             for k in fams:
                 p = x["plan"].get(k) or 0
                 rv = x["reel"].get(k)

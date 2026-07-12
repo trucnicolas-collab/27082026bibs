@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { toast } from "sonner";
 import {
     AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
-    Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin,
+    Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin, MoveRight,
     HardHat, Copy, Link2, Trash2,
 } from "lucide-react";
 
@@ -38,9 +38,32 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
                     <div className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-700"
                         style={{ width: `${pct}%` }} />
                 </div>
+                {/* Double jauge Pose vs Géoloc (indicateurs distincts) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-pose-progress">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold">Pose produits</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{st.pose_saisis || 0} / {st.pose_total || 0} <span className="text-slate-500 ml-1">({(st.pose_pct || 0).toLocaleString("fr-FR")}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
+                                style={{ width: `${Math.min(100, st.pose_pct || 0)}%` }} />
+                        </div>
+                    </div>
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-geo-progress">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Géolocalisation</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{st.geo_saisis || 0} / {st.geo_total || 0} <span className="text-slate-500 ml-1">({(st.geo_pct || 0).toLocaleString("fr-FR")}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500"
+                                style={{ width: `${Math.min(100, st.geo_pct || 0)}%` }} />
+                        </div>
+                    </div>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
                     <Kpi label="Allées validées" value={`${st.allees_validees || 0} / ${st.allees_total || 0}`} icon={CheckCircle2} color="text-emerald-400" testid="dash-allees" />
-                    <Kpi label="Allées bloquées" value={st.allees_bloquees || 0} icon={Ban} color={st.allees_bloquees ? "text-red-400" : "text-slate-400"} testid="dash-bloquees" />
+                    <Kpi label="Allées déplacées" value={st.allees_deplacees || 0} icon={MoveRight} color={st.allees_deplacees ? "text-orange-400" : "text-slate-400"} testid="dash-deplacees" />
                     <Kpi label="Nuits terminées" value={`${st.nuits_terminees || 0} / ${state.nb_nuits || 0}`} icon={Moon} color="text-sky-400" testid="dash-nuits" />
                     <Kpi label="Rythme réel / prévu" value={`${fmt(st.rythme_reel) || "—"} / ${fmt(st.rythme_prevu)}`} icon={TrendingUp} color="text-amber-400" testid="dash-rythme" />
                 </div>

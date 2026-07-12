@@ -1,5 +1,28 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 12/02/2026 (v16 — Allées déplacées en orange + distinction Pose vs Géoloc)
+
+### Allées déplacées en orange
+- Nouveau flag backend `is_deplacee` = `nuit_reelle != nuit_plan` (rapatriement ou report).
+- Frontend `SuiviNuits.jsx` : ligne d'allée en **fond orange** + badge du numéro d'allée orange tant que non validée. Petit badge "DÉPLACÉE (plan Nx)" visible avec tooltip précisant la nuit d'origine.
+- Statistique dashboard `st.allees_deplacees` = compteur d'allées déplacées et non validées, affiché sur le KPI "Allées déplacées".
+
+### Distinction Pose vs Géoloc (indicateurs séparés partout)
+Un poseur peut avoir tout posé sans avoir tout géolocalisé (ou l'inverse). L'app expose maintenant clairement ces deux dimensions :
+- **Par allée** (backend `_build_state`) : `pose_total / pose_saisis / pose_complete`, `geo_total / geo_saisis / geo_complete`.
+- **Par nuit** : `nb_pose_complete`, `nb_geo_complete`, `pose_saisis/pose_total`, `geo_saisis/geo_total`.
+- **Global (stats)** : `pose_pct`, `geo_pct` distincts.
+- **Frontend allée dans liste** : "Pose X/Y · Géoloc A/B" (vert si complet, sky si en cours).
+- **Frontend Dashboard** : deux jauges distinctes côte à côte — **Pose produits** (dégradé vert) et **Géolocalisation** (dégradé sky, icône MapPin). Chacune avec compteur X/Y et pourcentage.
+- **Rapport nuit Excel** : 3 nouvelles colonnes en tête de tableau — **Pose** (X/Y en rouge si incomplet), **Géoloc** (A/B en rouge si incomplet), **Déplacée ?** ("Depuis Nx" en rouge si l'allée vient d'une autre nuit).
+
+### KPI
+Remplacement du KPI "Allées bloquées" par "Allées déplacées" (le premier n'est presque jamais utilisé dans la vraie vie, le second est bien plus actionnable).
+
+### Testé
+- 52/52 tests pytest suivi passent.
+- Smoke visuel OK sur terrain.
+
 ## Changelog 12/02/2026 (v15 — Déplacement automatique + statut « en attente »)
 - **Nuit de rattrapage devient optionnelle** dans la modale « Allée non faite » :
   - Si le poseur choisit une nuit → l'allée est **automatiquement déplacée** sur cette nuit et repasse en statut `a_faire` (prête à être travaillée). Le commentaire est conservé pour la traçabilité.
