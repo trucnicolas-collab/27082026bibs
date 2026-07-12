@@ -1124,7 +1124,7 @@ async def root():
 
 # Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
 # Incrémente ce numéro à chaque changement de logique auth critique.
-APP_BUILD_TAG = "auth-hardening-2026-02-11-v2"
+APP_BUILD_TAG = "auth-hardening-2026-02-11-v3"
 
 
 @api_router.get("/version")
@@ -1206,6 +1206,56 @@ async def emergency_debug_user(request: Request):
             except Exception as e:
                 fields[k] = {"type": type(v).__name__, "error": str(e)}
     return {"found": True, "email": email, "fields": fields}
+
+
+@api_router.post("/auth/emergency-trace-login")
+async def emergency_trace_login(request: Request):
+    """Endpoint de secours : rejoue chaque étape du login en isolant le crash.
+    Body JSON : {"email": "...", "password": "..."}.
+    Auth : header ``X-Superadmin-Secret`` = SUPERADMIN_PASSWORD."""
+    import traceback as _tb
+    from auth import (
+        _normalize_email, verify_password, create_access_token,
+        create_refresh_token, _user_to_public,
+    )
+    secret_header = request.headers.get("X-Superadmin-Secret", "") or ""
+    expected = os.environ.get("SUPERADMIN_PASSWORD", "") or ""
+    if not expected or secret_header != expected:
+        raise HTTPException(status_code=401, detail="Secret invalide")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    email = _normalize_email(body.get("email") or "")
+    password = body.get("password") or ""
+    steps = []
+    def step(name, fn):
+        try:
+            v = fn()
+            steps.append({"step": name, "ok": True, "result_type": type(v).__name__ if v is not None else "None"})
+            return v
+        except Exception as e:
+            steps.append({"step": name, "ok": False, "error": f"{type(e).__name__}: {e}", "trace": _tb.format_exc()[-1500:]})
+            return None
+    async def astep(name, coro):
+        try:
+            v = await coro
+            steps.append({"step": name, "ok": True, "result_type": type(v).__name__ if v is not None else "None"})
+            return v
+        except Exception as e:
+            steps.append({"step": name, "ok": False, "error": f"{type(e).__name__}: {e}", "trace": _tb.format_exc()[-1500:]})
+            return None
+
+    user = await astep("find_user", db.users.find_one({"email": email}))
+    if not user:
+        return {"final": "user_not_found", "steps": steps}
+    hp = user.get("password_hash")
+    step("verify_password", lambda: verify_password(password, hp) if hp else False)
+    uid = step("str_id", lambda: str(user["_id"]))
+    step("create_access_token", lambda: create_access_token(uid or "", email))
+    step("create_refresh_token", lambda: create_refresh_token(uid or ""))
+    step("user_to_public", lambda: _user_to_public(user))
+    return {"final": "ok", "steps": steps}
 
 
 @api_router.post("/upload-excel")
