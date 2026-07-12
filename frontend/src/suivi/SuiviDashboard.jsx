@@ -249,6 +249,47 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                         Restant à poser : <b>{fmt(eegRestant)} EEG</b>
                     </div>
                 )}
+                {/* Mini-jauges Pose vs Géoloc spécifiques à cette nuit */}
+                {(night.pose_total > 0 || night.geo_total > 0) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="night-summary-gauges">
+                        {night.pose_total > 0 && (() => {
+                            const pctPose = Math.round(100 * (night.pose_saisis || 0) / (night.pose_total || 1));
+                            const complete = (night.pose_saisis || 0) >= (night.pose_total || 0);
+                            return (
+                                <div className="rounded-lg bg-slate-800/50 p-2">
+                                    <div className="flex items-center justify-between text-[10px] mb-1">
+                                        <span className="uppercase tracking-widest text-slate-500 font-semibold">Pose</span>
+                                        <span className={`tabular-nums font-semibold ${complete ? "text-emerald-400" : "text-slate-300"}`}>
+                                            {night.pose_saisis || 0}/{night.pose_total || 0} <span className="text-slate-500">({pctPose}%)</span>
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
+                                        <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
+                                            style={{ width: `${Math.min(100, pctPose)}%` }} />
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                        {night.geo_total > 0 && (() => {
+                            const pctGeo = Math.round(100 * (night.geo_saisis || 0) / (night.geo_total || 1));
+                            const complete = (night.geo_saisis || 0) >= (night.geo_total || 0);
+                            return (
+                                <div className="rounded-lg bg-slate-800/50 p-2">
+                                    <div className="flex items-center justify-between text-[10px] mb-1">
+                                        <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-2.5 h-2.5" /> Géoloc</span>
+                                        <span className={`tabular-nums font-semibold ${complete ? "text-emerald-400" : "text-sky-300"}`}>
+                                            {night.geo_saisis || 0}/{night.geo_total || 0} <span className="text-slate-500">({pctGeo}%)</span>
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
+                                        <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500"
+                                            style={{ width: `${Math.min(100, pctGeo)}%` }} />
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                    </div>
+                )}
                 {night.nb_a_finaliser > 0 && (
                     <div className="rounded-lg bg-red-950/40 border border-red-900/60 p-2 text-[11px] text-red-200 flex items-center gap-1.5">
                         <AlertTriangle className="w-3.5 h-3.5" /> {night.nb_a_finaliser} allée(s) à finaliser une autre nuit
