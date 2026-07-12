@@ -344,17 +344,20 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             toast.error("Un commentaire est obligatoire pour marquer une allée non faite");
             return;
         }
-        if (!nonFaitNuit) {
-            toast.error("Choisis la nuit de rattrapage");
-            return;
-        }
         setSaving(true);
-        const ok = await actions.patchAllee(a.uid, {
+        const fields = {
             status: "non_faite",
             comment: nonFaitComment.trim(),
-            nuit_rattrapage: Number(nonFaitNuit),
-        });
-        if (ok) { toast.warning(`Allée ${a.allee} marquée non faite — rattrapage nuit ${nonFaitNuit}`); setNonFaitPanel(false); }
+        };
+        // Si une nuit de rattrapage est choisie → le backend déplace l'allée
+        // Sinon → l'allée reste "non faite" en attente
+        if (nonFaitNuit) fields.nuit_rattrapage = Number(nonFaitNuit);
+        const ok = await actions.patchAllee(a.uid, fields);
+        if (ok) {
+            if (nonFaitNuit) toast.success(`Allée ${a.allee} déplacée sur la nuit ${nonFaitNuit}`);
+            else toast.warning(`Allée ${a.allee} marquée non faite — en attente de rattrapage`);
+            setNonFaitPanel(false);
+        }
         setSaving(false);
     };
 
@@ -607,7 +610,9 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 {a.status === "non_faite" && (
                     <div className="rounded-xl bg-red-950/40 border border-red-900/60 p-3 text-[11px] text-red-200" data-testid={`allee-non-fait-info-${a.uid}`}>
                         <div className="font-bold flex items-center gap-1.5"><Ban className="w-3.5 h-3.5" /> Allée non faite</div>
-                        {a.nuit_rattrapage && <div className="mt-1">→ rattrapage prévu <b>nuit {a.nuit_rattrapage}</b></div>}
+                        {a.nuit_rattrapage
+                            ? <div className="mt-1">→ rattrapage prévu <b>nuit {a.nuit_rattrapage}</b></div>
+                            : <div className="mt-1 text-orange-300">⏳ <b>En attente</b> — nuit de rattrapage à définir</div>}
                         {a.comment && <div className="mt-1 italic">« {a.comment} »</div>}
                     </div>
                 )}
@@ -707,15 +712,20 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                                 className="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none resize-none" />
                         </div>
                         <div>
-                            <label className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Nuit de rattrapage prévue *</label>
+                            <label className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Nuit de rattrapage</label>
                             <select value={nonFaitNuit} onChange={(e) => setNonFaitNuit(e.target.value)}
                                 data-testid="non-fait-nuit"
                                 className="mt-1 w-full h-10 px-2 rounded-lg bg-slate-800 border border-slate-700 text-xs focus:border-red-500 outline-none">
-                                <option value="">— Choisir une nuit —</option>
+                                <option value="">⏳ En attente — je ne sais pas encore quand</option>
                                 {(state.nights || []).filter((n) => n.nuit !== a.nuit_eff).map((n) => (
                                     <option key={n.nuit} value={n.nuit}>Nuit {n.nuit}{n.date ? ` (${new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })})` : ""}</option>
                                 ))}
                             </select>
+                            <div className="mt-1 text-[10px] text-slate-500">
+                                {nonFaitNuit
+                                    ? "→ L'allée sera automatiquement déplacée sur cette nuit."
+                                    : "→ L'allée restera en attente (visible dans le dashboard et le rapport)."}
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <button onClick={() => setNonFaitPanel(false)} data-testid="non-fait-cancel"
@@ -725,7 +735,8 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             <button onClick={confirmNonFait} disabled={saving}
                                 data-testid="non-fait-confirm"
                                 className="flex-1 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
-                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />} Marquer non faite
+                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                                {nonFaitNuit ? "Déplacer sur nuit " + nonFaitNuit : "Marquer non faite (en attente)"}
                             </button>
                         </div>
                     </div>

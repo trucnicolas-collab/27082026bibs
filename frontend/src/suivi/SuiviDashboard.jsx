@@ -114,9 +114,13 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef" })
                         ))}
                         {nonFaites.map((a, i) => (
                             <button key={`nf${i}`} onClick={() => goTab("nuits")} data-testid={`alert-non-faite-${i}`}
-                                className="w-full text-left rounded-xl bg-red-950/40 border border-red-800 p-3.5 flex items-start gap-3 hover:border-red-700 transition-colors">
-                                <Ban className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-                                <div className="text-sm text-red-200">{a.message}</div>
+                                className={`w-full text-left rounded-xl p-3.5 flex items-start gap-3 transition-colors border
+                                    ${a.en_attente ? "bg-orange-950/40 border-orange-800 hover:border-orange-700" : "bg-red-950/40 border-red-800 hover:border-red-700"}`}>
+                                <Ban className={`w-4 h-4 mt-0.5 flex-shrink-0 ${a.en_attente ? "text-orange-400" : "text-red-400"}`} />
+                                <div className={`text-sm ${a.en_attente ? "text-orange-200" : "text-red-200"}`}>
+                                    {a.en_attente && <b className="text-orange-100">⏳ En attente</b>}{a.en_attente && " — "}
+                                    {a.message}
+                                </div>
                             </button>
                         ))}
                         {blocages.map((a, i) => (

@@ -1,5 +1,14 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 12/02/2026 (v15 — Déplacement automatique + statut « en attente »)
+- **Nuit de rattrapage devient optionnelle** dans la modale « Allée non faite » :
+  - Si le poseur choisit une nuit → l'allée est **automatiquement déplacée** sur cette nuit et repasse en statut `a_faire` (prête à être travaillée). Le commentaire est conservé pour la traçabilité.
+  - S'il choisit « ⏳ En attente — je ne sais pas encore quand » → l'allée reste `non_faite` sur la nuit d'origine, affichée « En attente » dans le dashboard (couleur orange distincte) et le rapport nuit Excel (nouvelle section dédiée).
+- **Alerte dashboard non_faite enrichie** : champ `en_attente` (bool) qui déclenche l'affichage orange avec badge « ⏳ En attente ».
+- **Rapport Excel nuit** : nouvelle section « ⏳ Allées non faites EN ATTENTE (rattrapage à définir) » listant les allées (Allée / Secteur / Rayon / Raison).
+- **AlleeScreen** : le bandeau info "Allée non faite" affiche soit "→ rattrapage prévu nuit X" soit "⏳ En attente — nuit de rattrapage à définir".
+- Testé : PATCH avec `nuit_rattrapage` → allée déplacée (status=a_faire, nuit_reelle=nr). Sans → non_faite conservée. 52/52 pytest passent.
+
 ## Changelog 12/02/2026 (v14 — P3 backlog terrain : F, G, H, I, J)
 ### (F) Géoloc = nombre de produits posés — validation bloquante
 - Nouveau helper backend `_check_geoloc_gap` dans `suivi_deploy.py`.

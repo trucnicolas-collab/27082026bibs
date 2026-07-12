@@ -1124,7 +1124,7 @@ async def root():
 
 # Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
 # Incrémente ce numéro à chaque changement de logique auth critique.
-APP_BUILD_TAG = "admin-users-panel-2026-02-11-v5"
+APP_BUILD_TAG = "non-faite-auto-move-2026-02-12-v6"
 
 
 @api_router.get("/version")

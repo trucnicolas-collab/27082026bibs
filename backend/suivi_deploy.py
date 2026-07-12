@@ -450,8 +450,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     "label": f"Allée {x['allee']}",
                     "uid": x["uid"], "nuit": x["nuit_eff"],
                     "nuit_rattrapage": nr,
+                    "en_attente": nr is None,
                     "message": (f"Allée {x['allee']} ({x['secteur']}) — nuit {x['nuit_eff']} NON FAITE"
-                                + (f", rattrapage nuit {nr}" if nr else "")
+                                + (f", rattrapage nuit {nr}" if nr else " — EN ATTENTE (nuit de rattrapage à définir)")
                                 + (f" : {x['comment']}" if x["comment"] else "")),
                 })
             if x["status"] == "bloquee":
@@ -783,6 +784,24 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         if nb_non_faites:
             ws.write(row, 0, "Allées non faites", f_kpi_l)
             ws.write(row, 2, nb_non_faites)
+            row += 1
+
+        # ---- Allées "non faites" en attente (rattrapage non défini) ----
+        pending = [x for x in items if x["status"] == "non_faite" and not x.get("nuit_rattrapage")]
+        if pending:
+            row += 1
+            f_pending_title = wb.add_format({"bold": True, "font_size": 12, "font_color": "#B91C1C"})
+            ws.write(row, 0, f"⏳ Allées « non faites » EN ATTENTE (rattrapage à définir) — {len(pending)}", f_pending_title)
+            row += 1
+            for c, h in enumerate(["Allée", "Secteur", "Rayon", "Raison"]):
+                ws.write(row, c, h, f_h)
+            row += 1
+            for x in pending:
+                ws.write(row, 0, x["allee"], f_c)
+                ws.write(row, 1, x["secteur"], f_cl)
+                ws.write(row, 2, x["rayon"] or "", f_cl)
+                ws.write(row, 3, x["comment"] or "—", f_cl)
+                row += 1
             row += 1
 
         # ---- Alerte stock : produits en risque de manque ----
@@ -1276,15 +1295,29 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         matnode = _materiel_par_allee(d).get(payload.uid) or {}
         fields = payload.dict(exclude_unset=True)
         new_status = fields.get("status")
-        # (G) Statut "non_faite" — commentaire + nuit de rattrapage obligatoires
+        # (G) Statut "non_faite" — commentaire obligatoire (nuit de rattrapage optionnelle)
+        # Si nuit_rattrapage fournie : on déplace automatiquement l'allée sur cette nuit
+        #   et on la remet en "a_faire" pour qu'elle soit prête à être travaillée.
+        # Sinon : l'allée reste "non_faite" sur la nuit d'origine → visible "En attente".
         if new_status == "non_faite":
             entry_g = next((e for e in (doc.get("allees") or []) if str(e.get("uid")) == payload.uid), {})
             has_comment = bool((fields.get("comment") or entry_g.get("comment") or "").strip())
-            has_nr = fields.get("nuit_rattrapage") is not None or entry_g.get("nuit_rattrapage") is not None
-            if not has_comment or not has_nr:
+            if not has_comment:
                 raise HTTPException(
                     status_code=400,
-                    detail="Allée « non faite » : commentaire et nuit de rattrapage obligatoires")
+                    detail="Allée « non faite » : commentaire obligatoire (pourquoi ?)")
+            # Si une nuit de rattrapage est spécifiée → déplacement auto + reset status
+            nr = fields.get("nuit_rattrapage")
+            if nr is not None and nr > 0:
+                # Modifier le payload directement + forcer l'inclusion dans __fields_set__
+                # (car _apply_allee_update relit payload.dict(exclude_unset=True))
+                payload.status = "a_faire"
+                payload.nuit_reelle = int(nr)
+                payload.nuit_rattrapage = None
+                payload.__fields_set__.add("status")
+                payload.__fields_set__.add("nuit_reelle")
+                payload.__fields_set__.add("nuit_rattrapage")
+                new_status = "a_faire"
         if new_status == "validee":
             entry = next((e for e in (doc.get("allees") or []) if str(e.get("uid")) == payload.uid), {})
             # (F) Géoloc = nombre de produits posés (validation bloquante sauf explication)
