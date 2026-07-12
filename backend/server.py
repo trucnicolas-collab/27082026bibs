@@ -1124,7 +1124,7 @@ async def root():
 
 # Marqueur de build : sert à vérifier que le déploiement prod embarque bien le dernier code.
 # Incrémente ce numéro à chaque changement de logique auth critique.
-APP_BUILD_TAG = "auth-hardening-2026-02-11-v1"
+APP_BUILD_TAG = "auth-hardening-2026-02-11-v2"
 
 
 @api_router.get("/version")
@@ -1157,11 +1157,55 @@ async def emergency_reseed_superadmin(request: Request):
             "created_at": datetime.now(timezone.utc),
         })
         return {"ok": True, "action": "created", "email": email, "role": "superadmin"}
+    # Réparation complète : force TOUS les champs requis pour un login fonctionnel
+    # (au cas où le doc DB soit incomplet — champ manquant peut crasher _user_to_public en 500)
     await db.users.update_one(
         {"email": email},
-        {"$set": {"password_hash": hashed, "role": "superadmin"}},
+        {"$set": {
+            "email": email,  # normalisation
+            "password_hash": hashed,
+            "role": "superadmin",
+            "name": (existing.get("name") or "Créateur"),
+            "created_at": existing.get("created_at") if isinstance(existing.get("created_at"), datetime) else datetime.now(timezone.utc),
+        }},
     )
     return {"ok": True, "action": "updated", "email": email, "role": "superadmin"}
+
+
+@api_router.post("/auth/emergency-debug-user")
+async def emergency_debug_user(request: Request):
+    """Endpoint de secours : dump le doc user (sans password_hash) pour identifier
+    les champs corrompus responsables d'un 500 au login.
+    Auth : header ``X-Superadmin-Secret`` = SUPERADMIN_PASSWORD.
+    Body JSON : {"email": "..."} (facultatif, défaut = SUPERADMIN_EMAIL)"""
+    from auth import _normalize_email
+    secret_header = request.headers.get("X-Superadmin-Secret", "") or ""
+    expected = os.environ.get("SUPERADMIN_PASSWORD", "") or ""
+    if not expected or secret_header != expected:
+        raise HTTPException(status_code=401, detail="Secret invalide")
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    email = _normalize_email(body.get("email") or os.environ.get("SUPERADMIN_EMAIL") or "")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email manquant")
+    user = await db.users.find_one({"email": email})
+    if not user:
+        return {"found": False, "email": email}
+    # Redact sensible et retourne un aperçu des types de chaque champ
+    fields = {}
+    for k, v in user.items():
+        if k == "password_hash":
+            fields[k] = {"present": True, "type": type(v).__name__, "len": len(v) if hasattr(v, "__len__") else None}
+        else:
+            try:
+                # Force sérialisation JSON en str
+                fields[k] = {"type": type(v).__name__, "value_repr": repr(v)[:200]}
+            except Exception as e:
+                fields[k] = {"type": type(v).__name__, "error": str(e)}
+    return {"found": True, "email": email, "fields": fields}
 
 
 @api_router.post("/upload-excel")
