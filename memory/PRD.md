@@ -1,5 +1,33 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 — Zones Saisonnières = SA VT-posées avec split 400/1600)
+
+### Changement métier
+Les Zones Saisonnières changent de sémantique :
+- **Avant** : 3 zones de 2000 SA 2.1 chacune, posées par le magasin (SA magasin).
+- **Après** : 3 zones de **400 SA 1.5 + 1600 SA 2.1** chacune (2000 par zone), **posées par la VT**.
+- Totaux : +10 000 m² = 4800 SA 2.1 + 1200 SA 1.5 (au lieu de 6000 SA 2.1). -10 000 m² = 3200 SA 2.1 + 800 SA 1.5.
+
+### Fichiers modifiés (backend/server.py)
+1. **`compute_phasage_summary`** : `seasonal_zones` désormais avec `{id, label, sa_15: 400, sa_21: 1600, eeg: 2000, is_seasonal: True}` (au lieu de `eeg: 2000` seul).
+2. **`_full_allee_index`** : les nœuds ZS ont `sa_15=z.sa_15`, `sa_21=z.sa_21`, `sa_21_std=z.sa_21`, `es_15=es_21=0` (ne sont plus de l'ES). Rétrocompat : ZS sans split → tout en SA 2.1.
+3. **`compute_node_sa_install`** : les ZS retournent maintenant `{sa_15: node.sa_15, sa_21: node.sa_21_std}` (au lieu de `{0, 0, 0, 0}`). Elles sont **toujours** installées par la VT.
+4. **`node_sa_total`** : retourne `sa_15 + sa_21` pour les ZS (au lieu de 0).
+5. **`_aggregate_phasage_for_export`** : plus de branche spéciale iter28 pour ZS — la logique standard gère tout naturellement (`sa_mag = 0` pour ZS car `node_sa_total(zs) = inst_total`).
+6. **`_write_code_couleur_sheet`** (Excel Tableau date) : branche `if zone:` ajoute `sa_15 + sa_21` à `t["eeg"]`, ne touche PLUS à `t["sa"]`.
+
+### Impact sur les exports
+- **Colonne « EEG ES+SA »** : les ZS y sont désormais comptées (VT-posé).
+- **Colonne « SA 1.5 »** : ZS contribuent (400 par zone).
+- **Colonne « SA 2.1 »** : ZS contribuent (1600 par zone).
+- **Colonne « SA magasin »** : ZS n'y sont PLUS (elles sont maintenant VT-posées).
+
+### Validé
+- Iter28 réécrit (8 tests) + 53 régression = **61/61 backend, 100%**.
+- Test intégré : Nuit avec 1 ZS → EEG ES+SA=2000, SA magasin=0, sa_inst_15=400, sa_inst_21=1600 ✅.
+- Nuit avec 2 ZS → EEG ES+SA=4000, SA magasin=0, sa_inst_15=800, sa_inst_21=3200 ✅.
+
+
 ## Changelog 13/02/2026 (v27 — Fix Zones Saisonnières dans PPTX slide 11)
 
 ### Bug root cause (enfin identifié après iter26/iter27)

@@ -2854,19 +2854,25 @@ def compute_phasage_summary(d: dict) -> dict:
     sa_21_saisonnier = 6000 if surface_cat == "plus_10000" else (4000 if surface_cat == "moins_10000" else 0)
 
     # Zones saisonnières sélectionnables dans le phasage de pose
-    # +10 000 m² → 3 zones de 2000 EEG (= 6000 SA 2.1 noir)
-    # −10 000 m² → 2 zones de 2000 EEG (= 4000 SA 2.1 noir)
+    # (v27 - févr. 2026) : chaque Zone contient 1600 SA 2.1 + 400 SA 1.5,
+    # POSÉES PAR LA VT (avant : 2000 SA 2.1 posées par le magasin).
+    # Le total reste 6000 SA sur +10000m² (4800 SA 2.1 + 1200 SA 1.5)
+    # et 4000 sur -10000m² (3200 SA 2.1 + 800 SA 1.5).
+    ZS_SA_15_PAR_ZONE = 400.0
+    ZS_SA_21_PAR_ZONE = 1600.0
+    ZS_EEG_PAR_ZONE = ZS_SA_15_PAR_ZONE + ZS_SA_21_PAR_ZONE  # 2000
     seasonal_zones = []
     if surface_cat == "plus_10000":
         seasonal_zones = [
-            {"id": "ZS1", "label": "Zone saisonnier 1", "eeg": 2000, "is_seasonal": True},
-            {"id": "ZS2", "label": "Zone saisonnier 2", "eeg": 2000, "is_seasonal": True},
-            {"id": "ZS3", "label": "Zone saisonnier 3", "eeg": 2000, "is_seasonal": True},
+            {"id": f"ZS{i}", "label": f"Zone saisonnier {i}",
+             "sa_15": ZS_SA_15_PAR_ZONE, "sa_21": ZS_SA_21_PAR_ZONE,
+             "eeg": ZS_EEG_PAR_ZONE, "is_seasonal": True} for i in (1, 2, 3)
         ]
     elif surface_cat == "moins_10000":
         seasonal_zones = [
-            {"id": "ZS1", "label": "Zone saisonnier 1", "eeg": 2000, "is_seasonal": True},
-            {"id": "ZS2", "label": "Zone saisonnier 2", "eeg": 2000, "is_seasonal": True},
+            {"id": f"ZS{i}", "label": f"Zone saisonnier {i}",
+             "sa_15": ZS_SA_15_PAR_ZONE, "sa_21": ZS_SA_21_PAR_ZONE,
+             "eeg": ZS_EEG_PAR_ZONE, "is_seasonal": True} for i in (1, 2)
         ]
 
     return {
@@ -3127,15 +3133,21 @@ def _full_allee_index(summary: dict) -> dict:
             idx[base] = nodes[0]
     for z in (summary.get("seasonal_zones") or []):
         sz_eeg = float(z.get("eeg") or 0)
+        sa_15 = float(z.get("sa_15") or 0)
+        sa_21 = float(z.get("sa_21") or 0)
+        # Fallback rétrocompat : anciennes ZS avec seulement "eeg" et pas
+        # de split explicite → tout dans SA 2.1.
+        if sa_15 == 0 and sa_21 == 0 and sz_eeg > 0:
+            sa_21 = sz_eeg
         idx[str(z["id"])] = {
             "uid": z["id"], "allee": z["id"],
-            "es_15": 0, "es_21": sz_eeg,
-            # 26/02/2026 — les Zones Saisonnières sont comptées en SA 2.1
-            # (semantic "SA 2.1 saisonnier"). Sans ça, l'Excel/PPTX affichait
-            # SA=0 sur les nuits qui ne contiennent que des ZS, alors que
-            # l'App montrait SA=eeg. Source de divergence corrigée.
-            "sa": sz_eeg, "sa_15": 0,
-            "sa_21": sz_eeg,
+            # (v27) Une ZS N'EST PAS de l'ES. On met es_15/es_21 à 0 et on
+            # place les quantités dans sa_15 / sa_21_std. compute_node_sa_install
+            # renverra ces mêmes valeurs (les ZS sont TOUJOURS posées par la VT).
+            "es_15": 0, "es_21": 0,
+            "sa": sa_15 + sa_21, "sa_15": sa_15,
+            "sa_21": sa_21, "sa_21_std": sa_21,
+            "sa_21_freezer": 0, "sa_42": 0,
             "rails_es": 0, "rails_es_by_desig": {},
             "cameras": 0, "camera_elems": [],
             "fleches": 0,
@@ -4414,9 +4426,16 @@ def _write_code_couleur_sheet(workbook, writer, d):
         zone = seasonal_idx.get(a_uid)
         t = totals_by_nuit.setdefault(int(n), {"eeg": 0, "cam": 0, "sa": 0})
         if zone:
-            t["eeg"] += zone.get("eeg") or 0
-            # 26/02/2026 — les Zones Saisonnières sont aussi comptées en SA
-            t["sa"] += zone.get("eeg") or 0
+            # (v27) Zones Saisonnières = SA POSÉES PAR LA VT (400 SA 1.5
+            # + 1600 SA 2.1 par zone). Comptées dans « EEG ES+SA » (VT),
+            # PAS dans « SA magasin » (posé par le magasin).
+            sa15z = float(zone.get("sa_15") or 0)
+            sa21z = float(zone.get("sa_21") or 0)
+            # Rétrocompat : anciennes ZS sans split → tout en SA 2.1
+            if sa15z == 0 and sa21z == 0:
+                sa21z = float(zone.get("eeg") or 0)
+            t["eeg"] += sa15z + sa21z
+            # PAS de contribution à t["sa"] (les ZS ne sont plus SA magasin)
         elif node:
             base = (node.get("es_15") or 0) + (node.get("es_21") or 0)
             bonus = 0 if is_mag2 else ((node.get("es_15_bonus_noir") or 0) + (node.get("es_15_bonus_blanc") or 0))
@@ -5806,7 +5825,17 @@ def compute_node_sa_install(node: dict, cfg: dict) -> dict:
     """SA à installer (VT) pour une allée selon la config du panneau.
     Miroir Python de computeNodeSaInstall (frontend)."""
     res = {"sa_15": 0.0, "sa_21": 0.0, "freezer": 0.0, "sa_42": 0.0}
-    if not node or node.get("is_seasonal") or not cfg or not cfg.get("enabled"):
+    if not node:
+        return res
+    # (v27) Zones Saisonnières : SA TOUJOURS installées par la VT
+    # (avant : posées par le magasin). Chaque ZS = 400 SA 1.5 + 1600 SA 2.1.
+    if node.get("is_seasonal"):
+        return {
+            "sa_15": float(node.get("sa_15") or 0),
+            "sa_21": float(node.get("sa_21_std") or node.get("sa_21") or 0),
+            "freezer": 0.0, "sa_42": 0.0,
+        }
+    if not cfg or not cfg.get("enabled"):
         return res
     n15 = float(node.get("sa_15") or 0)
     n21 = node.get("sa_21_std")
@@ -5834,9 +5863,12 @@ def compute_node_sa_install(node: dict, cfg: dict) -> dict:
 
 
 def node_sa_total(node: dict) -> float:
-    """Total SA d'une allée (toutes variantes), 0 pour les zones saisonnières."""
-    if not node or node.get("is_seasonal"):
+    """Total SA d'une allée (toutes variantes)."""
+    if not node:
         return 0.0
+    # (v27) Zones Saisonnières : SA total = sa_15 + sa_21 (posées par la VT)
+    if node.get("is_seasonal"):
+        return float(node.get("sa_15") or 0) + float(node.get("sa_21_std") or node.get("sa_21") or 0)
     n21 = node.get("sa_21_std")
     if n21 is None:
         n21 = max(0.0, float(node.get("sa_21") or 0) - float(node.get("sa_21_freezer") or 0))
@@ -5932,15 +5964,10 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
         # avec les colonnes SA dédiées) — utiliser b["es_only"].
         b["es"] += inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]
         # sa_mag = SA restants à poser par le magasin (hors phasage VT).
-        # Pour une allée standard : SA total du node - SA à installer par VT.
-        # Pour une Zone Saisonnière : node_sa_total() renvoie 0, mais la zone
-        # est SÉMANTIQUEMENT du « SA magasin » (SA 2.1 saisonnier posé par le
-        # magasin). On ajoute donc zone.eeg à sa_mag pour rester cohérent avec
-        # le comportement Excel (`_write_code_couleur_sheet`).
-        if node.get("is_seasonal"):
-            b["sa_mag"] += float(node.get("seasonal_eeg") or 0)
-        else:
-            b["sa_mag"] += max(0.0, node_sa_total(node) - (inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]))
+        # (v27) Les Zones Saisonnières sont maintenant posées par la VT
+        # (compute_node_sa_install les renvoie), donc leur sa_mag est
+        # naturellement 0 = node_sa_total(ZS) - inst_total = (sa15+sa21) - (sa15+sa21) = 0.
+        b["sa_mag"] += max(0.0, node_sa_total(node) - (inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]))
         sr = _sr_key(node)
         if sr and sr not in b["secteurs_rayons"]:
             b["secteurs_rayons"].append(sr)
