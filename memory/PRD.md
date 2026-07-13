@@ -1,5 +1,38 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v18 — Split UI Phasage EEG vs Caméra + fix SA/Caméra)
+
+### Split UI "Phasage EEG" vs "Phasage Caméra"
+- Nouveau composant `frontend/src/suivi/PhaseCategoryPicker.jsx` : après la sélection d'un magasin, un écran de choix affiche deux tuiles :
+  - **Phasage EEG** (icône Boxes, accent emerald) → onglets Board / Nuits / Matériel / Stock
+  - **Phasage Caméra** (icône Cctv, accent sky) → onglets Board / Caméras / Stock
+- Un badge coloré (`PHASAGE EEG` emerald ou `PHASAGE CAMÉRA` sky) est affiché dans le header sous le nom du magasin pour indiquer le mode actif.
+- Le bouton retour (chevron gauche) ramène au picker de phase (pas à la liste des magasins) tant qu'un phaseKind est sélectionné. Un second clic ramène à la liste.
+- Persistance via `localStorage` : `suivi.lastPhase` (chef) et `suivi.terrain.lastPhase` (terrain). Réinitialisée au changement de magasin.
+- Espace terrain public `/suivi/terrain` : même split avec accent `amber` pour rester dans le thème terrain.
+- **Rapport backend commun** : les exports Excel / dashboards agrégés incluent toujours EEG + Caméras dans un rapport consolidé — le split est purement UI.
+- Nouveau `CamDashboard` (`SuiviDashboard.jsx`) : dashboard cam-focus avec Avancement pose caméras, Géolocalisation, Fixations spécifiques, Allées validées / bloquées, Nuits caméras, alertes caméras.
+
+### Fix critique — Caméras et fixations Captana isolées du côté EEG
+- Nouveau helper `is_cam_side_product(desig, typ)` dans `backend/suivi_deploy.py` : détecte tout produit relevant du phasage caméra (type=Caméra OU désignation dans le référentiel `CAPTANA_DESIGNATIONS` OU désignation contient "captana" OU is_camera_fixation).
+- Ces produits sont **exclus** de la liste `state.allees[].products` (côté EEG) — auparavant les caméras (type=Caméra) apparaissaient dans la nuit ES au lieu d'être uniquement dans la nuit caméra du phasage.
+- Les produits avec `plan <= 0` (aucune quantité à poser) sont également filtrés du EEG.
+- `state.cam.allees[].products` inclut maintenant une liste détaillée : caméras (`is_camera: true`) + fixations Captana (`is_fixation: true`) avec leurs quantités prévues.
+- `state.cam.allees[].fix_plan` détecte désormais **toutes** les fixations Captana (support mobilier captana blanc/noir, support ajustable adhésif captana, pied réglable 0,5-1 m adhésif captana) — auparavant seuls les produits type "fixation" avec "cam" dans la désignation étaient comptés (⚠ "captana" ne contient PAS "cam", donc les vrais produits étaient manqués).
+- Agrégation stock étendue : les caméras et fixations Captana sont maintenant présents dans `state.stock` avec ventilation `pose` proportionnelle aux quantités prévues (basée sur les totaux `cameras_reel` et `fixations_reel` saisis).
+- Front `SuiviStock.jsx` : nouveau filtre `isCamStockRow(s)` selon `phaseKind` — le stock isole les produits caméra en mode CAM et les exclut en mode EEG.
+
+### Fix — SA "à ne pas poser" correctement filtrées
+- `_sa_families_off()` dans `backend/suivi_deploy.py` étendue :
+  - Si `sa_install.answered=True` ET `sa_install.enabled=False` (réponse explicite "Non, je n'installe pas d'EEG SA hors saisonnier") → **toutes** les familles SA (sa_15, sa_21_std, sa_21_freezer, sa_42) avec plan>0 sont exclues des produits de chaque allée.
+  - Sinon comportement existant conservé (via `compute_node_sa_install`).
+
+### Validé par testing_agent
+- Iteration 21 : 8/8 tests iter21 dédiés + 15/15 tests suivi_deploy régression = 100% success.
+- Frontend flows validés : split UI apparaît, tabs filtrés selon phaseKind, back button ramène au picker, badge PHASAGE affiché.
+- Backend validé : state.allees[].products sans caméra/Captana ni plan=0 ; state.cam.allees[].products correct ; stock inclut cameras avec prevu>0.
+
+
 ## Changelog 13/02/2026 (v17 — Fix bug critique clic allée)
 - **Bug corrigé** : sur mobile/desktop, le clic sur une nuit ou une allée ne faisait rien (l'écran s'ouvrait puis se refermait immédiatement).
 - **RCA** : le hook `useMobileBack` (utilisé pour intercepter le back Android) appelait `history.back()` dans son cleanup. Lors d'une navigation forward interne (Nuit → Allée), React démonte l'ancien composant AVANT de monter le nouveau dans le même commit. Le `history.back()` du cleanup était asynchrone : le popstate arrivait après le pushState du nouvel écran, était intercepté par le NOUVEAU listener, qui appelait `onBack` et refermait immédiatement l'écran.
