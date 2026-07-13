@@ -1,0 +1,42 @@
+{
+  "summary": "Test frontend uniquement pour l'indicateur visuel Zones Saisonnières (ZS) dans le Suivi mobile. Login admin → magasin fd15443f → Phasage EEG → onglet Nuits → Nuit 17. Tous les indicateurs visuels sont correctement affichés pour ZS1/ZS2/ZS3 et absents pour les allées standards de la Nuit 1 (régression OK).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "detailed_validations": {
+    "nuit17_seasonal_rows": {
+      "ZS1": {"row_bg": "bg-amber-950/20 border-amber-800/60 ✓", "badge_bg": "bg-amber-600 text-white ✓", "sun_icon_svg": 1, "SAISON_label_present": true},
+      "ZS2": {"row_bg": "bg-amber-950/20 border-amber-800/60 ✓", "badge_bg": "bg-amber-600 text-white ✓", "sun_icon_svg": 1, "SAISON_label_present": true},
+      "ZS3": {"row_bg": "bg-amber-950/20 border-amber-800/60 ✓", "badge_bg": "bg-amber-600 text-white ✓", "sun_icon_svg": 1, "SAISON_label_present": true}
+    },
+    "allee_screen_ZS1": {
+      "main_badge_text": "ZS1 (pas 'Allée ZS1') ✓",
+      "main_badge_class": "bg-amber-600 text-white avec icône Sun (svg=1) ✓",
+      "header_wrap_class": "bg-amber-950/20 border-amber-800/60 ✓",
+      "SAISON_VT_pastille": "présente (bg-amber-500/90) ✓",
+      "produits": {"SA 1.5 (Zone saisonnier)": 400, "SA 2.1 (Zone saisonnier)": 1600}
+    },
+    "regression_nuit1_non_ZS": {
+      "allee_1__A__R1": {"seasonal_badge": 0, "amber_class": false, "SAISON_label_in_row": false},
+      "allee_2__B__R2": {"seasonal_badge": 0, "amber_class": false, "SAISON_label_in_row": false},
+      "conclusion": "Allées non-ZS gardent le style standard gris sans icône Sun ni badge SAISON ✓"
+    }
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SuiviNuits.jsx fait 850 lignes — envisager de découper (AlleeScreen, AddPanel, NightScreen) dans des fichiers séparés pour maintenabilité.",
+    "Bien fait : les data-testid conditionnels (allee-seasonal-badge-* seulement si isSeasonal) facilitent la vérification déterministe des états."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped as requested)", "frontend": "100%"},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune — dataset fd15443f déjà seedé avec 3 ZS sur Nuit 17",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Navigation Suivi : /suivi (SessionPicker) → data-testid=suivi-session-{uploadId} → PhaseCategoryPicker → data-testid=pick-phase-eeg → data-testid=suivi-tab-nuits → data-testid=night-open-{n} → data-testid=allee-open-{uid}. Le magasin fd15443f a 2 nuits planifiées (Nuit 1 avec 2 allées non-ZS, Nuit 17 avec 3 ZS).",
+  "rca of the issue": "Aucun bug — feature validée bout-en-bout côté UI."
+}

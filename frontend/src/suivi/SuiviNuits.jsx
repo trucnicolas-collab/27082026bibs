@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     CheckCircle2, Ban, RotateCcw, Download, Loader2, AlertTriangle,
     MessageSquarePlus, Trash2, MoveRight, MapPin, Camera, X,
-    ChevronRight, ArrowLeft, Moon, Plus, Zap,
+    ChevronRight, ArrowLeft, Moon, Plus, Zap, Sun,
 } from "lucide-react";
 import { useMobileBack } from "./useMobileBack";
 import { compressImage } from "./api";
@@ -215,6 +215,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                 const [lbl, cls] = STATUS_CHIP[a.status] || STATUS_CHIP.a_faire;
                 const hasGap = Object.keys(a.geo_gap || {}).length > 0;
                 const isDeplacee = a.is_deplacee && a.status !== "validee";
+                const isSeasonal = a.secteur === "Zone saisonnier";
                 return (
                     <button key={a.uid} onClick={() => onOpenAllee(a.uid)}
                         data-testid={`allee-open-${a.uid}`}
@@ -222,14 +223,24 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                             ${a.status === "validee" ? "bg-blue-950/20 border-blue-900/60"
                                 : isDeplacee ? "bg-orange-950/30 border-orange-700/60"
                                 : a.status === "bloquee" || a.status === "a_finaliser" || a.status === "non_faite" ? "bg-red-950/20 border-red-900/60"
+                                : isSeasonal ? "bg-amber-950/20 border-amber-800/60"
                                 : "bg-slate-900 border-slate-800"}`}>
-                        <span className={`px-2 py-1 rounded-md text-sm font-bold flex-shrink-0
-                            ${isDeplacee ? "bg-orange-700 text-white" : "bg-slate-700 text-slate-100"}`}>
+                        <span className={`px-2 py-1 rounded-md text-sm font-bold flex-shrink-0 flex items-center gap-1
+                            ${isSeasonal ? "bg-amber-600 text-white"
+                                : isDeplacee ? "bg-orange-700 text-white"
+                                : "bg-slate-700 text-slate-100"}`}
+                            data-testid={isSeasonal ? `allee-seasonal-badge-${a.uid}` : undefined}>
+                            {isSeasonal && <Sun className="w-3.5 h-3.5" />}
                             {a.allee}
                         </span>
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-xs text-slate-300 truncate">{a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}</span>
+                                {isSeasonal && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/90 text-slate-900" title="Zone saisonnière — posée par la VT (400 SA 1.5 + 1600 SA 2.1)">
+                                        SAISON
+                                    </span>
+                                )}
                                 {isDeplacee && (
                                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-500/90 text-slate-900" title={`Planifiée nuit ${a.nuit_plan}, faite nuit ${a.nuit_eff}`}>
                                         DÉPLACÉE (plan N{a.nuit_plan})
@@ -317,7 +328,8 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                                     <span className="w-8 h-8 rounded-md bg-slate-800 text-slate-200 text-xs font-bold flex items-center justify-center flex-shrink-0">
                                         N{x.nuit_eff}
                                     </span>
-                                    <span className="px-2 py-0.5 rounded-md bg-slate-700 text-slate-100 text-sm font-bold flex-shrink-0">
+                                    <span className={`px-2 py-0.5 rounded-md text-sm font-bold flex-shrink-0 flex items-center gap-1 ${x.secteur === "Zone saisonnier" ? "bg-amber-600 text-white" : "bg-slate-700 text-slate-100"}`}>
+                                        {x.secteur === "Zone saisonnier" && <Sun className="w-3.5 h-3.5" />}
                                         {x.allee}
                                     </span>
                                     <span className="flex-1 min-w-0 text-[11px] text-slate-400 truncate">
@@ -470,10 +482,19 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     ))}
                 </select>
             </div>
-            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+            <div className={`rounded-2xl border p-4 ${a.secteur === "Zone saisonnier" ? "bg-amber-950/20 border-amber-800/60" : "bg-slate-900 border-slate-800"}`}>
                 <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-md bg-slate-700 text-slate-100 text-base font-bold">Allée {a.allee}</span>
+                    <span className={`px-2.5 py-1 rounded-md text-base font-bold flex items-center gap-1.5 ${a.secteur === "Zone saisonnier" ? "bg-amber-600 text-white" : "bg-slate-700 text-slate-100"}`}
+                        data-testid={a.secteur === "Zone saisonnier" ? `allee-screen-seasonal-badge-${a.uid}` : undefined}>
+                        {a.secteur === "Zone saisonnier" && <Sun className="w-4 h-4" />}
+                        {a.secteur === "Zone saisonnier" ? a.allee : `Allée ${a.allee}`}
+                    </span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${cls}`}>{lbl}</span>
+                    {a.secteur === "Zone saisonnier" && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/90 text-slate-900" title="Zone saisonnière — posée par la VT">
+                            SAISON · VT
+                        </span>
+                    )}
                     <span className="text-xs text-slate-400 w-full sm:w-auto sm:flex-1 truncate">{a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}</span>
                     <span className="text-[11px] text-slate-500">{a.nb_saisis}/{a.nb_produits} produits saisis</span>
                 </div>
