@@ -230,6 +230,53 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             raise HTTPException(status_code=404, detail="Dataset introuvable")
         return d, doc
 
+    def _apply_seasonal_zones(matidx: dict, by_uid: dict, summary: dict):
+        """Injecte les Zones Saisonnières (ZS) comme allées synthétiques.
+
+        Depuis v27 (févr. 2026), chaque ZS = 400 SA 1.5 + 1600 SA 2.1 posées par la
+        VT (avant : 2000 SA 2.1 posées par le magasin). Comme les ZS ne sont PAS
+        présentes dans raw_records (elles n'ont pas de désignation propre dans le
+        fichier), on synthétise à la fois :
+         - un nœud allée dans by_uid  (pour _sa_families_off, _plan_for_allee)
+         - un nœud matériel dans matidx (produits SA 1.5 / SA 2.1 à valider)
+        """
+        for z in (summary.get("seasonal_zones") or []):
+            zid = str(z.get("id") or "")
+            if not zid:
+                continue
+            sa15 = float(z.get("sa_15") or 0)
+            sa21 = float(z.get("sa_21") or 0)
+            # Rétrocompat : anciennes ZS sans split → tout en SA 2.1
+            if sa15 == 0 and sa21 == 0:
+                sa21 = float(z.get("eeg") or 0)
+            label = z.get("label") or zid
+            by_uid[zid] = {
+                "uid": zid, "allee": zid,
+                "secteur": "Zone saisonnière", "rayon": label,
+                "es_15": 0, "es_21": 0, "rails_es": 0,
+                "sa_15": sa15, "sa_21_std": sa21, "sa_21_freezer": 0,
+                "sa_42": 0, "cameras": 0,
+                "fleches": 0, "es_15_bonus_noir": 0, "es_15_bonus_blanc": 0,
+                "seasonal_eeg": sa15 + sa21, "is_seasonal": True,
+            }
+            totals = {}
+            types = {}
+            if sa15 > 0:
+                dg1 = "SA 1.5 (Zone saisonnière)"
+                totals[dg1] = sa15
+                types[dg1] = "EEG"
+            if sa21 > 0:
+                dg2 = "SA 2.1 (Zone saisonnière)"
+                totals[dg2] = sa21
+                types[dg2] = "EEG"
+            matidx[zid] = {
+                "uid": zid, "allee": zid,
+                "secteur": "Zone saisonnière", "rayon": label,
+                "totals": totals, "types": types,
+                "elements": {"(sans élément)": dict(totals)} if totals else {},
+            }
+        return matidx, by_uid
+
     # ------------------------------------------------------------ état complet
     def _build_state(d: dict, doc: dict, upload_id: str, is_terrain: bool = False) -> dict:
         summary = compute_phasage_summary(d)
@@ -245,6 +292,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 nuit_by_uid[str(row.get("allee") or row.get("id"))] = int(n)
         entries = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
         matidx = _materiel_par_allee(d)
+        # (v27) Injecte les Zones Saisonnières (non présentes dans raw_records)
+        _apply_seasonal_zones(matidx, by_uid, summary)
         cfg_sa = d.get("sa_install") or {}
 
         def _sa_families_off(node_uid: str) -> set:
@@ -258,6 +307,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                compute_node_sa_install pour déterminer les familles à exclure.
              - Sinon (question non répondue) : pas de filtrage (comportement legacy)."""
             a = by_uid.get(node_uid) or {}
+            # (v27) Les Zones Saisonnières sont TOUJOURS posées par la VT (SA 1.5
+            # + SA 2.1). Elles ne sont pas affectées par le choix « SA hors
+            # saisonnier » du panneau sa_install.
+            if a.get("is_seasonal"):
+                return set()
             answered = bool(cfg_sa.get("answered"))
             enabled = bool(cfg_sa.get("enabled"))
             off = set()
@@ -1433,6 +1487,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
     def _sa_families_off_for(a: dict, cfg_sa: dict) -> set:
         """Version standalone de _sa_families_off (utilisée hors _build_state)."""
+        # (v27) Les Zones Saisonnières sont TOUJOURS posées par la VT.
+        if (a or {}).get("is_seasonal"):
+            return set()
         answered = bool((cfg_sa or {}).get("answered"))
         enabled = bool((cfg_sa or {}).get("enabled"))
         off = set()
@@ -1530,14 +1587,48 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return out
 
     def _materiel_context(d: dict) -> tuple:
-        """Retourne (by_uid, cfg_sa) pour un dataset : nécessaire aux filtres SA."""
+        """Retourne (by_uid, cfg_sa) pour un dataset : nécessaire aux filtres SA.
+
+        Inclut les Zones Saisonnières (v27) qui ne sont pas des lignes ES rows
+        classiques mais doivent être filtrées comme des allées SA-VT."""
         ph = normalize_phasage(d.get("phasage"))
         by_uid = {str(a.get("id")): a for a in (ph.get("es") or {}).get("rows") or []}
+        # (v27) Injecte les ZS depuis compute_phasage_summary — elles portent
+        # les infos is_seasonal / sa_15 / sa_21_std nécessaires aux filtres.
+        try:
+            summary = compute_phasage_summary(d)
+            for z in (summary.get("seasonal_zones") or []):
+                zid = str(z.get("id") or "")
+                if not zid:
+                    continue
+                sa15 = float(z.get("sa_15") or 0)
+                sa21 = float(z.get("sa_21") or 0)
+                if sa15 == 0 and sa21 == 0:
+                    sa21 = float(z.get("eeg") or 0)
+                by_uid[zid] = {
+                    "id": zid, "uid": zid, "allee": zid,
+                    "sa_15": sa15, "sa_21_std": sa21,
+                    "sa_21_freezer": 0, "sa_42": 0,
+                    "is_seasonal": True,
+                }
+        except Exception as e:
+            logger.warning(f"_materiel_context: seasonal_zones inject failed: {e}")
         cfg_sa = d.get("sa_install") or {}
         return by_uid, cfg_sa
 
-    def _materiel_overview(d: dict, doc: dict, mode: str = "eeg") -> dict:
+    def _materiel_par_allee_with_zs(d: dict) -> dict:
+        """Comme _materiel_par_allee mais avec les Zones Saisonnières injectées."""
         idx = _materiel_par_allee(d)
+        try:
+            summary = compute_phasage_summary(d)
+            by_uid_dummy = {}  # non utilisé, on veut juste enrichir idx
+            _apply_seasonal_zones(idx, by_uid_dummy, summary)
+        except Exception as e:
+            logger.warning(f"_materiel_par_allee_with_zs: inject failed: {e}")
+        return idx
+
+    def _materiel_overview(d: dict, doc: dict, mode: str = "eeg") -> dict:
+        idx = _materiel_par_allee_with_zs(d)
         by_uid, cfg_sa = _materiel_context(d)
         nights_map = _eff_nights_map(d, doc, mode=mode)
         ph = normalize_phasage(d.get("phasage"))
@@ -1573,7 +1664,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         }
 
     def _materiel_nuit(d: dict, doc: dict, nuit: int, mode: str = "eeg") -> dict:
-        idx = _materiel_par_allee(d)
+        idx = _materiel_par_allee_with_zs(d)
         by_uid, cfg_sa = _materiel_context(d)
         nights_map = _eff_nights_map(d, doc, mode=mode)
         ph = normalize_phasage(d.get("phasage"))
@@ -1778,7 +1869,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return out
 
     async def _guarded_allee_update(d: dict, doc: dict, payload: AlleeUpdate, author: str):
-        matnode = _materiel_par_allee(d).get(payload.uid) or {}
+        matnode = _materiel_par_allee_with_zs(d).get(payload.uid) or {}
         fields = payload.dict(exclude_unset=True)
         new_status = fields.get("status")
         # (G) Statut "non_faite" — commentaire obligatoire (nuit de rattrapage optionnelle)

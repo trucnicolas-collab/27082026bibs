@@ -1,0 +1,37 @@
+{
+  "summary": "Iter29 — Zones Saisonnières (v27) dans le module Suivi de déploiement. 15/15 tests OK : 3 unitaires (test_iter29_suivi_seasonal_zones.py existant), 4 nouveaux tests E2E via HTTP (test_iter29_e2e_suivi_seasonal_zones.py — auth admin, PATCH surface plus_10000, PATCH phasage avec ZS assignées, vérification GET /api/suivi/{id} + /materiel/{nuit}?mode=eeg), et 8 tests régression iter28. Confirmé : (a) ZS présentes dans state.allees avec secteur='Zone saisonnière', plan.sa_15=400 et plan.sa_21_std=1600 par ZS ; (b) endpoint materiel/{nuit}?mode=eeg agrège correctement 3×400=1200 SA 1.5 et 3×1600=4800 SA 2.1 (magasin +10000m² = 3 ZS) ; (c) ZS non filtrées par sa_install.answered=true&enabled=false (bypass via is_seasonal=True) ; (d) state.stats.eeg_prevues inclut bien 2000×n_zs EEG.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_suivi_seasonal_zones.py",
+    "/app/backend/tests/test_iter29_e2e_suivi_seasonal_zones.py",
+    "/app/backend/tests/test_iter28_zone_saisonniere_sa_mag.py",
+    "/app/test_reports/pytest/iter29_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "suivi_deploy.py atteint ~2200 lignes — refactor en modules dédiés (suivi_seasonal.py, suivi_materiel.py) recommandé pour la maintenabilité (déjà signalé iter22).",
+    "Le label des ZS est 'Zone saisonnier' (masculin) dans server.compute_phasage_summary mais le secteur affecté par suivi_deploy._apply_seasonal_zones est 'Zone saisonnière' (féminin). Incohérence cosmétique à harmoniser (tolérée par les tests via startswith('Zone sais')).",
+    "Régression pré-existante non liée à iter29 : 11 échecs + 42 erreurs dans tests/test_excel_inventory.py, test_export_carrefour.py, test_recap_row_edit.py, test_phasage_new_tabs.py, test_suivi_cam_materiel.py — la plupart nécessitent un dataset seedé ou dépendent d'un état MongoDB spécifique. Non introduites par les changements iter29."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_e2e_suivi_seasonal_zones.py (nouveau, 4 tests E2E HTTP)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15) sur périmètre iter29+iter28",
+    "frontend": "N/A (skip)"
+  },
+  "test_credentials": "admin@vusion.local / admin123 (utilisé pour E2E)",
+  "seed_data_creation": "Réutilise dataset admin fd15443f-6d2a-4cef-bd72-c56bb29e9c42 : surface fixée à plus_10000 (3 ZS), phasage écrasé avec 1 allée normale (nuit 1) + ZS1/ZS2/ZS3 (nuit 17).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter29 validé bout-en-bout. Le PATCH phasage écrit ZS1/ZS2/ZS3 sur la nuit 17 du dataset fd15443f. Si un test futur nécessite un dataset propre sans ZS injectées, PATCH /api/dataset/{id}/phasage avec un payload sans ZS rows suffit. Endpoint /api/dataset/{id}/sa-install disponible pour manipuler la config sa_install (answered/enabled). Les 7 failed / 30 errors pré-existants dans le reste de la suite ne sont pas régressés par iter29.",
+  "rca of the issue": "N/A — validation des fixes iter29, pas de bug."
+}
