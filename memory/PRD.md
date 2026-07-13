@@ -1,5 +1,37 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 iter4 — SUIVI de déploiement synchronisé avec Phasage pour les Zones Saisonnières)
+
+### Problème remonté
+Après le fix v27 côté Phasage (ZS = 400 SA 1.5 + 1600 SA 2.1 posées par la VT), le module « Suivi de déploiement » ignorait totalement les Zones Saisonnières : elles n'apparaissaient ni dans l'état, ni dans le matériel par nuit. Les poseurs n'avaient donc aucune façon de valider les SA VT-posées des ZS.
+
+### Root cause
+`suivi_deploy.py::_build_state` construisait `by_uid` uniquement à partir de `summary["allees"]`, en ignorant `summary["seasonal_zones"]`. Les ZS étaient présentes dans `es.rows` (via `nuit_by_uid`), mais leur nœud allée retournait `{}` → plan = 0 partout. Aucun produit synthétique n'était non plus injecté dans `matidx`.
+
+### Fix appliqué — RÉUTILISE la logique Phasage existante (pas de duplication)
+- `build_suivi_router` accepte désormais `full_allee_index` (fonction `_full_allee_index` de server.py) comme dépendance injectée. **Source unique de vérité** pour les ZS, partagée avec les exports Excel/PPTX du Phasage.
+- Nouvelle fonction `_apply_seasonal_zones(matidx, by_uid, summary)` dans `suivi_deploy.py` :
+  1. Appelle `full_allee_index(summary)` → récupère les nœuds ZS canoniques (mêmes champs que ceux utilisés dans le Tableau date, Récap Carrefour et PPTX slide 11).
+  2. Injecte ces nœuds dans `by_uid` (secteur='Zone saisonnier', rayon, sa_15=400, sa_21_std=1600, is_seasonal=True).
+  3. Fabrique 2 produits synthétiques par ZS pour la saisie terrain : `SA 1.5 (Zone saisonnier)` et `SA 2.1 (Zone saisonnier)`.
+- `_sa_families_off` et `_sa_families_off_for` bypassent les ZS (`if a.get("is_seasonal"): return set()`) — cohérent avec `compute_node_sa_install` qui renvoie déjà sa_15+sa_21 quel que soit le cfg pour les ZS.
+- Nouveau helper `_materiel_par_allee_with_zs(d)` utilisé dans `_materiel_overview`, `_materiel_nuit` et `_guarded_allee_update`.
+- `_materiel_context` inclut les ZS canoniques dans son `by_uid` (pour que `_filter_materiel_node` en mode EEG applique correctement le bypass).
+
+### Impact validé E2E
+- `GET /api/suivi/{upload_id}` (magasin +10000m² = 3 ZS) : les 3 ZS apparaissent avec `plan.sa_15=400` + `plan.sa_21_std=1600`, secteur='Zone saisonnier', rayon='Zone saisonnier 1/2/3'. ✅
+- `state.stats.eeg_prevues` = 6335 (inclut les 6000 EEG des 3 ZS). ✅
+- `GET /api/suivi/{upload_id}/materiel/{nuit}?mode=eeg` : 3 allées ZS avec produits `SA 1.5 (Zone saisonnier)` × 400 et `SA 2.1 (Zone saisonnier)` × 1600 chacune. ✅
+- Bypass sa_install : même avec `answered=true, enabled=false`, les ZS restent disponibles. ✅
+
+### Tests
+- `tests/test_iter29_suivi_seasonal_zones.py` (3 tests unitaires — classify_family, compute_node_sa_install, structure summary).
+- `tests/test_iter29_e2e_suivi_seasonal_zones.py` (4 tests E2E HTTP — state, materiel, sa_install off, stats).
+- `tests/test_iter28_zone_saisonniere_sa_mag.py` (8 tests régression Phasage — inchangés).
+- **15/15 tests iter28+iter29 passent. 0 régression** sur le reste (28 failed pré-existants avant/après).
+
+
+
 ## Changelog 13/02/2026 (v27 iter3 — Fix double comptage Zone Saisonnière dans Récap par nuit)
 
 ### Problème remonté

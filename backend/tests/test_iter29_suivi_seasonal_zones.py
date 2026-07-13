@@ -136,11 +136,11 @@ def test_apply_seasonal_zones_injects_synthetic_products():
         totals = {}
         types = {}
         if sa15 > 0:
-            totals["SA 1.5 (Zone saisonnière)"] = sa15
-            types["SA 1.5 (Zone saisonnière)"] = "EEG"
+            totals["SA 1.5 (Zone saisonnier)"] = sa15
+            types["SA 1.5 (Zone saisonnier)"] = "EEG"
         if sa21 > 0:
-            totals["SA 2.1 (Zone saisonnière)"] = sa21
-            types["SA 2.1 (Zone saisonnière)"] = "EEG"
+            totals["SA 2.1 (Zone saisonnier)"] = sa21
+            types["SA 2.1 (Zone saisonnier)"] = "EEG"
         matidx[zid] = {"uid": zid, "totals": totals, "types": types, "elements": {}}
 
     # Validations
@@ -150,12 +150,12 @@ def test_apply_seasonal_zones_injects_synthetic_products():
     assert by_uid["ZS1"]["is_seasonal"] is True
 
     z_mat = matidx["ZS1"]
-    assert z_mat["totals"]["SA 1.5 (Zone saisonnière)"] == 400
-    assert z_mat["totals"]["SA 2.1 (Zone saisonnière)"] == 1600
+    assert z_mat["totals"]["SA 1.5 (Zone saisonnier)"] == 400
+    assert z_mat["totals"]["SA 2.1 (Zone saisonnier)"] == 1600
 
     # classify_family doit bien les mapper à sa_15 / sa_21_std
-    fam_15 = server.classify_family("EEG", "SA 1.5 (Zone saisonnière)")
-    fam_21 = server.classify_family("EEG", "SA 2.1 (Zone saisonnière)")
+    fam_15 = server.classify_family("EEG", "SA 1.5 (Zone saisonnier)")
+    fam_21 = server.classify_family("EEG", "SA 2.1 (Zone saisonnier)")
     assert fam_15 == "sa_15"
     assert fam_21 == "sa_21_std"
 

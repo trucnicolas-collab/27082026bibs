@@ -102,8 +102,8 @@ def test_materiel_nuit_eeg_contains_zs_synthetic_products(client, phasage_with_z
 
     n_zs = len(phasage_with_zs["seasonal_zones"])
     # Chaque ZS ajoute 400 SA 1.5 + 1600 SA 2.1 = agrégé n_zs*400 et n_zs*1600
-    key15 = "SA 1.5 (Zone saisonnière)"
-    key21 = "SA 2.1 (Zone saisonnière)"
+    key15 = "SA 1.5 (Zone saisonnier)"
+    key21 = "SA 2.1 (Zone saisonnier)"
     assert key15 in desigs, f"Manque '{key15}' dans matériel nuit {nuit}. Trouvés: {list(desigs.keys())[:20]}"
     assert key21 in desigs, f"Manque '{key21}' dans matériel nuit {nuit}"
     assert desigs[key15] == 400 * n_zs, f"{key15}: attendu {400*n_zs}, reçu {desigs[key15]}"
