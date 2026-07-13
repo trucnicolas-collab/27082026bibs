@@ -1,5 +1,31 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v19 — Fix Matériel affichait toujours caméras/SA-off + Matériel onglet Caméra)
+
+### Bug fix critique — Matériel filtrait mal
+- L'utilisateur a rapporté que malgré le split UI Phasage EEG vs Caméra (v18), l'onglet **Matériel** affichait toujours :
+  - Caméra noire, Batterie caméra, Software caméra, Support ajustable adhésif Captana → alors qu'on était en Phasage EEG
+  - Les SA à ne pas poser (config sa_install=disabled) apparaissaient encore dans le compteur EEG global
+- **Root cause** : v18 ne filtrait que `state.allees[].products` (endpoint `/api/suivi/{id}`) mais l'onglet Matériel appelle un endpoint séparé `/materiel` qui utilisait `_materiel_par_allee` sans filtre.
+
+### Fix appliqué
+- **Backend** (`suivi_deploy.py`) :
+  - Nouveau helper `_filter_materiel_node(node, mode, by_uid, cfg_sa)` : filtre les totaux/éléments d'un nœud matériel selon le mode ("eeg" exclut cam-side + SA off + plan≤0 ; "cam" ne garde QUE les cam-side).
+  - Nouveau helper `_sa_families_off_for(a, cfg_sa)` : version standalone de `_sa_families_off` utilisable hors `_build_state`.
+  - `_eff_nights_map(d, doc, mode)` étendu : en mode "cam" retourne les nuits ABSOLUES (`cam.start_at_nuit + row.nuit - 1`), pas les nuits relatives.
+  - `_materiel_overview(d, doc, mode)` et `_materiel_nuit(d, doc, nuit, mode)` prennent un paramètre `mode`.
+  - Endpoints étendus : `GET /api/suivi/{id}/materiel?mode=eeg|cam` (chef) + `GET /api/suivi-terrain/{id}/materiel?mode=eeg|cam` (terrain public) + variantes `/materiel/{nuit}?mode=`.
+  - `_build_state` neutralise `plan['cameras']=0` et `plan[sa_off_family]=0` pour que `eeg_plan`, `total_eeg_plan` et « restant à poser » ne comptent plus ces catégories.
+- **Frontend** :
+  - `SuiviMateriel.jsx` : prop `phaseKind`, `useEffect` re-fetch quand `phaseKind` change, passe `mode` à `getMateriel/getMaterielNuit`.
+  - `api.js` : `getMateriel(mode)` et `getMaterielNuit(n, mode)` transmettent le query param.
+  - `TABS_CAM` (SuiviApp + TerrainApp) inclut maintenant l'onglet **Matériel**. L'utilisateur peut donc voir la ventilation par nuit/allée des caméras + fixations spécifiques en mode Phasage Caméra.
+
+### Validé
+- Iter22 : 11/11 nouveaux tests + 24/24 régression = **35/35 backend, 100%**.
+- Screenshot preview OK : CAM Nuit 1 → "Caméra noire" seule ; EEG Nuit 2 → uniquement ES/SA sans aucune caméra.
+
+
 ## Changelog 13/02/2026 (v18 — Split UI Phasage EEG vs Caméra + fix SA/Caméra)
 
 ### Split UI "Phasage EEG" vs "Phasage Caméra"
