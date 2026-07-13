@@ -431,12 +431,22 @@ export default function PhasageTab({ uploadId }) {
     const totalFleches = totals.fleches || 0;
     // SA 1.5 (noir + blanc) — magasin 2 uniquement : compté dans EEG à installer
     const totalSA15 = isMagasin2 ? ((totals.sa_15 || 0)) : 0;
-    // EEG par nuit = ES brut + bonus rails (mag1) + flèches + SA 1.5 (mag2) + saisonnier
+    // EEG par nuit = ES brut + bonus rails (mag1) + flèches + SA 1.5 (mag2).
+    // (v27) Les Zones Saisonnières NE SONT PLUS ajoutées ici : elles sont
+    // désormais posées par la VT et comptées en SA 1.5 / SA 2.1 dédiées
+    // (via t.sa_inst_15 / t.sa_inst_21 ajoutés séparément dans saInstNuit).
+    // `seasonalNuit` reste dans la signature pour rétrocompat des call sites
+    // mais est ignoré volontairement.
+    // eslint-disable-next-line no-unused-vars
     const eegPerNight = (esBrutNuit, seasonalNuit, bonusNuit, flechesNuit, sa15Nuit, saInstNuit) =>
-        Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (seasonalNuit || 0) + (saInstNuit || 0));
+        Math.round((esBrutNuit || 0) + (bonusNuit || 0) + (flechesNuit || 0) + (sa15Nuit || 0) + (saInstNuit || 0));
     // SA à installer (hors saisonnier) selon la config utilisateur — ajouté aux EEG à poser
     const saToInstall = computeSaToInstall(summary?.sa_breakdown, saInstall);
     const saInstallTotal = (saToInstall.sa_15 || 0) + (saToInstall.sa_21 || 0) + (saToInstall.freezer || 0) + (saToInstall.sa_42 || 0);
+    // (v27) sa21Saisonnier (= total SA des Zones Saisonnières, 6000 sur +10000m²)
+    // reste dans totalEEG car les ZS sont désormais posées par la VT et
+    // computeSaToInstall n'itère pas sur les zones (elles sont séparées du
+    // breakdown standard).
     const totalEEG = totalESBrut + totalES15Bonus + totalFleches + totalSA15 + sa21Saisonnier + saInstallTotal;
     const avg = nbNuits > 0 ? totalEEG / nbNuits : 0;
 

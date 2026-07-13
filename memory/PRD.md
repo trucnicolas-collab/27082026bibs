@@ -1,5 +1,31 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 iter3 — Fix double comptage Zone Saisonnière dans Récap par nuit)
+
+### Problème remonté
+L'utilisateur a montré le Récap par nuit affichant Nuit 1 = EEG ES 2000 + SA 1.5 400 + SA 2.1 1600 = **Total 4000** (au lieu de 2000). Les étiquettes ZS étaient comptées deux fois : une fois en « EEG ES » (héritage ancien) + une fois via SA 1.5 / SA 2.1.
+
+### Root cause (`PhasageTab.jsx::eegPerNight`)
+```js
+const eegPerNight = (esBrut, seasonal, bonus, fleches, sa15, saInst) =>
+    esBrut + bonus + fleches + sa15 + seasonal + saInst;
+```
+Le paramètre `seasonal` correspondait à l'ancienne sémantique où les ZS étaient de l'ES saisonnier. Sous la v27 (ZS = SA VT-posé), les valeurs sont désormais dans `sa_inst_15` et `sa_inst_21` (via `computeNodeSaInstall`), et il ne faut plus les rajouter en `seasonal`.
+
+### Fix appliqué
+- `eegPerNight` : suppression de `seasonalNuit` du calcul (le paramètre est conservé dans la signature pour rétrocompat des call sites, ignoré via eslint-disable).
+- `totalEEG` (header) : rétablit `sa21Saisonnier` (les ZS ne sont pas dans `saInstallTotal` retourné par `computeSaToInstall(breakdown)` car les zones sont séparées du breakdown standard).
+
+### Impact UI post-redeploy
+- Récap par nuit avec 1 ZS : EEG ES = 0, SA 1.5 = 400, SA 2.1 = 1600, **Total = 2000** ✅
+- Récap par nuit avec 2 ZS : EEG ES = 0, SA 1.5 = 800, SA 2.1 = 3200, **Total = 4000** ✅
+- Header « EEG à poser » continue d'inclure les ZS (via sa21Saisonnier=6000) ✅
+- Tableau date UI : idem, plus de double comptage ✅
+
+### Validé
+- 61/61 tests backend passent (aucune régression).
+
+
 ## Changelog 13/02/2026 (v27 iter2 — Frontend aligné sur ZS VT-posées)
 
 ### Problème remonté
