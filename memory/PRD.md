@@ -1,5 +1,11 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v17 — Fix bug critique clic allée)
+- **Bug corrigé** : sur mobile/desktop, le clic sur une nuit ou une allée ne faisait rien (l'écran s'ouvrait puis se refermait immédiatement).
+- **RCA** : le hook `useMobileBack` (utilisé pour intercepter le back Android) appelait `history.back()` dans son cleanup. Lors d'une navigation forward interne (Nuit → Allée), React démonte l'ancien composant AVANT de monter le nouveau dans le même commit. Le `history.back()` du cleanup était asynchrone : le popstate arrivait après le pushState du nouvel écran, était intercepté par le NOUVEAU listener, qui appelait `onBack` et refermait immédiatement l'écran.
+- **Fix** : suppression du `history.back()` dans le cleanup de `useMobileBack.js`. Les entrées d'historique s'accumulent volontairement pendant la session (nettoyées à la sortie de la page). Le bouton back natif Android continue de fonctionner via le popstate → onBack.
+- **Validé par testing_agent** (iteration_20) : navigation forward + back UI + back navigateur + chips de filtre tous fonctionnels sur viewport mobile 400x800. Success rate 100%.
+
 ## Changelog 12/02/2026 (v16 — Allées déplacées en orange + distinction Pose vs Géoloc)
 
 ### Allées déplacées en orange
