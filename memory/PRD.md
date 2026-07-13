@@ -1,5 +1,21 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v26 — Robustification all_nights pour Zones Saisonnières au-delà de nb_nuits)
+
+### Contexte
+L'utilisateur a partagé le tableau Excel (fonctionnel — Nuits 17-18 visibles dans un 2e bloc avec Zones Saisonnières : Nuit 17 = 4176 / 2000, Nuit 18 = 4000 / 4000). Le fix iter27 utilisait `nb_nuits` config du phasage, mais si les Zones Saisonnières sont placées **au-delà** de `nb_nuits` (via `es.rows` sans que `nb_nuits` soit augmenté), les dernières nuits restaient absentes du PPTX.
+
+### Fix
+- `_adapter` (`server.py`) : `max_night = max(nb_nuits, max_nuit_trouvé_dans_es.rows, max(nuit_es.keys() | nuit_cam.keys()))` — combine 3 sources pour ne rater aucune nuit du planning.
+- `all_nights` est ensuite étendu à `sorted(all_keys | range(1, max_night+1))`.
+- L'aggregate `_aggregate_phasage_for_export` gère déjà les Zones Saisonnières via `_resolve_idx_node` (qui remonte `es_21=sz_eeg`, `sa=sz_eeg`) — donc `es_per_nuit[17]/[18]` sont bien populés côté agrégation.
+
+### Validé
+- 53/53 tests iter21→27 + suivi_deploy passent.
+- Vérif python-pptx sur preview (10 nuits) : slide 11 = 11 cols, toutes remplies, aucun attribut de fusion.
+- ⚠ Test réel avec 18 nuits + Zones Saisonnières sur Nuits 17-18 à valider en prod après redeploy — le dataset preview ne contient pas cette configuration.
+
+
 ## Changelog 13/02/2026 (v25 — Fix PJ3 : nuits manquantes dans PPTX slide 11)
 
 ### Bug rapporté (récurrent malgré iter26)

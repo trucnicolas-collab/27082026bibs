@@ -5582,17 +5582,27 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
                 "sa":  es_node.get("sa_mag", 0),  # SA magasin (hors phasage)
             }
         all_nights = sorted(set(nuit_es.keys()) | set(nuit_cam.keys()))
-        # (v24) Complète all_nights avec TOUTES les nuits planifiées côté ES
-        # (mêmes si aucune allée n'est encore assignée dessus) — sinon les
-        # dernières nuits du phasage (ex : 17, 18) sont invisibles dans le
-        # slide 11. Cohérent avec le comportement de l'export Excel.
+        # (v25) Complète all_nights avec TOUTES les nuits planifiées côté ES,
+        # y compris les nuits qui ne contiennent que des Zones Saisonnières
+        # (comptées séparément dans le récap). On combine nb_nuits (config)
+        # ET le MAX de la nuit trouvée dans es.rows (au cas où les ZS soient
+        # placées au-delà du nb_nuits configuré).
         ph_es = ((doc.get("phasage") or {}).get("es") or {}) if isinstance(doc, dict) else {}
         try:
             nb_es_full = int(ph_es.get("nb_nuits") or 0)
         except (ValueError, TypeError):
             nb_es_full = 0
-        if nb_es_full > 0:
-            all_nights = sorted(set(all_nights) | set(range(1, nb_es_full + 1)))
+        max_row_nuit = 0
+        for r in (ph_es.get("rows") or []):
+            try:
+                n_val = int(r.get("nuit") or 0)
+                if n_val > max_row_nuit:
+                    max_row_nuit = n_val
+            except (ValueError, TypeError):
+                pass
+        max_night = max(nb_es_full, max_row_nuit, max(all_nights) if all_nights else 0)
+        if max_night > 0:
+            all_nights = sorted(set(all_nights) | set(range(1, max_night + 1)))
         cam_nights = sorted(nuit_cam.keys())
         _cfg = doc.get("sa_install") or {}
         return {
