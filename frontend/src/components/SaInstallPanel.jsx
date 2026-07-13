@@ -42,7 +42,16 @@ export function computeSaToInstall(breakdown, cfg) {
 // La clé secteur|||rayon doit matcher le breakdown backend (défauts "(Sans …)").
 export function computeNodeSaInstall(node, cfg) {
     const res = { sa_15: 0, sa_21: 0, freezer: 0, sa_42: 0 };
-    if (!node || node.is_seasonal || !cfg || !cfg.enabled) return res;
+    if (!node) return res;
+    // (v27) Zones Saisonnières = SA TOUJOURS installées par la VT (400 SA 1.5 + 1600 SA 2.1)
+    if (node.is_seasonal) {
+        return {
+            sa_15: node.sa_15 || 0,
+            sa_21: node.sa_21_std != null ? node.sa_21_std : (node.sa_21 || 0),
+            freezer: 0, sa_42: 0,
+        };
+    }
+    if (!cfg || !cfg.enabled) return res;
     const n15 = node.sa_15 || 0;
     const n21 = node.sa_21_std != null
         ? node.sa_21_std
@@ -64,7 +73,12 @@ export function computeNodeSaInstall(node, cfg) {
 
 // SA totales d'une allée (toutes variantes) — sert à calculer le reste "par le magasin".
 export function nodeSaTotal(node) {
-    if (!node || node.is_seasonal) return 0;
+    if (!node) return 0;
+    // (v27) ZS : SA total = sa_15 + sa_21 (posées par la VT)
+    if (node.is_seasonal) {
+        const s21 = node.sa_21_std != null ? node.sa_21_std : (node.sa_21 || 0);
+        return (node.sa_15 || 0) + s21;
+    }
     const n21 = node.sa_21_std != null
         ? node.sa_21_std
         : Math.max(0, (node.sa_21 || 0) - (node.sa_21_freezer || 0));

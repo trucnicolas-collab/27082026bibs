@@ -202,17 +202,28 @@ export default function PhasageTab({ uploadId }) {
         summary.allees.forEach((a) => { map[String(a.uid || a.allee)] = a; });
         // Ajoute les zones saisonnières (clé = ID, ex: "ZS1")
         (summary.seasonal_zones || []).forEach((z) => {
+            const sa15 = Number(z.sa_15) || 0;
+            const sa21 = Number(z.sa_21) || 0;
+            const eegZ = Number(z.eeg) || (sa15 + sa21);
+            // Rétrocompat : ZS sans split explicite → tout dans SA 2.1
+            const finalSa15 = sa15;
+            const finalSa21 = sa21 || (sa15 === 0 ? eegZ : 0);
             map[z.id] = {
                 uid: z.id,
                 allee: z.id,
                 label: z.label,
+                // (v27) ZS n'est plus de l'ES : es_15/es_21 = 0
                 es_15: 0,
                 es_21: 0,
-                sa: z.eeg || 0,
+                // Répartition SA 1.5 + SA 2.1 (posées par la VT)
+                sa: finalSa15 + finalSa21,
+                sa_15: finalSa15,
+                sa_21: finalSa21,
+                sa_21_std: finalSa21,
                 rails_es: 0,
                 cameras: 0,
                 is_seasonal: true,
-                seasonal_eeg: z.eeg || 0,
+                seasonal_eeg: eegZ,
             };
         });
         return map;
@@ -700,7 +711,7 @@ export default function PhasageTab({ uploadId }) {
                                                             return (
                                                                 <option key={a} value={a} style={isDup ? { color: "#C2410C", backgroundColor: "#FFF7ED", fontWeight: 600 } : {}}>
                                                                     {isSeasonal
-                                                                        ? `🌶 ${node.label} (+${node.seasonal_eeg} EEG)`
+                                                                        ? `🌶 ${node.label} (${fmt(node.sa_15 || 0)} SA 1.5 + ${fmt(node.sa_21 || node.sa_21_std || 0)} SA 2.1)`
                                                                         : `${dupTag}${node?.allee}${node?.secteur ? ` (${node.secteur}${node.rayon ? " · " + node.rayon : ""})` : ""}`
                                                                     }
                                                                 </option>

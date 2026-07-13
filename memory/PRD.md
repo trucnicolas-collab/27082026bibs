@@ -1,5 +1,27 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 iter2 — Frontend aligné sur ZS VT-posées)
+
+### Problème remonté
+Après le fix backend v27, l'UI phasage affichait toujours :
+- Dropdown ZS : "Zone saisonnier 1 (+2000 EEG)" (ancienne étiquette)
+- Récap par nuit : SA 1.5 = 0, SA 2.1 = « — » (dash), Total = 0 (le split 400/1600 n'était pas remonté)
+
+### Cause
+Le frontend a sa propre logique JS pour construire l'`alleeIndex` et calculer les totaux du Récap par nuit (indépendante du backend). Elle n'était pas mise à jour.
+
+### Fix appliqué (frontend)
+1. **`PhasageTab.jsx`** `alleeIndex` : les nœuds ZS ont désormais `sa_15 = z.sa_15`, `sa_21 = z.sa_21`, `sa_21_std = z.sa_21`. Rétrocompat gérée : si le backend renvoie une ZS sans split explicite, tout va en SA 2.1.
+2. **`PhasageTab.jsx`** dropdown label : `"🌶 {label} ({sa_15} SA 1.5 + {sa_21} SA 2.1)"` — remplace l'ancien "+X EEG".
+3. **`SaInstallPanel.jsx`** `computeNodeSaInstall` : les ZS retournent `{sa_15: node.sa_15, sa_21: node.sa_21_std}` (avant : `{0, 0, ...}`).
+4. **`SaInstallPanel.jsx`** `nodeSaTotal` : renvoie `sa_15 + sa_21` pour les ZS (avant : 0).
+5. **`TableauDateTab.jsx`** : nœud ZS construit avec split. Calcul totalsByNight utilise `sa_15z + sa_21z` en EEG (au lieu de `seasonal_eeg`).
+
+### Validé
+- 61/61 tests backend continuent de passer.
+- Le Récap par nuit UI, le Tableau date UI et le Panneau SA à installer sont maintenant tous alignés sur la nouvelle sémantique.
+
+
 ## Changelog 13/02/2026 (v27 — Zones Saisonnières = SA VT-posées avec split 400/1600)
 
 ### Changement métier

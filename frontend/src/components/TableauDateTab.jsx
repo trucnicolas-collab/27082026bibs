@@ -107,7 +107,17 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
         const map = {};
         (summary.allees || []).forEach((a) => { map[String(a.uid || a.allee)] = a; });
         (summary.seasonal_zones || []).forEach((z) => {
-            map[z.id] = { uid: z.id, allee: z.id, label: z.label, es_15: 0, es_21: 0, sa: 0, sa_15: 0, sa_21: 0, rails_es: 0, cameras: 0, is_seasonal: true, seasonal_eeg: z.eeg || 0 };
+            const sa15 = Number(z.sa_15) || 0;
+            const sa21 = Number(z.sa_21) || 0;
+            const eegZ = Number(z.eeg) || (sa15 + sa21);
+            map[z.id] = {
+                uid: z.id, allee: z.id, label: z.label,
+                es_15: 0, es_21: 0,
+                sa: sa15 + sa21, sa_15: sa15, sa_21: sa21 || (sa15 === 0 ? eegZ : 0),
+                sa_21_std: sa21 || (sa15 === 0 ? eegZ : 0),
+                rails_es: 0, cameras: 0,
+                is_seasonal: true, seasonal_eeg: eegZ,
+            };
         });
         // nbNuits = max entre es.nb_nuits ET (cam.start_at + cam.nb_nuits - 1)
         const startAt = cam.start_at_nuit || 5;
@@ -135,7 +145,11 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
             const node = alleeIndex[String(r.allee)];
             if (!node) return;
             if (node.is_seasonal) {
-                tot[r.nuit].eeg += node.seasonal_eeg || 0;
+                // (v27) ZS = SA posées par VT : 400 SA 1.5 + 1600 SA 2.1.
+                // Ces valeurs vont dans EEG ES+SA, PAS dans SA magasin.
+                const sa15z = node.sa_15 || 0;
+                const sa21z = node.sa_21 || node.sa_21_std || 0;
+                tot[r.nuit].eeg += sa15z + sa21z;
             } else {
                 const base = (node.es_15 || 0) + (node.es_21 || 0);
                 const bonus = isMag2 ? 0 : ((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0));
