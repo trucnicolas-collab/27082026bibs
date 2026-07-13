@@ -1,0 +1,27 @@
+{
+  "summary": "Iter21 P0 corrections validated end-to-end. Split UI Phasage EEG / Phasage Caméra fonctionne sur /suivi (chef, emerald) et /suivi/terrain (amber). Backend filtre correctement les caméras/Captana côté EEG et remonte les fixations Captana côté cam_allees. 8/8 tests iter21 dédiés + 15/15 tests suivi_deploy régression passent (100%).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_phase_split.py",
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/test_reports/pytest/iter21.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "suivi_deploy.py (1814 lignes) dépasse largement le seuil des 700 lignes recommandé — envisager de séparer les helpers (is_cam_side_product, CAPTANA_DESIGNATIONS, _sa_families_off) dans un module utilitaire dédié (suivi_filters.py) pour améliorer la maintenance.",
+    "Le référentiel CAPTANA_DESIGNATIONS est dupliqué entre backend (suivi_deploy.py) et frontend (SuiviStock.jsx). Envisager d'exposer via un endpoint /api/config/captana ou un fichier partagé pour éviter les divergences futures.",
+    "Le test test_suivi_deploy.py::test_get_suivi_state_has_products_per_allee a été mis à jour de 7→6 produits car la caméra est désormais correctement exclue des products EEG. Confirme le fix.",
+    "PhaseCategoryPicker.jsx utilise du string interpolation Tailwind (`hover:${accentBg}`) qui ne sera PAS purgé/appliqué correctement en production build. Actuellement fonctionne car les classes emerald/amber sont probablement présentes ailleurs, mais fragile. Utiliser un mapping objet plutôt que interpolation dynamique."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_suivi_deploy.py (assertion 7→6 après exclusion caméra)",
+    "/app/backend/tests/test_iter21_phase_split.py (nouveau, 8 tests)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Superadmin nicolas.truc@vusion.com / Vusion_@2026! · Admin admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune. Dataset admin fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (ST PIERRE DES CORPS H7351, sample_full.xlsx 11 lignes, 1 allée EEG + 1 allée cam) réutilisé.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter21 features validées : (1) picker phase-category-picker s'affiche après click magasin sur /suivi ET /suivi/terrain avec data-testid pick-phase-eeg et pick-phase-cam ; (2) EEG mode → 4 onglets (dashboard, nuits, materiel, stock) sans Caméras + badge 'PHASAGE EEG' ; (3) CAM mode → 3 onglets (dashboard, cam, stock) sans Nuits/Matériel + CamDashboard testid='cam-dashboard' visible avec Avancement pose caméras / Géolocalisation / Fixations spécifiques / Allées validées / Allées bloquées / Nuits caméras + badge 'PHASAGE CAMÉRA' ; (4) suivi-back-btn et terrain-back-btn ramènent au picker (pas à la liste magasins) ; (5) Backend GET /api/suivi/{upload_id} : state.allees[].products ne contient AUCUN produit caméra/captana ni plan=0 ; state.cam.allees[].products contient bien is_camera/is_fixation ; stock inclut les produits Caméra avec prevu>0 ; (6) régression PATCH /allee et PATCH /allee-cam OK. Dataset test limité à 11 lignes donc pas de test SA disabled — validé par relecture code (_sa_families_off couvre bien answered=True + enabled=False)."
+}

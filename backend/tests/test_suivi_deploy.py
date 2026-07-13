@@ -46,15 +46,18 @@ def test_get_suivi_state_has_products_per_allee(client):
     # agrégats familles doivent exister
     for k in ("plan", "reel", "delta", "geo", "geo_gap"):
         assert isinstance(a.get(k), dict), f"missing family dict {k}"
-    # products list (nouveau)
-    assert isinstance(a.get("products"), list) and len(a["products"]) == 7
-    assert a.get("nb_produits") == 7
+    # products list (nouveau) — les caméras/captana ne sont PLUS dans les products EEG
+    assert isinstance(a.get("products"), list) and len(a["products"]) == 6
+    assert a.get("nb_produits") == 6
     assert isinstance(a.get("nb_saisis"), int)
     # produits attendus (spec)
     d2f = {p["designation"]: p for p in a["products"]}
     assert d2f["990 mm (noir)"]["family"] == "rails_es"
     assert d2f["990 mm (noir)"]["is_geo"] is True
-    assert d2f["Caméra noire"]["family"] == "cameras"
+    # Caméra doit être exclue des products EEG (déplacée côté phasage caméra)
+    assert "Caméra noire" not in d2f
+    for p in a["products"]:
+        assert p.get("family") != "cameras"
     assert d2f["ES 1.5 noir"]["family"] == "es_15"
     assert d2f["ES 2.1 noir"]["family"] == "es_21"
     assert d2f["SA 1.5 noir"]["family"] == "sa_15"

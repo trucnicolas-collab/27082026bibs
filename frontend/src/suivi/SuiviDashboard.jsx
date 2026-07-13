@@ -8,16 +8,19 @@ import {
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
 
-export default function SuiviDashboard({ state, actions, goTab, mode = "chef" }) {
+export default function SuiviDashboard({ state, actions, goTab, mode = "chef", phaseKind = "eeg" }) {
+    const [nightSummary, setNightSummary] = useState(null); // { night, allees } ou null
+    if (phaseKind === "cam") {
+        return <CamDashboard state={state} actions={actions} goTab={goTab} mode={mode} />;
+    }
     const st = state.stats || {};
     const alerts = state.alerts || [];
     const ruptures = alerts.filter((a) => a.type === "rupture");
     const blocages = alerts.filter((a) => a.type === "blocage");
-    const geolocs = alerts.filter((a) => a.type === "geoloc");
+    const geolocs = alerts.filter((a) => a.type === "geoloc").filter((a) => a.family !== "cameras");
     const nonFaites = alerts.filter((a) => a.type === "non_faite");
     const pct = Math.min(100, st.pct || 0);
     const avance = st.avance_nuits;
-    const [nightSummary, setNightSummary] = useState(null); // { night, allees } ou null
 
     return (
         <div className="space-y-4" data-testid="suivi-dashboard">
@@ -494,5 +497,118 @@ export function ReplanButton({ actions, canReplan }) {
                 </div>
             )}
         </>
+    );
+}
+
+
+function CamDashboard({ state, goTab, mode }) {
+    const cam = state.cam || { nights: [], allees: [], start_at_nuit: 1 };
+    const nights = (cam.nights || []).filter((n) => n.nb_allees > 0);
+    const allees = cam.allees || [];
+    const totalPlan = allees.reduce((s, a) => s + (a.plan || 0), 0);
+    const totalReel = allees.reduce((s, a) => s + (a.reel || 0), 0);
+    const totalGeo = allees.reduce((s, a) => s + (a.geo || 0), 0);
+    const totalFixPlan = allees.reduce((s, a) => s + (a.fix_plan || 0), 0);
+    const totalFixReel = allees.reduce((s, a) => s + (a.fix_reel || 0), 0);
+    const nbValid = allees.filter((a) => a.status === "validee").length;
+    const nbBlock = allees.filter((a) => a.status === "bloquee").length;
+    const alerts = (state.alerts || []).filter((a) => (a.family === "cameras") || (a.type === "geoloc" && a.family === "cameras"));
+    const pct = totalPlan > 0 ? Math.min(100, Math.round(100 * totalReel / totalPlan)) : 0;
+    const pctGeo = totalReel > 0 ? Math.min(100, Math.round(100 * totalGeo / totalReel)) : 0;
+    const pctFix = totalFixPlan > 0 ? Math.min(100, Math.round(100 * totalFixReel / totalFixPlan)) : 0;
+
+    return (
+        <div className="space-y-4" data-testid="cam-dashboard">
+            <section className="rounded-2xl bg-slate-900 border border-slate-800 p-5">
+                <div className="flex items-end justify-between mb-3">
+                    <div>
+                        <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Avancement pose caméras</div>
+                        <div className="text-3xl font-bold mt-1" data-testid="cam-dash-pct">
+                            {pct.toLocaleString("fr-FR")}<span className="text-lg text-slate-400"> %</span>
+                        </div>
+                    </div>
+                    <div className="text-right text-sm text-slate-400">
+                        <span className="text-sky-400 font-semibold">{fmt(totalReel)}</span> / {fmt(totalPlan)} caméras
+                    </div>
+                </div>
+                <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-700" style={{ width: `${pct}%` }} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="cam-dash-geo">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Géolocalisation</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{fmt(totalGeo)} / {fmt(totalReel)} <span className="text-slate-500 ml-1">({pctGeo}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500" style={{ width: `${pctGeo}%` }} />
+                        </div>
+                    </div>
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="cam-dash-fix">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold">Fixations spécifiques</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{fmt(totalFixReel)} / {fmt(totalFixPlan)} <span className="text-slate-500 ml-1">({pctFix}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500" style={{ width: `${pctFix}%` }} />
+                        </div>
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+                    <Kpi label="Allées validées" value={`${nbValid} / ${allees.length}`} icon={CheckCircle2} color="text-emerald-400" testid="cam-dash-valid" />
+                    <Kpi label="Allées bloquées" value={nbBlock} icon={Ban} color={nbBlock ? "text-red-400" : "text-slate-400"} testid="cam-dash-block" />
+                    <Kpi label="Nuits caméras" value={nights.length} icon={Moon} color="text-sky-400" testid="cam-dash-nights" />
+                </div>
+            </section>
+
+            <section data-testid="cam-dash-alerts">
+                <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Alertes caméras ({alerts.length})
+                </h3>
+                {alerts.length === 0 ? (
+                    <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 text-sm text-slate-500 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Aucune alerte côté caméras.
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {alerts.map((a, i) => (
+                            <button key={i} onClick={() => goTab && goTab("cam")} data-testid={`cam-alert-${i}`}
+                                className="w-full text-left rounded-xl bg-sky-950/40 border border-sky-900/60 p-3.5 flex items-start gap-3 hover:border-sky-700 transition-colors">
+                                <MapPin className="w-4 h-4 text-sky-400 mt-0.5 flex-shrink-0" />
+                                <div className="text-sm text-sky-200">{a.message}</div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            <section>
+                <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2">Nuits caméras</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {nights.map((n) => (
+                        <button key={n.nuit} onClick={() => goTab && goTab("cam")} data-testid={`cam-dash-night-${n.nuit}`}
+                            className={`rounded-xl border p-3 text-left transition-colors hover:border-sky-700
+                                ${n.complete ? "bg-emerald-950/40 border-emerald-900/60" : "bg-slate-900 border-slate-800"}`}>
+                            <div className="flex items-center justify-between">
+                                <div className="text-sm font-semibold">
+                                    Nuit {n.nuit_abs}
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold ml-2">CAM {n.nuit}</span>
+                                    {n.date && <span className="text-slate-500 font-normal text-xs ml-2">{new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
+                                </div>
+                                {n.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-1">
+                                {n.nb_validees}/{n.nb_allees} allées · {fmt(n.cam_reel)} / {fmt(n.cam_plan)} caméras
+                            </div>
+                        </button>
+                    ))}
+                    {nights.length === 0 && (
+                        <div className="text-sm text-slate-500 italic px-3 py-4">
+                            Aucune nuit caméra planifiée. Complétez le phasage caméras dans l'app Phasage.
+                        </div>
+                    )}
+                </div>
+            </section>
+        </div>
     );
 }

@@ -6,16 +6,22 @@ import SuiviCam from "./SuiviCam";
 import SuiviMateriel from "./SuiviMateriel";
 import SuiviDashboard from "./SuiviDashboard";
 import SuiviStock from "./SuiviStock";
+import PhaseCategoryPicker from "./PhaseCategoryPicker";
 import { makeActions } from "./api";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const LS_KEY = "suivi.terrain.lastStore";
+const LS_PHASE = "suivi.terrain.lastPhase";
 
-const TABS = [
+const TABS_EEG = [
     { id: "dashboard", label: "Board", icon: LayoutDashboard },
     { id: "pose", label: "Nuits", icon: Moon },
-    { id: "cam", label: "Caméras", icon: Cctv },
     { id: "materiel", label: "Matériel", icon: Boxes },
+    { id: "stock", label: "Stock", icon: Package },
+];
+const TABS_CAM = [
+    { id: "dashboard", label: "Board", icon: LayoutDashboard },
+    { id: "cam", label: "Caméras", icon: Cctv },
     { id: "stock", label: "Stock", icon: Package },
 ];
 
@@ -29,7 +35,11 @@ export default function TerrainApp() {
     const [state, setState] = useState(null);
     const [error, setError] = useState(null);
     const [tab, setTab] = useState("dashboard");
+    const [phaseKind, setPhaseKind] = useState(() => {
+        try { return localStorage.getItem(LS_PHASE) || null; } catch { return null; }
+    });
     const base = `${API}/suivi-terrain/${uploadId}`;
+    const TABS = phaseKind === "cam" ? TABS_CAM : TABS_EEG;
 
     const fetchStores = useCallback(async () => {
         try {
@@ -61,20 +71,29 @@ export default function TerrainApp() {
     const actions = useMemo(() => makeActions(base, fetchState), [base, fetchState]);
 
     const openStore = (id) => {
-        setUploadId(id); setState(null); setTab("dashboard");
-        try { localStorage.setItem(LS_KEY, id); } catch { }
+        setUploadId(id); setState(null); setTab("dashboard"); setPhaseKind(null);
+        try { localStorage.setItem(LS_KEY, id); localStorage.removeItem(LS_PHASE); } catch { }
     };
     const closeStore = () => {
-        setUploadId(null); setState(null);
-        try { localStorage.removeItem(LS_KEY); } catch { }
+        setUploadId(null); setState(null); setPhaseKind(null);
+        try { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_PHASE); } catch { }
         fetchStores();
+    };
+    const pickPhase = (kind) => {
+        setPhaseKind(kind);
+        setTab("dashboard");
+        try { localStorage.setItem(LS_PHASE, kind); } catch { }
+    };
+    const backToPhasePicker = () => {
+        setPhaseKind(null);
+        try { localStorage.removeItem(LS_PHASE); } catch { }
     };
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 antialiased" data-testid="terrain-app">
             <header className="sticky top-0 z-40 h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center gap-3 px-4">
                 {uploadId && (
-                    <button onClick={closeStore} data-testid="terrain-back-btn"
+                    <button onClick={phaseKind ? backToPhasePicker : closeStore} data-testid="terrain-back-btn"
                         className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors">
                         <ChevronLeft className="w-5 h-5" />
                     </button>
@@ -90,7 +109,14 @@ export default function TerrainApp() {
                                 : state.filename)
                             : "Suivi de pose"}
                     </h1>
-                    <p className="text-[11px] text-amber-400/90 font-semibold">Espace équipe terrain</p>
+                    <p className="text-[11px] text-amber-400/90 font-semibold">
+                        Espace équipe terrain
+                        {phaseKind && (
+                            <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${phaseKind === "cam" ? "bg-sky-900/60 text-sky-300" : "bg-emerald-900/60 text-emerald-300"}`}>
+                                {phaseKind === "cam" ? "PHASAGE CAMÉRA" : "PHASAGE EEG"}
+                            </span>
+                        )}
+                    </p>
                 </div>
             </header>
 
@@ -106,6 +132,8 @@ export default function TerrainApp() {
                 <div className="flex items-center justify-center py-32">
                     <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
                 </div>
+            ) : !phaseKind ? (
+                <PhaseCategoryPicker state={state} onPick={pickPhase} accent="amber" />
             ) : (
                 <>
                     <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur border-t border-slate-800 sm:sticky sm:top-14 sm:bottom-auto sm:border-t-0 sm:border-b sm:bg-slate-900/80">
@@ -127,12 +155,12 @@ export default function TerrainApp() {
                         </div>
                     </nav>
                     <main className="max-w-3xl mx-auto px-3 sm:px-6 py-4 pb-24 sm:pb-16">
-                        {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} mode="terrain"
+                        {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} mode="terrain" phaseKind={phaseKind}
                             goTab={(t) => setTab(t === "nuits" ? "pose" : t)} />}
-                        {tab === "pose" && <SuiviNuits state={state} actions={actions} mode="terrain" />}
-                        {tab === "cam" && <SuiviCam state={state} actions={actions} />}
-                        {tab === "materiel" && <SuiviMateriel actions={actions} />}
-                        {tab === "stock" && <SuiviStock state={state} actions={actions} />}
+                        {tab === "pose" && phaseKind === "eeg" && <SuiviNuits state={state} actions={actions} mode="terrain" />}
+                        {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
+                        {tab === "materiel" && phaseKind === "eeg" && <SuiviMateriel actions={actions} />}
+                        {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
                     </main>
                 </>
             )}

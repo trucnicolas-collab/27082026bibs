@@ -52,6 +52,35 @@ def is_camera_fixation(desig: str, typ: str) -> bool:
     t = (typ or "").lower()
     return "fixation" in t and ("captana" in d or "camera" in d or "caméra" in d)
 
+
+# Désignations de la section « Captana » du récap Commande (miroir de
+# _classify_section côté server.py). Tout produit dont la désignation appartient
+# à cette liste doit être suivi côté PHASAGE CAMÉRA, pas côté EEG. Les fixations
+# spécifiques caméras (support mobilier / ajustable / pied réglable) sont incluses.
+CAPTANA_DESIGNATIONS = {
+    "caméra (blanche)", "caméra (noire)",
+    "batterie caméra", "software caméra",
+    "support mobilier captana (blanc)", "support mobilier captana (noir)",
+    "support ajustable adhésif captana",
+    "pied réglable 0,5-1 m adhésif captana",
+}
+
+
+def is_cam_side_product(desig: str, typ: str) -> bool:
+    """True si le produit relève du PHASAGE CAMÉRA (caméra elle-même ou
+    fixation spécifique caméra) et doit être exclu du suivi EEG."""
+    d = (desig or "").strip().lower()
+    t = (typ or "").strip().lower()
+    if t in ("caméra", "camera"):
+        return True
+    if d in CAPTANA_DESIGNATIONS:
+        return True
+    if "captana" in d:
+        return True
+    if is_camera_fixation(desig, typ):
+        return True
+    return False
+
 # ---------------------------------------------------------------- Object storage
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 APP_PREFIX = "phasage-crf"
@@ -220,12 +249,27 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
         def _sa_families_off(node_uid: str) -> set:
             """Retourne l'ensemble des familles SA à NE PAS poser pour une allée
-            (basé sur la config sa_install du phasage)."""
+            (basé sur la config sa_install du phasage).
+
+            Règles :
+             - Si l'utilisateur a répondu « Non » (enabled=False, answered=True) :
+               TOUTES les familles SA présentes sur l'allée sont exclues.
+             - Si enabled=True (toutes ou sélection) : on utilise
+               compute_node_sa_install pour déterminer les familles à exclure.
+             - Sinon (question non répondue) : pas de filtrage (comportement legacy)."""
             a = by_uid.get(node_uid) or {}
-            if not cfg_sa or not cfg_sa.get("enabled"):
-                return set()
-            inst = compute_node_sa_install(a, cfg_sa) if compute_node_sa_install else {}
+            answered = bool(cfg_sa.get("answered"))
+            enabled = bool(cfg_sa.get("enabled"))
             off = set()
+            # Cas explicite : « Non, je n'installe pas de SA hors saisonnier »
+            if answered and not enabled:
+                for fam in ("sa_15", "sa_21_std", "sa_21_freezer", "sa_42"):
+                    if float(a.get(fam) or (a.get("sa_21") if fam == "sa_21_std" else 0) or 0) > 0:
+                        off.add(fam)
+                return off
+            if not enabled:
+                return off
+            inst = compute_node_sa_install(a, cfg_sa) if compute_node_sa_install else {}
             # sa_15
             if not inst.get("sa_15") and float(a.get("sa_15") or 0) > 0:
                 off.add("sa_15")
@@ -256,12 +300,20 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             for desig in sorted(mat["totals"].keys(), key=lambda s: s.lower()):
                 pplan = _r(mat["totals"][desig])
                 typ = (mat.get("types") or {}).get(desig) or ""
-                # (J) Fixations caméras → suivi caméras, pas EEG
-                if is_camera_fixation(desig, typ):
+                # (J) TOUT produit côté caméras (caméras + fixations Captana)
+                # est suivi via le phasage CAMÉRA, pas EEG.
+                if is_cam_side_product(desig, typ):
                     continue
                 fam = classify_family(typ, desig)
+                # Sécurité supplémentaire : si classify_family renvoie
+                # « cameras » (ex : désignation contient « caméra »), on exclut.
+                if fam == "cameras":
+                    continue
                 # (I) Filtrer les SA marquées « à ne pas poser » dans le phasage
                 if fam in sa_off:
+                    continue
+                # Filtrer les produits avec quantité prévue = 0 (aucun à poser)
+                if pplan <= 0:
                     continue
                 is_geo = fam in GEO_KEYS
                 pe = pentries.get(desig) or {}
@@ -445,6 +497,58 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     "designation": ep["designation"], "type": "", "family": None,
                     "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0, "extra": True})
                 g["pose"] += ep["qty"] or 0
+        # ---- Agrégation stock côté CAMÉRAS (caméras + fixations spécifiques) ----
+        # Utilise le phasage caméras (rows) pour connaître les uids concernés.
+        cam_rows_map = {}
+        for row in ((ph.get("cam") or {}).get("rows") or []):
+            n = row.get("nuit")
+            if n:
+                cam_rows_map[str(row.get("allee") or row.get("id"))] = int(n)
+        cam_entries_stock = {str(e.get("uid")): e for e in (doc.get("cam_allees") or [])}
+        for uid_cam in cam_rows_map.keys():
+            matc = matidx.get(uid_cam) or {"totals": {}, "types": {}}
+            entry_cam = cam_entries_stock.get(uid_cam) or {}
+            status_cam = entry_cam.get("status") or "a_faire"
+            not_valid_cam = status_cam != "validee"
+            reel_cam_total = float(entry_cam.get("cameras_reel") or 0)
+            fix_reel_total = float(entry_cam.get("fixations_reel") or 0)
+            # Calcule les totaux plan caméra vs fixation pour la ventilation du réel
+            plan_cam_total = 0.0
+            plan_fix_total = 0.0
+            for dg, q in (matc.get("totals") or {}).items():
+                tdg = (matc.get("types") or {}).get(dg) or ""
+                if not is_cam_side_product(dg, tdg):
+                    continue
+                q = float(q or 0)
+                if q <= 0:
+                    continue
+                if (tdg or "").strip().lower() in ("caméra", "camera"):
+                    plan_cam_total += q
+                else:
+                    plan_fix_total += q
+            for dg in sorted((matc.get("totals") or {}).keys(), key=lambda s: s.lower()):
+                q = float(matc["totals"].get(dg) or 0)
+                if q <= 0:
+                    continue
+                tdg = (matc.get("types") or {}).get(dg) or ""
+                if not is_cam_side_product(dg, tdg):
+                    continue
+                is_cam_device = (tdg.strip().lower() in ("caméra", "camera"))
+                fam_stock = "cameras" if is_cam_device else None
+                # Répartition du réel proportionnellement aux quantités prévues
+                if is_cam_device and plan_cam_total > 0:
+                    pose = reel_cam_total * (q / plan_cam_total)
+                elif (not is_cam_device) and plan_fix_total > 0:
+                    pose = fix_reel_total * (q / plan_fix_total)
+                else:
+                    pose = 0.0
+                g = prod_agg.setdefault(dg, {
+                    "designation": dg, "type": tdg, "family": fam_stock,
+                    "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0})
+                g["prevu"] += q
+                g["pose"] += pose
+                if not_valid_cam:
+                    g["restant_a_poser"] += max(0.0, q - pose)
         stock, alerts = [], []
         for desig in sorted(prod_agg.keys(), key=lambda s: s.lower()):
             g = prod_agg[desig]
@@ -536,12 +640,30 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             gap = _r(reel_c - geo_c) if (reel_c is not None and geo_c is not None and geo_c < reel_c) else 0
             nuit_reelle = e.get("nuit_reelle")
             eff = int(nuit_reelle) if nuit_reelle else nuit_plan
-            matc = matidx.get(uid) or {}
+            matc = matidx.get(uid) or {"totals": {}, "types": {}}
+            # Liste détaillée des produits côté caméra (caméras + fixations
+            # spécifiques Captana). On les extrait tous depuis raw_records
+            # à partir du référentiel Captana défini dans is_cam_side_product.
+            cam_products = []
             fix_plan = 0.0
-            for dg, q in (matc.get("totals") or {}).items():
-                tdg = ((matc.get("types") or {}).get(dg) or "").lower()
-                if "fixation" in tdg and "cam" in dg.lower():
-                    fix_plan += q or 0
+            for dg in sorted((matc.get("totals") or {}).keys(), key=lambda s: s.lower()):
+                q = float(matc["totals"].get(dg) or 0)
+                if q <= 0:
+                    continue
+                tdg = ((matc.get("types") or {}).get(dg) or "")
+                if not is_cam_side_product(dg, tdg):
+                    continue
+                is_camera_device = (tdg.strip().lower() in ("caméra", "camera"))
+                pr = _r(q)
+                cam_products.append({
+                    "designation": dg,
+                    "type": tdg,
+                    "is_camera": is_camera_device,
+                    "is_fixation": (not is_camera_device),
+                    "plan": pr,
+                })
+                if not is_camera_device:
+                    fix_plan += q
             fix_reel = e.get("fixations_reel")
             fix_reel = None if fix_reel is None else _r(fix_reel)
             cam_allees.append({
@@ -558,6 +680,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "delta": (None if reel_c is None else _r(reel_c - plan_c)),
                 "geo_gap": gap,
                 "elements": a.get("camera_elems") or [],
+                "products": cam_products,
                 "status": e.get("status") or "a_faire",
                 "comment": e.get("comment") or "",
                 "geoloc_comment": e.get("geoloc_comment") or "",

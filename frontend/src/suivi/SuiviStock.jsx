@@ -4,10 +4,32 @@ import { AlertTriangle, CheckCircle2, PackageCheck, Undo2, Search } from "lucide
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
 
 // Stock PAR PRODUIT : chaque désignation du fichier
-export default function SuiviStock({ state, actions }) {
+// phaseKind = "eeg" | "cam" | null → filtre les produits par domaine
+const CAPTANA_DESIGNATIONS = new Set([
+    "caméra (blanche)", "caméra (noire)",
+    "batterie caméra", "software caméra",
+    "support mobilier captana (blanc)", "support mobilier captana (noir)",
+    "support ajustable adhésif captana",
+    "pied réglable 0,5-1 m adhésif captana",
+]);
+function isCamStockRow(s) {
+    if (s.family === "cameras") return true;
+    const t = (s.type || "").trim().toLowerCase();
+    if (t === "caméra" || t === "camera") return true;
+    const d = (s.designation || "").trim().toLowerCase();
+    if (CAPTANA_DESIGNATIONS.has(d)) return true;
+    if (d.includes("captana")) return true;
+    return false;
+}
+export default function SuiviStock({ state, actions, phaseKind = null }) {
     const [query, setQuery] = useState("");
     const [onlyAlerts, setOnlyAlerts] = useState(false);
-    const all = (state.stock || []).filter((s) => s.prevu > 0 || s.recu !== null || s.pose > 0);
+    const scoped = (state.stock || []).filter((s) => {
+        if (phaseKind === "cam") return isCamStockRow(s);
+        if (phaseKind === "eeg") return !isCamStockRow(s);
+        return true;
+    });
+    const all = scoped.filter((s) => s.prevu > 0 || s.recu !== null || s.pose > 0);
     const nbAlerts = all.filter((s) => s.alert).length;
     const rows = all.filter((s) =>
         (!onlyAlerts || s.alert) &&

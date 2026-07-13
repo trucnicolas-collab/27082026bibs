@@ -9,6 +9,7 @@ import SuiviCam from "./SuiviCam";
 import SuiviMateriel from "./SuiviMateriel";
 import SuiviStock from "./SuiviStock";
 import TerrainApp from "./TerrainApp";
+import PhaseCategoryPicker from "./PhaseCategoryPicker";
 import { makeActions } from "./api";
 import {
     LayoutDashboard, Moon, Package, ChevronLeft, LogOut,
@@ -17,12 +18,17 @@ import {
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const LS_KEY = "suivi.lastUploadId";
+const LS_PHASE = "suivi.lastPhase";
 
-const TABS = [
+const TABS_EEG = [
     { id: "dashboard", label: "Tableau de bord", shortLabel: "Board", icon: LayoutDashboard },
     { id: "nuits", label: "Nuits", shortLabel: "Nuits", icon: Moon },
-    { id: "cam", label: "Caméras", shortLabel: "Cam", icon: Cctv },
     { id: "materiel", label: "Matériel", shortLabel: "Matériel", icon: Boxes },
+    { id: "stock", label: "Stock", shortLabel: "Stock", icon: Package },
+];
+const TABS_CAM = [
+    { id: "dashboard", label: "Tableau de bord", shortLabel: "Board", icon: LayoutDashboard },
+    { id: "cam", label: "Caméras", shortLabel: "Cam", icon: Cctv },
     { id: "stock", label: "Stock", shortLabel: "Stock", icon: Package },
 ];
 
@@ -37,10 +43,14 @@ function ChefApp() {
     const [uploadId, setUploadId] = useState(() => {
         try { return localStorage.getItem(LS_KEY) || null; } catch { return null; }
     });
+    const [phaseKind, setPhaseKind] = useState(() => {
+        try { return localStorage.getItem(LS_PHASE) || null; } catch { return null; }
+    });
     const [sessions, setSessions] = useState(null);
     const [state, setState] = useState(null);
     const [loading, setLoading] = useState(false);
     const [tab, setTab] = useState("dashboard");
+    const TABS = phaseKind === "cam" ? TABS_CAM : TABS_EEG;
 
     const fetchSessions = useCallback(async () => {
         try {
@@ -68,11 +78,21 @@ function ChefApp() {
     const openSession = (id) => {
         setUploadId(id);
         setState(null);
-        try { localStorage.setItem(LS_KEY, id); } catch { }
+        setPhaseKind(null);
+        try { localStorage.setItem(LS_KEY, id); localStorage.removeItem(LS_PHASE); } catch { }
     };
     const closeSession = () => {
-        setUploadId(null); setState(null); setTab("dashboard");
-        try { localStorage.removeItem(LS_KEY); } catch { }
+        setUploadId(null); setState(null); setTab("dashboard"); setPhaseKind(null);
+        try { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_PHASE); } catch { }
+    };
+    const pickPhase = (kind) => {
+        setPhaseKind(kind);
+        setTab("dashboard");
+        try { localStorage.setItem(LS_PHASE, kind); } catch { }
+    };
+    const backToPhasePicker = () => {
+        setPhaseKind(null);
+        try { localStorage.removeItem(LS_PHASE); } catch { }
     };
 
     const actions = useMemo(
@@ -100,7 +120,7 @@ function ChefApp() {
             <header className="sticky top-0 z-40 h-14 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-4">
                 <div className="flex items-center gap-3 min-w-0">
                     {uploadId && (
-                        <button onClick={closeSession} data-testid="suivi-back-btn"
+                        <button onClick={phaseKind ? backToPhasePicker : closeSession} data-testid="suivi-back-btn"
                             className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors">
                             <ChevronLeft className="w-5 h-5" />
                         </button>
@@ -115,6 +135,11 @@ function ChefApp() {
                                 {state.store_name
                                     ? `${state.store_name}${state.store_code ? ` (${state.store_code})` : ""}`
                                     : state.filename}
+                                {phaseKind && (
+                                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${phaseKind === "cam" ? "bg-sky-900/60 text-sky-300" : "bg-emerald-900/60 text-emerald-300"}`}>
+                                        {phaseKind === "cam" ? "PHASAGE CAMÉRA" : "PHASAGE EEG"}
+                                    </span>
+                                )}
                             </p>
                         )}
                     </div>
@@ -136,6 +161,8 @@ function ChefApp() {
                 <div className="flex items-center justify-center py-32">
                     <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
                 </div>
+            ) : !phaseKind ? (
+                <PhaseCategoryPicker state={state} onPick={pickPhase} accent="emerald" />
             ) : (
                 <>
                     <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur border-t border-slate-800 sm:sticky sm:top-14 sm:bottom-auto sm:border-t-0 sm:border-b sm:bg-slate-900/80">
@@ -164,11 +191,11 @@ function ChefApp() {
                         </div>
                     </nav>
                     <main className="max-w-5xl mx-auto px-3 sm:px-6 pt-4 pb-24 sm:pb-10">
-                        {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} />}
-                        {tab === "nuits" && <SuiviNuits state={state} actions={actions} mode="chef" />}
-                        {tab === "cam" && <SuiviCam state={state} actions={actions} />}
-                        {tab === "materiel" && <SuiviMateriel actions={actions} />}
-                        {tab === "stock" && <SuiviStock state={state} actions={actions} />}
+                        {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} phaseKind={phaseKind} />}
+                        {tab === "nuits" && phaseKind === "eeg" && <SuiviNuits state={state} actions={actions} mode="chef" />}
+                        {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
+                        {tab === "materiel" && phaseKind === "eeg" && <SuiviMateriel actions={actions} />}
+                        {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
                     </main>
                 </>
             )}
