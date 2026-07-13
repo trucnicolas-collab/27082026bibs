@@ -5582,6 +5582,17 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
                 "sa":  es_node.get("sa_mag", 0),  # SA magasin (hors phasage)
             }
         all_nights = sorted(set(nuit_es.keys()) | set(nuit_cam.keys()))
+        # (v24) Complète all_nights avec TOUTES les nuits planifiées côté ES
+        # (mêmes si aucune allée n'est encore assignée dessus) — sinon les
+        # dernières nuits du phasage (ex : 17, 18) sont invisibles dans le
+        # slide 11. Cohérent avec le comportement de l'export Excel.
+        ph_es = ((doc.get("phasage") or {}).get("es") or {}) if isinstance(doc, dict) else {}
+        try:
+            nb_es_full = int(ph_es.get("nb_nuits") or 0)
+        except (ValueError, TypeError):
+            nb_es_full = 0
+        if nb_es_full > 0:
+            all_nights = sorted(set(all_nights) | set(range(1, nb_es_full + 1)))
         cam_nights = sorted(nuit_cam.keys())
         _cfg = doc.get("sa_install") or {}
         return {

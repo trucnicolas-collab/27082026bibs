@@ -183,9 +183,31 @@ def _ensure_table_size(table, n_rows: int):
         _clone_last_row(table)
 
 
+def _unmerge_row_cells(table, row_idx: int, n_cols: int):
+    """Retire tous les attributs de fusion (gridSpan/hMerge/vMerge/rowSpan)
+    sur les `n_cols` premières cellules d'une ligne. À utiliser AVANT
+    d'écrire dans des cellules d'un tableau étendu, pour s'assurer qu'aucune
+    cellule ne reste invisible (fantôme) du fait de merges hérités du
+    template."""
+    NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    tbl = table._tbl
+    trs = tbl.findall(f'{{{NS}}}tr')
+    if row_idx >= len(trs):
+        return
+    tcs = trs[row_idx].findall(f'{{{NS}}}tc')
+    for tc in tcs[:n_cols]:
+        tc.attrib.pop('gridSpan', None)
+        tc.attrib.pop('hMerge', None)
+        tc.attrib.pop('rowSpan', None)
+        tc.attrib.pop('vMerge', None)
+
+
 def _clone_last_col(table):
     """Duplique la dernière colonne du tableau (gridCol + tc dans chaque tr).
-    Conserve les styles de la dernière colonne."""
+    Conserve les styles de la dernière colonne — mais nettoie les attributs
+    de fusion (gridSpan / hMerge) hérités du template : sinon les nouvelles
+    cellules seraient fusionnées avec la voisine et resteraient invisibles
+    (bug observé sur le slide 11 lorsque le template a > 16 gridCol figés)."""
     NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
     tbl = table._tbl
     grid = tbl.find(f'{{{NS}}}tblGrid')
@@ -201,6 +223,13 @@ def _clone_last_col(table):
         if not tcs:
             continue
         new_tc = copy.deepcopy(tcs[-1])
+        # (v24) Retire les attributs de fusion hérités — sinon la cellule
+        # clonée serait considérée comme continuation de la précédente et ne
+        # s'afficherait pas (fantôme).
+        new_tc.attrib.pop('gridSpan', None)
+        new_tc.attrib.pop('rowSpan', None)
+        new_tc.attrib.pop('hMerge', None)
+        new_tc.attrib.pop('vMerge', None)
         for p in new_tc.findall(f'.//{{{NS}}}txBody/{{{NS}}}p'):
             for r in p.findall(f'{{{NS}}}r'):
                 t = r.find(f'{{{NS}}}t')
@@ -597,6 +626,12 @@ def _fill_slide_11(slide, totals_by_nuit, dates_map, weeks, all_nights: list[int
     needed_cols = 1 + len(all_nights)
     _ensure_table_cols(t, needed_cols, label_cols=1)
     _trim_table_cols(t, needed_cols)
+
+    # (v24) Nettoie les merges hérités sur les 4 lignes du tableau avant
+    # d'écrire — évite les cellules fantômes 17-18 fusionnées avec leurs
+    # voisines (bug reproduit avec un phasage 18 nuits en prod).
+    for r in range(4):
+        _unmerge_row_cells(t, r, needed_cols)
 
     # Row 0 : header (Nuit X)
     _set_cell_text(t.cell(0, 0), "", bold=True, size=6)

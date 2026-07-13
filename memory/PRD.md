@@ -1,5 +1,27 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v25 — Fix PJ3 : nuits manquantes dans PPTX slide 11)
+
+### Bug rapporté (récurrent malgré iter26)
+Après le fix iter26 des calculs, le slide 11 PPTX « Plan de phasage EEG et rails par nuit complet (18 nuits) » affichait toujours seulement 16 nuits sur 18. Les 2 dernières cellules restaient vides à droite du tableau.
+
+### Root cause double
+1. **Adapter (`server.py::_adapter`)** : `all_nights = sorted(nuit_es.keys() | nuit_cam.keys())` — ne contenait que les nuits ayant des allées **assignées**. Si le phasage a `nb_nuits=18` mais que seules 16 nuits ont des allées ES assignées, les nuits 17-18 disparaissaient.
+2. **PPTX (`pptx_export.py::_clone_last_col`)** : lors de l'extension de la table, les cellules clonées héritaient des attributs de fusion (`gridSpan`/`hMerge`) de la dernière colonne du template — devenant des « cellules fantômes » invisibles.
+
+### Fix appliqué
+- **Adapter** : `all_nights = sorted(all_keys) | range(1, nb_nuits+1)` — complète avec **toutes** les nuits planifiées ES (aligné sur le comportement Excel `Tableau date`).
+- **`_clone_last_col`** : retire systématiquement `gridSpan`/`hMerge`/`rowSpan`/`vMerge` sur chaque cellule clonée.
+- Nouveau helper **`_unmerge_row_cells(table, row_idx, n_cols)`** appelé au début de `_fill_slide_11` sur les 4 lignes du tableau — nettoie les merges hérités du template avant écriture.
+
+### Validé
+- Iter27 : 3 nouveaux tests dédiés + 50 régression = **53/53 backend, 100%**.
+- Vérification python-pptx sur l'export du dataset test (10 nuits) :
+  - Avant : slide 11 = 3 cols × 4 rows (uniquement Nuit 1, Nuit 2) ❌
+  - Après : slide 11 = **11 cols × 4 rows** (Nuit 1 → Nuit 10, toutes remplies) ✅
+  - Aucun attribut de fusion sur les cellules ✅
+
+
 ## Changelog 13/02/2026 (v24 — Fix Tableau date « EEG ES+SA » et « SA magasin »)
 
 ### Bugs remontés par l'utilisateur (PJ2/PJ3 sur PPTX)
