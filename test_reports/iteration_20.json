@@ -1,0 +1,22 @@
+{
+  "summary": "Bug 'clic sur nuit/allée ne fait rien' RESOLU. Le fix option B (suppression du history.back() dans le cleanup de useMobileBack) fonctionne. Toutes les navigations forward et back (UI + navigateur) sont opérationnelles sur /suivi/terrain viewport 400x800.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "useMobileBack.js — Le fix accumule volontairement des entrées d'historique bidon pendant la session. Acceptable comme documenté dans le commentaire, mais à surveiller si le hook est réutilisé dans d'autres flux plus profonds (5+ niveaux). Envisager à terme la refonte option A (gestion centralisée au niveau SuiviNuits) pour éliminer la pollution d'historique."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "test_credentials": "Route publique /suivi/terrain — aucune auth requise",
+  "seed_data_creation": "Aucune. Dataset admin fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (ST PIERRE DES CORPS H7351) réutilisé.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug résolu. Séquence testée avec succès : (1) landing → click ST PIERRE DES CORPS → tab Nuits → suivi-nuits visible (1 nuit) ; (2) click night-open-2 → night-back visible, 1 allée affichée ; (3) click allee-open-1__A__R1 → allee-back visible + 7 product-reel-* inputs visibles ; (4) click allee-back → retour NightScreen ; (5) click night-back → retour suivi-nuits ; (6) navigateur : go_back x2 depuis AlleeScreen → retour list ; (7) chips filter-all / filter-pose_todo / filter-geo_todo / filter-not_validated / filter-validated toutes présentes, click sur allée filtrée fonctionne. NAVLOG confirme la nouvelle séquence : au click night, uniquement 2 pushState (l'ancien listener n'appelle plus history.back), et au back UI un seul history.back() + popstate + repush au mount du nouvel écran, sans fermeture prématurée.",
+  "rca of the issue": "RCA de iteration_19 confirmée. Fix appliqué = suppression de l'appel history.back() dans le cleanup du useEffect de useMobileBack. Conséquence : le cleanup ne fait plus que retirer le popstate listener, donc quand React démonte NightScreen pour monter AlleeScreen, aucun popstate parasite n'est déclenché → AlleeScreen mount + pushState sans être immédiatement refermé. Le bouton back natif Android (popstate) est toujours intercepté par le listener actif de l'écran courant → onBack → setView → retour propre. Pollution d'historique = quelques entrées pushState par session, nettoyées à la sortie de la page."
+}

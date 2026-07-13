@@ -18,32 +18,20 @@ export function useMobileBack(onBack, active = true) {
 
     useEffect(() => {
         if (!active) return undefined;
-        // Marqueur unique pour vérifier que notre entrée est bien au sommet de la stack au cleanup
-        const marker = "_sb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
-        window.history.pushState({ _suiviBack: marker }, "");
-        let poppedByUser = false;
+        // On empile une entrée d'historique au mount. On NE la retire PAS au cleanup :
+        // le cleanup s'exécute AVANT le mount du composant suivant (dans le même commit React),
+        // donc appeler history.back() ici déclenche un popstate asynchrone qui vient
+        // fermer immédiatement le nouvel écran. En laissant l'entrée s'accumuler,
+        // le bouton back natif fait ce qu'on attend : popstate → onBack → setState.
+        // Coût : quelques entrées bidon dans l'historique pendant la session (nettoyées à la sortie).
+        window.history.pushState({ _suiviBack: 1 }, "");
         const handler = () => {
-            poppedByUser = true;
             const fn = cbRef.current;
             if (typeof fn === "function") fn();
         };
         window.addEventListener("popstate", handler);
         return () => {
             window.removeEventListener("popstate", handler);
-            // Ne PAS appeler history.back() si un écran plus profond a déjà pushé par-dessus
-            // (sinon history.back() est asynchrone et vient refermer le nouvel écran).
-            // On ne dépile que si notre marqueur est encore au sommet de la stack.
-            if (!poppedByUser) {
-                try {
-                    const topMarker = window.history.state && window.history.state._suiviBack;
-                    if (topMarker === marker) {
-                        window.history.back();
-                    }
-                    // Sinon : un autre écran a pushé par-dessus, ne rien faire ; il gèrera son propre cleanup.
-                } catch (_) {
-                    /* ignore */
-                }
-            }
         };
     }, [active]);
 }
