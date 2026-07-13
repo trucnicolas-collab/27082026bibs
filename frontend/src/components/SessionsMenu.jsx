@@ -77,7 +77,7 @@ function ShareDialog({ session, onClose, onUpdate }) {
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
-                        <Share2 className="w-5 h-5 text-emerald-600" />
+                        <Share2 className="w-5 h-5 text-blue-600" />
                         <h3 className="text-base font-bold text-gray-900">Partager en lecture seule</h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600" data-testid="share-dialog-close">
@@ -104,13 +104,13 @@ function ShareDialog({ session, onClose, onUpdate }) {
                             <button
                                 onClick={copy}
                                 data-testid="share-copy-button"
-                                className="h-9 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded flex items-center gap-1.5 transition-colors"
+                                className="h-9 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded flex items-center gap-1.5 transition-colors"
                             >
                                 <Copy className="w-4 h-4" /> Copier
                             </button>
                         </div>
                         <div className="flex justify-between items-center pt-3 border-t border-gray-100">
-                            <span className="text-xs text-emerald-700 flex items-center gap-1">
+                            <span className="text-xs text-blue-700 flex items-center gap-1">
                                 <LinkIcon className="w-3 h-3" /> Partage actif
                             </span>
                             <button
@@ -128,7 +128,7 @@ function ShareDialog({ session, onClose, onUpdate }) {
                         onClick={enable}
                         disabled={loading}
                         data-testid="share-enable-button"
-                        className="w-full h-10 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                        className="w-full h-10 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                     >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
                         Générer un lien de partage
@@ -173,7 +173,7 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
         <li
             data-testid={`session-item-${s.upload_id}`}
             className={`px-4 py-2.5 flex items-center gap-2 hover:bg-gray-50 transition-colors ${
-                isCurrent ? "bg-emerald-50/50" : ""
+                isCurrent ? "bg-blue-50/50" : ""
             }`}
         >
             {editing ? (
@@ -189,9 +189,9 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                         }}
                         placeholder={s.filename}
                         data-testid={`session-label-input-${s.upload_id}`}
-                        className="flex-1 h-8 px-2 text-sm border border-emerald-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                        className="flex-1 h-8 px-2 text-sm border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     />
-                    <button onClick={save} disabled={saving} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded" data-testid={`session-label-save-${s.upload_id}`}>
+                    <button onClick={save} disabled={saving} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" data-testid={`session-label-save-${s.upload_id}`}>
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                     </button>
                     <button onClick={cancel} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded" data-testid={`session-label-cancel-${s.upload_id}`}>
@@ -207,12 +207,12 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                         title={isCurrent ? "Session actuelle" : "Ouvrir cette session"}
                         data-testid={`session-open-${s.upload_id}`}
                     >
-                        <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isCurrent ? "text-emerald-600" : "text-gray-400"}`} />
+                        <FolderOpen className={`w-4 h-4 flex-shrink-0 ${isCurrent ? "text-blue-600" : "text-gray-400"}`} />
                         <div className="min-w-0">
-                            <div className={`text-sm truncate font-medium flex items-center gap-1.5 ${isCurrent ? "text-emerald-700" : "text-gray-900"}`}>
+                            <div className={`text-sm truncate font-medium flex items-center gap-1.5 ${isCurrent ? "text-blue-700" : "text-gray-900"}`}>
                                 {displayName}
                                 {s.share_enabled && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700" title="Partage actif">
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700" title="Partage actif">
                                         <Share2 className="w-2.5 h-2.5 mr-0.5" /> partagé
                                     </span>
                                 )}
@@ -222,7 +222,7 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                                 {s.label ? <span className="text-gray-400 italic">{s.filename} · </span> : null}
                                 {formatDate(s.uploaded_at)} · {s.row_count?.toLocaleString("fr-FR") || 0} lignes · {formatSize(s.compressed_bytes || s.size_bytes)}
                                 {s.owner_email && (
-                                    <span className="ml-1.5 text-emerald-700 font-medium" data-testid={`session-owner-${s.upload_id}`}>
+                                    <span className="ml-1.5 text-blue-700 font-medium" data-testid={`session-owner-${s.upload_id}`}>
                                         · par {s.owner_email}
                                     </span>
                                 )}
@@ -232,7 +232,7 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                     <button
                         onClick={() => { setLabelDraft(s.label || ""); setEditing(true); }}
                         data-testid={`session-rename-${s.upload_id}`}
-                        className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                         title="Renommer"
                     >
                         <Pencil className="w-4 h-4" />
@@ -242,8 +242,8 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                         data-testid={`session-share-${s.upload_id}`}
                         className={`p-1.5 rounded transition-colors ${
                             s.share_enabled
-                                ? "text-emerald-600 hover:bg-emerald-50"
-                                : "text-gray-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                ? "text-blue-600 hover:bg-blue-50"
+                                : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
                         }`}
                         title={s.share_enabled ? "Gérer le partage (actif)" : "Partager en lecture seule"}
                     >

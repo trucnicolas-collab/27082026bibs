@@ -13,10 +13,10 @@ export default function PhaseCategoryPicker({ state, onPick, accent = "emerald" 
     const camAllees = ((state?.cam || {}).allees || []).length;
     const eegAllees = (state?.allees || []).length;
     const camStart = state?.cam?.start_at_nuit || null;
-    const accentBorder = accent === "amber" ? "hover:border-amber-500/60" : "hover:border-emerald-600/60";
-    const accentText = accent === "amber" ? "text-amber-400" : "text-emerald-400";
-    const accentBg = accent === "amber" ? "bg-amber-900/30" : "bg-emerald-900/40";
-    const accentIcon = accent === "amber" ? "text-amber-400" : "text-emerald-400";
+    const accentBorder = accent === "amber" ? "hover:border-amber-500/60" : "hover:border-blue-600/60";
+    const accentText = accent === "amber" ? "text-amber-400" : "text-blue-400";
+    const accentBg = accent === "amber" ? "bg-amber-900/30" : "bg-blue-900/40";
+    const accentIcon = accent === "amber" ? "text-amber-400" : "text-blue-400";
 
     return (
         <main className="max-w-2xl mx-auto px-4 py-8" data-testid="phase-category-picker">

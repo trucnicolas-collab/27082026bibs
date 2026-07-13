@@ -42,10 +42,10 @@ export default function ResetPasswordScreen({ token, onSuccess }) {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-gray-100 px-4" data-testid="reset-screen">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-gray-100 px-4" data-testid="reset-screen">
             <div className="w-full max-w-md">
                 <div className="flex items-center gap-3 mb-8 justify-center">
-                    <div className="w-12 h-12 rounded-lg bg-[#056839] flex items-center justify-center shadow-md">
+                    <div className="w-12 h-12 rounded-lg bg-[#005BAB] flex items-center justify-center shadow-md">
                         <FileSpreadsheet className="w-7 h-7 text-white" strokeWidth={2} />
                     </div>
                     <div>
@@ -77,7 +77,7 @@ export default function ResetPasswordScreen({ token, onSuccess }) {
                                         autoComplete="new-password"
                                         placeholder="••••••••"
                                         data-testid="reset-password"
-                                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#056839]/30 focus:border-[#056839] outline-none"
+                                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#005BAB]/30 focus:border-[#005BAB] outline-none"
                                     />
                                 </div>
                                 <p className="mt-1 text-xs text-gray-500">Au moins 6 caractères</p>
@@ -94,7 +94,7 @@ export default function ResetPasswordScreen({ token, onSuccess }) {
                                         minLength={6}
                                         placeholder="••••••••"
                                         data-testid="reset-confirm"
-                                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#056839]/30 focus:border-[#056839] outline-none"
+                                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#005BAB]/30 focus:border-[#005BAB] outline-none"
                                     />
                                 </div>
                             </div>
@@ -107,7 +107,7 @@ export default function ResetPasswordScreen({ token, onSuccess }) {
                                 type="submit"
                                 disabled={loading}
                                 data-testid="reset-submit"
-                                className="w-full h-10 bg-[#056839] hover:bg-[#04502b] text-white text-sm font-semibold rounded transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                                className="w-full h-10 bg-[#005BAB] hover:bg-[#04502b] text-white text-sm font-semibold rounded transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                             >
                                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                                 Réinitialiser

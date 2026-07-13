@@ -43,18 +43,18 @@ function CamNight({ night, cam, actions, isOpen, onToggle }) {
     const maxNight = Math.max(cam.nb_nuits || 1, ...(cam.nights || []).map((x) => x.nuit));
     return (
         <section className={`rounded-2xl border overflow-hidden transition-colors
-            ${night.complete ? "border-emerald-900/70 bg-emerald-950/20" : "border-slate-800 bg-slate-900"}`}
+            ${night.complete ? "border-blue-900/70 bg-blue-950/20" : "border-slate-800 bg-slate-900"}`}
             data-testid={`cam-night-${night.nuit}`}>
             <button onClick={onToggle} className="w-full flex items-center gap-3 px-4 py-3 text-left" data-testid={`cam-night-toggle-${night.nuit}`}>
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0
-                    ${night.complete ? "bg-emerald-600 text-white" : "bg-sky-800 text-sky-200"}`}>
+                    ${night.complete ? "bg-blue-600 text-white" : "bg-sky-800 text-sky-200"}`}>
                     {night.nuit_abs}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold flex items-center gap-2">
                         Nuit {night.nuit_abs} <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold">CAM {night.nuit}</span>
                         {night.date && <span className="text-xs text-slate-500 font-normal">{new Date(night.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
-                        {night.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                        {night.complete && <CheckCircle2 className="w-4 h-4 text-blue-400" />}
                         {night.nb_bloquees > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-bold">{night.nb_bloquees} bloquée(s)</span>}
                     </div>
                     <div className="text-xs text-slate-400">
@@ -107,13 +107,13 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
     const elemCounts = {};
     (a.elements || []).forEach((el) => { elemCounts[el] = (elemCounts[el] || 0) + 1; });
 
-    const border = a.status === "validee" ? "border-emerald-800/70" : a.status === "bloquee" ? "border-red-800/70" : "border-slate-700/70";
+    const border = a.status === "validee" ? "border-blue-800/70" : a.status === "bloquee" ? "border-red-800/70" : "border-slate-700/70";
 
     return (
         <div className={`rounded-xl bg-slate-800/50 border ${border} p-3`} data-testid={`cam-card-${a.uid}`}>
             <div className="flex items-center gap-2 flex-wrap">
                 <span className={`px-2 py-0.5 rounded-md text-sm font-bold
-                    ${a.status === "validee" ? "bg-emerald-600 text-white" : a.status === "bloquee" ? "bg-red-600 text-white" : "bg-sky-800 text-sky-100"}`}>
+                    ${a.status === "validee" ? "bg-blue-600 text-white" : a.status === "bloquee" ? "bg-red-600 text-white" : "bg-sky-800 text-sky-100"}`}>
                     Allée {a.allee}
                 </span>
                 <span className="text-xs text-slate-400 truncate flex-1 min-w-0">{a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}</span>
@@ -154,7 +154,7 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                     <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-between">
                         Caméras posées
                         {a.delta !== null && a.delta !== undefined && (
-                            <span className={`font-bold ${a.delta === 0 ? "text-emerald-400" : a.delta < 0 ? "text-red-400" : "text-amber-400"}`}>
+                            <span className={`font-bold ${a.delta === 0 ? "text-blue-400" : a.delta < 0 ? "text-red-400" : "text-amber-400"}`}>
                                 {a.delta > 0 ? "+" : ""}{fmt(a.delta)}
                             </span>
                         )}
@@ -188,7 +188,7 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                     <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-between">
                         Fixations posées
                         {a.fix_delta !== null && a.fix_delta !== undefined && (
-                            <span className={`font-bold ${a.fix_delta === 0 ? "text-emerald-400" : a.fix_delta < 0 ? "text-red-400" : "text-amber-400"}`}>
+                            <span className={`font-bold ${a.fix_delta === 0 ? "text-blue-400" : a.fix_delta < 0 ? "text-red-400" : "text-amber-400"}`}>
                                 {a.fix_delta > 0 ? "+" : ""}{fmt(a.fix_delta)}
                             </span>
                         )}
@@ -222,7 +222,7 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
             <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                 {a.status !== "validee" ? (
                     <button onClick={() => setStatus("validee")} disabled={saving} data-testid={`cam-validate-${a.uid}`}
-                        className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                        className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
                         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Valider
                     </button>
                 ) : (

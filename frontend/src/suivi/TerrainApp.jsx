@@ -113,7 +113,7 @@ export default function TerrainApp() {
                     <p className="text-[11px] text-amber-400/90 font-semibold">
                         Espace équipe terrain
                         {phaseKind && (
-                            <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${phaseKind === "cam" ? "bg-sky-900/60 text-sky-300" : "bg-emerald-900/60 text-emerald-300"}`}>
+                            <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${phaseKind === "cam" ? "bg-sky-900/60 text-sky-300" : "bg-blue-900/60 text-blue-300"}`}>
                                 {phaseKind === "cam" ? "PHASAGE CAMÉRA" : "PHASAGE EEG"}
                             </span>
                         )}

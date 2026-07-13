@@ -150,7 +150,7 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
                         setFilterRayon("");
                     }}
                     data-testid="parsecteur-filter-secteur"
-                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                 >
                     <option value="">Tous les secteurs</option>
                     {secteurOptions.map((s) => (
@@ -161,7 +161,7 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
                     value={filterRayon}
                     onChange={(e) => setFilterRayon(e.target.value)}
                     data-testid="parsecteur-filter-rayon"
-                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                 >
                     <option value="">Tous les rayons</option>
                     {rayonOptions.map((r) => (
@@ -173,7 +173,7 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
                     <button
                         onClick={() => setMode("rayon")}
                         data-testid="mode-rayon"
-                        className={`h-7 px-2.5 text-xs font-medium ${mode === "rayon" ? "bg-[#056839] text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
+                        className={`h-7 px-2.5 text-xs font-medium ${mode === "rayon" ? "bg-[#005BAB] text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
                         title="Désignations du rayon uniquement"
                     >
                         Désignations rayon
@@ -181,7 +181,7 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
                     <button
                         onClick={() => setMode("global")}
                         data-testid="mode-global"
-                        className={`h-7 px-2.5 text-xs font-medium border-l border-gray-300 ${mode === "global" ? "bg-[#056839] text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
+                        className={`h-7 px-2.5 text-xs font-medium border-l border-gray-300 ${mode === "global" ? "bg-[#005BAB] text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}
                         title="Toutes les désignations du fichier"
                     >
                         Toutes désignations
@@ -196,14 +196,14 @@ export default function ParSecteurTable({ rows, columns, search, uploadId }) {
             <div className="flex-1 overflow-auto custom-scroll">
                 {tree.map((s) => (
                     <div key={s.secteur} data-testid={`secteur-${s.secteur}`} className="mb-6">
-                        <div className="px-3 py-1.5 bg-[#056839] text-white text-sm font-semibold sticky top-0 z-10">
+                        <div className="px-3 py-1.5 bg-[#005BAB] text-white text-sm font-semibold sticky top-0 z-10">
                             Secteur : {s.secteur}
                         </div>
                         {s.rayons.map((r) => {
                             const productCols = mode === "global" ? allDesignations : r.desigs;
                             return (
                                 <div key={r.rayon} className="mt-2 mb-4 px-3" data-testid={`rayon-${s.secteur}-${r.rayon}`}>
-                                    <div className="text-sm font-medium text-emerald-900 bg-emerald-50 border-l-4 border-emerald-600 px-2 py-1 mb-1">
+                                    <div className="text-sm font-medium text-blue-900 bg-blue-50 border-l-4 border-blue-600 px-2 py-1 mb-1">
                                         Rayon : {r.rayon}
                                     </div>
                                     <div className="overflow-x-auto border border-gray-200 rounded">

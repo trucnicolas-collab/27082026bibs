@@ -33,14 +33,14 @@ function EditableCell({ value, onCommit, placeholder = "", isHeader = false }) {
                     else if (e.key === "Escape") { e.preventDefault(); cancel(); }
                 }}
                 placeholder={placeholder}
-                className={`w-full h-full px-2 py-1 text-sm border border-[#056839] outline-none bg-white ${isHeader ? "font-semibold" : ""}`}
+                className={`w-full h-full px-2 py-1 text-sm border border-[#005BAB] outline-none bg-white ${isHeader ? "font-semibold" : ""}`}
             />
         );
     }
     return (
         <div
             onClick={startEdit}
-            className={`w-full h-full px-3 py-1.5 text-sm cursor-text hover:bg-emerald-50/60 ${isHeader ? "font-semibold text-gray-700 uppercase tracking-wider text-xs" : ""} ${!value ? "text-gray-400 italic" : ""}`}
+            className={`w-full h-full px-3 py-1.5 text-sm cursor-text hover:bg-blue-50/60 ${isHeader ? "font-semibold text-gray-700 uppercase tracking-wider text-xs" : ""} ${!value ? "text-gray-400 italic" : ""}`}
             data-testid="comment-cell"
         >
             {value || placeholder || "—"}

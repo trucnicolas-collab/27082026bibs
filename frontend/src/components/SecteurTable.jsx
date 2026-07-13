@@ -32,7 +32,7 @@ function SortableHeader({ label, sortKey, sortConfig, onSort, align = "left", cl
         >
             <span className={`flex items-center gap-1 ${align === "right" ? "justify-end" : ""}`}>
                 {label}
-                <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? "text-[#056839]" : "text-gray-400"}`} />
+                <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? "text-[#005BAB]" : "text-gray-400"}`} />
             </span>
         </th>
     );
@@ -116,7 +116,7 @@ export default function SecteurTable({ rows, search }) {
                         setFilterRayon("");
                     }}
                     data-testid="filter-secteur"
-                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                 >
                     <option value="">Tous les secteurs</option>
                     {secteurOptions.map((s) => (
@@ -129,7 +129,7 @@ export default function SecteurTable({ rows, search }) {
                     value={filterRayon}
                     onChange={(e) => setFilterRayon(e.target.value)}
                     data-testid="filter-rayon"
-                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                    className="h-7 px-2 text-sm border border-gray-300 rounded bg-white focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                 >
                     <option value="">Tous les rayons</option>
                     {rayonOptions.map((r) => (

@@ -24,14 +24,14 @@ export default function UploadZone({ onUpload, loading }) {
                 data-testid="upload-dropzone"
                 className={`w-full max-w-2xl border-2 border-dashed rounded-lg p-16 flex flex-col items-center justify-center transition-all cursor-pointer ${
                     isDragActive
-                        ? "border-[#056839] bg-emerald-50"
+                        ? "border-[#005BAB] bg-blue-50"
                         : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-gray-400"
                 } ${loading ? "opacity-60 cursor-wait" : ""}`}
             >
                 <input {...getInputProps()} data-testid="upload-input" />
                 {loading ? (
                     <>
-                        <Loader2 className="w-12 h-12 text-[#056839] animate-spin mb-4" />
+                        <Loader2 className="w-12 h-12 text-[#005BAB] animate-spin mb-4" />
                         <p className="text-lg font-medium text-gray-700">Traitement en cours...</p>
                         <p className="text-sm text-gray-500 mt-1">
                             Analyse de votre fichier Excel
@@ -39,8 +39,8 @@ export default function UploadZone({ onUpload, loading }) {
                     </>
                 ) : isDragActive ? (
                     <>
-                        <UploadCloud className="w-12 h-12 text-[#056839] mb-4" />
-                        <p className="text-lg font-medium text-[#056839]">
+                        <UploadCloud className="w-12 h-12 text-[#005BAB] mb-4" />
+                        <p className="text-lg font-medium text-[#005BAB]">
                             Déposez le fichier ici
                         </p>
                     </>

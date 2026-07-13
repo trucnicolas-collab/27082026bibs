@@ -7,15 +7,15 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // Libellés humains des actions
 const ACTION_LABELS = {
-    session_created: { label: "Fichier importé", color: "text-emerald-700", bg: "bg-emerald-50" },
+    session_created: { label: "Fichier importé", color: "text-blue-700", bg: "bg-blue-50" },
     session_deleted: { label: "Session supprimée", color: "text-red-700", bg: "bg-red-50" },
     label_changed: { label: "Renommage", color: "text-blue-700", bg: "bg-blue-50" },
-    share_enabled: { label: "Partage activé", color: "text-emerald-700", bg: "bg-emerald-50" },
+    share_enabled: { label: "Partage activé", color: "text-blue-700", bg: "bg-blue-50" },
     share_disabled: { label: "Partage désactivé", color: "text-gray-700", bg: "bg-gray-50" },
     surface_changed: { label: "Surface modifiée", color: "text-orange-700", bg: "bg-orange-50" },
     dongles_changed: { label: "Dongles modifiés", color: "text-indigo-700", bg: "bg-indigo-50" },
     phasage_updated: { label: "Phasage mis à jour", color: "text-purple-700", bg: "bg-purple-50" },
-    phasage_restored: { label: "Phasage restauré", color: "text-emerald-700", bg: "bg-emerald-50" },
+    phasage_restored: { label: "Phasage restauré", color: "text-blue-700", bg: "bg-blue-50" },
     comment_table_updated: { label: "Commentaire édité", color: "text-amber-700", bg: "bg-amber-50" },
     recap_row_updated: { label: "Ligne récap modifiée", color: "text-cyan-700", bg: "bg-cyan-50" },
     recap_row_added: { label: "Ligne ajoutée", color: "text-cyan-700", bg: "bg-cyan-50" },

@@ -918,13 +918,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         buf = io.BytesIO()
         wb = xlsxwriter.Workbook(buf, {"in_memory": True})
         ws = wb.add_worksheet(f"Nuit {nuit}")
-        f_title = wb.add_format({"bold": True, "font_size": 14, "font_color": "#056839"})
+        f_title = wb.add_format({"bold": True, "font_size": 14, "font_color": "#005BAB"})
         f_sub = wb.add_format({"font_size": 10, "font_color": "#666666"})
-        f_h = wb.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+        f_h = wb.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
                              "border": 1, "align": "center", "valign": "vcenter", "text_wrap": True})
         f_c = wb.add_format({"border": 1, "align": "center"})
         f_cl = wb.add_format({"border": 1})
-        f_ok = wb.add_format({"border": 1, "align": "center", "bg_color": "#D1FAE5"})
+        f_ok = wb.add_format({"border": 1, "align": "center", "bg_color": "#DBEAFE"})
         f_neg = wb.add_format({"border": 1, "align": "center", "bg_color": "#FEE2E2", "font_color": "#B91C1C"})
         f_pos = wb.add_format({"border": 1, "align": "center", "bg_color": "#FEF3C7", "font_color": "#92400E"})
         f_geo_bad = wb.add_format({"border": 1, "align": "center", "bg_color": "#FEE2E2", "font_color": "#B91C1C", "bold": True})

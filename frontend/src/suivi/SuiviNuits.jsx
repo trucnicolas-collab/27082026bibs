@@ -11,7 +11,7 @@ import { compressImage } from "./api";
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
 const STATUS_CHIP = {
     a_faire: ["À faire", "bg-slate-700 text-slate-200"],
-    validee: ["Validée", "bg-emerald-600 text-white"],
+    validee: ["Validée", "bg-blue-600 text-white"],
     bloquee: ["Bloquée", "bg-red-600 text-white"],
     a_finaliser: ["À finaliser", "bg-red-500 text-white"],
     non_faite: ["Non faite", "bg-red-700 text-white"],
@@ -27,7 +27,7 @@ export default function SuiviNuits({ state, actions, mode = "chef" }) {
         return (
             <div className="text-center py-20 text-slate-500 text-sm" data-testid="nuits-empty">
                 Aucune allée assignée à une nuit.
-                {mode === "chef" && (<><br />Complétez d'abord le phasage dans l'<a href="/" className="text-emerald-400 underline">app Phasage</a>.</>)}
+                {mode === "chef" && (<><br />Complétez d'abord le phasage dans l'<a href="/" className="text-blue-400 underline">app Phasage</a>.</>)}
             </div>
         );
     }
@@ -50,7 +50,7 @@ export default function SuiviNuits({ state, actions, mode = "chef" }) {
     return (
         <div className="space-y-2.5" data-testid="suivi-nuits">
             <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 text-xs text-slate-400 flex items-center gap-2">
-                <Moon className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <Moon className="w-4 h-4 text-blue-400 flex-shrink-0" />
                 Touchez une nuit, puis une allée, pour saisir la pose produit par produit.
             </div>
             {nights.map((n) => <NightRow key={n.nuit} night={n} actions={actions}
@@ -69,18 +69,18 @@ function NightRow({ night, actions, onOpen }) {
     };
     return (
         <section className={`rounded-2xl border overflow-hidden transition-colors
-            ${night.nb_a_finaliser > 0 || night.nb_bloquees > 0 || night.nb_non_faites > 0 ? "border-red-800/80 bg-red-950/20" : night.complete ? "border-emerald-900/70 bg-emerald-950/20" : night.started ? "border-sky-900/70 bg-slate-900" : "border-slate-800 bg-slate-900"}`}
+            ${night.nb_a_finaliser > 0 || night.nb_bloquees > 0 || night.nb_non_faites > 0 ? "border-red-800/80 bg-red-950/20" : night.complete ? "border-blue-900/70 bg-blue-950/20" : night.started ? "border-sky-900/70 bg-slate-900" : "border-slate-800 bg-slate-900"}`}
             data-testid={`night-block-${night.nuit}`}>
             <button onClick={onOpen} className="w-full flex items-center gap-3 px-4 py-3.5 text-left" data-testid={`night-open-${night.nuit}`}>
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold flex-shrink-0
-                    ${night.nb_a_finaliser > 0 || night.nb_non_faites > 0 ? "bg-red-600 text-white" : night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
+                    ${night.nb_a_finaliser > 0 || night.nb_non_faites > 0 ? "bg-red-600 text-white" : night.complete ? "bg-blue-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
                     {night.nuit}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold flex items-center gap-2">
                         Nuit {night.nuit}
                         {night.date && <span className="text-xs text-slate-500 font-normal">{new Date(night.date + "T00:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })}</span>}
-                        {night.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                        {night.complete && <CheckCircle2 className="w-4 h-4 text-blue-400" />}
                         {night.nb_bloquees > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 font-bold">{night.nb_bloquees} bloquée(s)</span>}
                         {night.nb_a_finaliser > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white font-bold" data-testid={`night-a-finaliser-${night.nuit}`}>{night.nb_a_finaliser} à finaliser</span>}
                         {night.nb_non_faites > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white font-bold" data-testid={`night-non-faites-${night.nuit}`}>{night.nb_non_faites} non faite(s)</span>}
@@ -95,7 +95,7 @@ function NightRow({ night, actions, onOpen }) {
                     <div className="text-xs text-slate-400">
                         {night.nb_validees}/{night.nb_allees} allées validées · {fmt(night.eeg_reel)} / {fmt(night.eeg_plan)} EEG
                         {night.delta_eeg !== null && night.delta_eeg !== undefined && (
-                            <span className={`ml-1.5 font-semibold ${night.delta_eeg > 0 ? "text-emerald-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
+                            <span className={`ml-1.5 font-semibold ${night.delta_eeg > 0 ? "text-blue-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
                                 ({night.delta_eeg > 0 ? "+" : ""}{fmt(night.delta_eeg)})
                             </span>
                         )}
@@ -103,7 +103,7 @@ function NightRow({ night, actions, onOpen }) {
                 </div>
                 <span onClick={dl} role="button" data-testid={`night-report-${night.nuit}`}
                     title="Télécharger le rapport de la nuit"
-                    className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition-colors">
+                    className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-blue-400 transition-colors">
                     {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 </span>
                 <ChevronRight className="w-4 h-4 text-slate-500" />
@@ -165,7 +165,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
         <div className="space-y-2.5" data-testid={`night-screen-${n}`}>
             <div className="flex items-center gap-2">
                 <button onClick={goBack} data-testid="night-back"
-                    className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+                    className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
                     <ArrowLeft className="w-4 h-4" /> Nuits
                 </button>
                 <div className="flex-1" />
@@ -185,10 +185,10 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
             <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-1" data-testid={`night-filters-${n}`}>
                 {[
                     { k: "all", label: "Toutes", cls: "bg-slate-700 border-slate-600 text-slate-100" },
-                    { k: "pose_todo", label: "Pose à finir", cls: "bg-emerald-950/50 border-emerald-800 text-emerald-300" },
+                    { k: "pose_todo", label: "Pose à finir", cls: "bg-blue-950/50 border-blue-800 text-blue-300" },
                     { k: "geo_todo", label: "Géoloc à finir", cls: "bg-sky-950/50 border-sky-800 text-sky-300" },
                     { k: "not_validated", label: "Non validées", cls: "bg-orange-950/50 border-orange-800 text-orange-300" },
-                    { k: "validated", label: "Validées", cls: "bg-emerald-950/40 border-emerald-900 text-emerald-400" },
+                    { k: "validated", label: "Validées", cls: "bg-blue-950/40 border-blue-900 text-blue-400" },
                 ].map((f) => {
                     const active = filter === f.k;
                     const count = filterCounts[f.k];
@@ -218,8 +218,8 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                 return (
                     <button key={a.uid} onClick={() => onOpenAllee(a.uid)}
                         data-testid={`allee-open-${a.uid}`}
-                        className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-colors hover:border-emerald-700
-                            ${a.status === "validee" ? "bg-emerald-950/20 border-emerald-900/60"
+                        className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-colors hover:border-blue-700
+                            ${a.status === "validee" ? "bg-blue-950/20 border-blue-900/60"
                                 : isDeplacee ? "bg-orange-950/30 border-orange-700/60"
                                 : a.status === "bloquee" || a.status === "a_finaliser" || a.status === "non_faite" ? "bg-red-950/20 border-red-900/60"
                                 : "bg-slate-900 border-slate-800"}`}>
@@ -237,11 +237,11 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                                 )}
                             </div>
                             <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
-                                <span className={a.pose_complete ? "text-emerald-400 font-semibold" : ""}>
+                                <span className={a.pose_complete ? "text-blue-400 font-semibold" : ""}>
                                     Pose {a.pose_saisis}/{a.pose_total}
                                 </span>
                                 {a.geo_total > 0 && (
-                                    <span className={a.geo_complete ? "text-emerald-400 font-semibold" : "text-sky-400"}>
+                                    <span className={a.geo_complete ? "text-blue-400 font-semibold" : "text-sky-400"}>
                                         · Géoloc {a.geo_saisis}/{a.geo_total}
                                     </span>
                                 )}
@@ -260,7 +260,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
             <button onClick={() => setAddPanel(true)}
                 disabled={laterAllees.length === 0}
                 data-testid={`night-add-allee-${n}`}
-                className="w-full h-11 rounded-xl border border-dashed border-emerald-700/60 text-emerald-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-emerald-950/30 hover:border-emerald-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                className="w-full h-11 rounded-xl border border-dashed border-blue-700/60 text-blue-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-blue-950/30 hover:border-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 <Plus className="w-4 h-4" />
                 {laterAllees.length > 0
                     ? `Ajouter une allée (en avance) — ${laterAllees.length} disponible${laterAllees.length > 1 ? "s" : ""}`
@@ -283,7 +283,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                         onKeyDown={(e) => { if (e.key === "Enter" && incidentText.trim()) { actions.addIncident(n, incidentText); setIncidentText(""); } }}
                         placeholder="Signaler un incident (rupture, casse, accès...)"
                         data-testid={`incident-input-${n}`}
-                        className="flex-1 h-8 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                        className="flex-1 h-8 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-blue-600 outline-none" />
                     <button onClick={() => { if (incidentText.trim()) { actions.addIncident(n, incidentText); setIncidentText(""); } }}
                         data-testid={`incident-add-${n}`}
                         className="h-8 px-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs flex items-center gap-1 transition-colors">
@@ -299,7 +299,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                     <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-4 space-y-3 max-h-[85vh] flex flex-col"
                         onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-2">
-                            <Plus className="w-5 h-5 text-emerald-400" />
+                            <Plus className="w-5 h-5 text-blue-400" />
                             <h4 className="text-sm font-bold flex-1">Rapatrier une allée dans la nuit {n}</h4>
                             <button onClick={() => setAddPanel(false)} data-testid="add-allee-close"
                                 className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
@@ -313,7 +313,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                                     onClick={() => pullAllee(x.uid)}
                                     disabled={addBusy === x.uid}
                                     data-testid={`add-allee-pick-${x.uid}`}
-                                    className="w-full flex items-center gap-2.5 rounded-xl border border-slate-700 bg-slate-950/40 hover:border-emerald-600 hover:bg-emerald-950/20 p-2.5 text-left transition-colors disabled:opacity-50">
+                                    className="w-full flex items-center gap-2.5 rounded-xl border border-slate-700 bg-slate-950/40 hover:border-blue-600 hover:bg-blue-950/20 p-2.5 text-left transition-colors disabled:opacity-50">
                                     <span className="w-8 h-8 rounded-md bg-slate-800 text-slate-200 text-xs font-bold flex items-center justify-center flex-shrink-0">
                                         N{x.nuit_eff}
                                     </span>
@@ -324,8 +324,8 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                                         {x.secteur}{x.rayon ? ` · ${x.rayon}` : ""}
                                     </span>
                                     {addBusy === x.uid
-                                        ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400 flex-shrink-0" />
-                                        : <MoveRight className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
+                                        ? <Loader2 className="w-4 h-4 animate-spin text-blue-400 flex-shrink-0" />
+                                        : <MoveRight className="w-4 h-4 text-blue-400 flex-shrink-0" />}
                                 </button>
                             ))}
                         </div>
@@ -453,7 +453,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             {/* En-tête */}
             <div className="flex items-center gap-2">
                 <button onClick={goBack} data-testid="allee-back"
-                    className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+                    className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
                     <ArrowLeft className="w-4 h-4" /> Nuit {a.nuit_eff}
                 </button>
                 <div className="flex-1" />
@@ -464,7 +464,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 )}
                 <select value={a.nuit_eff} onChange={moveNight} data-testid={`allee-move-${a.uid}`}
                     title="Déplacer sur une autre nuit"
-                    className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-emerald-600 outline-none cursor-pointer">
+                    className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-blue-600 outline-none cursor-pointer">
                     {Array.from({ length: maxNight }, (_, i) => i + 1).map((x) => (
                         <option key={x} value={x}>{"N" + x}</option>
                     ))}
@@ -482,7 +482,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             {/* Produits — 1 ligne par produit : nom complet en haut, chiffres dessous */}
             <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden" data-testid={`allee-products-${a.uid}`}>
                 {a.status === "validee" && (
-                    <div className="px-3 py-2 bg-emerald-950/40 border-b border-emerald-900/60 text-[11px] text-emerald-300 flex items-center gap-1.5">
+                    <div className="px-3 py-2 bg-blue-950/40 border-b border-blue-900/60 text-[11px] text-blue-300 flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Allée validée — rouvrez pour modifier
                     </div>
                 )}
@@ -517,7 +517,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                                     data-testid={`product-reel-${p.designation}`}
                                     className={`w-full h-8 px-1 rounded text-xs text-center outline-none placeholder:text-slate-600
                                         ${locked ? "bg-slate-950 border border-slate-800 text-slate-400 cursor-not-allowed"
-                                                 : "bg-slate-800 border border-slate-700 focus:border-emerald-500"}`} />
+                                                 : "bg-slate-800 border border-slate-700 focus:border-blue-500"}`} />
                             </div>
                             <div className="flex flex-col items-center">
                                 <span className="text-[9px] uppercase text-slate-500 font-semibold">Géoloc</span>
@@ -539,7 +539,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             <div className="flex flex-col items-center">
                                 <span className="text-[9px] uppercase text-slate-500 font-semibold">Δ</span>
                                 <span className={`text-xs font-bold tabular-nums
-                                    ${p.delta === null || p.delta === undefined ? "text-slate-700" : p.delta === 0 ? "text-emerald-400" : p.delta < 0 ? "text-red-400" : "text-amber-400"}`}
+                                    ${p.delta === null || p.delta === undefined ? "text-slate-700" : p.delta === 0 ? "text-blue-400" : p.delta < 0 ? "text-red-400" : "text-amber-400"}`}
                                     data-testid={`product-delta-${p.designation}`}>
                                     {p.delta === null || p.delta === undefined ? "—" : (p.delta > 0 ? "+" : "") + fmt(p.delta)}
                                 </span>
@@ -588,7 +588,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     ))}
                     <button onClick={() => fileRef.current?.click()} disabled={uploading}
                         data-testid={`allee-add-photo-${a.uid}`}
-                        className="w-16 h-16 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-emerald-400 hover:border-emerald-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
+                        className="w-16 h-16 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-blue-400 hover:border-blue-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
                         {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                         <span className="text-[9px]">Photo</span>
                     </button>
@@ -617,7 +617,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 <div className="rounded-xl bg-slate-900 border border-slate-800 p-3" data-testid={`allee-extras-saved-${a.uid}`}>
                     <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1.5">Produits supplémentaires posés (non prévus)</div>
                     {(a.extra_products || []).map((x, i) => (
-                        <div key={i} className="text-xs text-slate-300">• {x.designation} — <span className="font-bold text-emerald-400">{fmt(x.qty)}</span></div>
+                        <div key={i} className="text-xs text-slate-300">• {x.designation} — <span className="font-bold text-blue-400">{fmt(x.qty)}</span></div>
                     ))}
                 </div>
             )}
@@ -634,12 +634,12 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     data-testid={`allee-comment-${a.uid}`}
                     className={`w-full h-10 px-3 rounded-xl border text-xs placeholder:text-slate-600 outline-none
                         ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
-                                                 : "bg-slate-900 border-slate-800 focus:border-emerald-600"}`} />
+                                                 : "bg-slate-900 border-slate-800 focus:border-blue-600"}`} />
             </div>
             <div className="flex items-center gap-2">
                 {a.status !== "validee" ? (
                     <button onClick={() => setPanel(true)} disabled={saving} data-testid={`allee-validate-${a.uid}`}
-                        className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                        className="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Valider l'allée
                     </button>
                 ) : (
@@ -697,7 +697,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                 <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-3" data-testid={`allee-validate-panel-${a.uid}`}>
                     <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-4 space-y-3 max-h-[85vh] overflow-y-auto">
                         <div className="flex items-center gap-2">
-                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            <CheckCircle2 className="w-5 h-5 text-blue-400" />
                             <h4 className="text-sm font-bold flex-1">Valider l'allée {a.allee}</h4>
                             <button onClick={() => setPanel(false)} data-testid="validate-panel-close"
                                 className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
@@ -736,18 +736,18 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                                         onChange={(e) => setExtras((s) => s.map((y, j) => (j === i ? { ...y, designation: e.target.value } : y)))}
                                         placeholder="Désignation (ex: ES 1.5 blanc)"
                                         data-testid={`extra-desig-${i}`}
-                                        className="flex-1 h-8 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                                        className="flex-1 h-8 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-blue-600 outline-none" />
                                     <input type="number" min="0" inputMode="numeric" value={x.qty}
                                         onChange={(e) => setExtras((s) => s.map((y, j) => (j === i ? { ...y, qty: e.target.value } : y)))}
                                         placeholder="Qté" data-testid={`extra-qty-${i}`}
-                                        className="w-16 h-8 px-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-center placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                                        className="w-16 h-8 px-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-center placeholder:text-slate-600 focus:border-blue-600 outline-none" />
                                     <button onClick={() => setExtras((s) => s.filter((_, j) => j !== i))} data-testid={`extra-del-${i}`}
                                         className="p-1.5 text-slate-500 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                                 </div>
                             ))}
                             <button onClick={() => setExtras((s) => [...s, { designation: "", qty: "" }])}
                                 data-testid="extra-add-btn"
-                                className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold">
+                                className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold">
                                 + Ajouter un produit non prévu
                             </button>
                         </div>
@@ -758,7 +758,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                                 Annuler
                             </button>
                             <button onClick={confirmValidate} disabled={saving} data-testid={`validate-confirm-${a.uid}`}
-                                className="flex-1 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                                className="flex-1 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Confirmer la validation
                             </button>
                         </div>

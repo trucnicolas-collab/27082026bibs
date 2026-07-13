@@ -42,7 +42,7 @@ export default function BlockingModal({ open, title, issues, onClose }) {
                     <button
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-white rounded-lg"
-                        style={{ backgroundColor: "#056839" }}
+                        style={{ backgroundColor: "#005BAB" }}
                         data-testid="blocking-modal-ok"
                     >
                         J’ai compris

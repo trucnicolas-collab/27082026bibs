@@ -174,10 +174,10 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="tableau-date-tab">
-            <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-emerald-50/50 flex-shrink-0">
-                <CalendarDays className="w-4 h-4 text-emerald-700" />
-                <span className="text-sm font-semibold text-emerald-900">Tableau date</span>
-                <span className="text-xs text-emerald-800 italic">
+            <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-blue-50/50 flex-shrink-0">
+                <CalendarDays className="w-4 h-4 text-blue-700" />
+                <span className="text-sm font-semibold text-blue-900">Tableau date</span>
+                <span className="text-xs text-blue-800 italic">
                     {nbNuits} nuit{nbNuits > 1 ? "s" : ""} · structure depuis « Phasage de pose »
                 </span>
                 {saving && <span className="text-xs text-gray-500 ml-2">Sauvegarde…</span>}
@@ -187,7 +187,7 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
                             onClick={() => setPrefillOpen(true)}
                             disabled={nbNuits === 0}
                             data-testid="prefill-open-button"
-                            className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+                            className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded flex items-center gap-1.5 disabled:opacity-50 transition-colors"
                             title="Pré-remplir automatiquement les dates de toutes les nuits"
                         >
                             <Wand2 className="w-3.5 h-3.5" />
@@ -238,7 +238,7 @@ export default function TableauDateTab({ uploadId, readOnly = false }) {
                                             onChange={(e) => onChangeDate(n, e.target.value)}
                                             disabled={readOnly}
                                             data-testid={`td-date-${n}`}
-                                            className="w-full h-7 px-1.5 text-xs border border-gray-300 bg-white rounded focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-mono-data"
+                                            className="w-full h-7 px-1.5 text-xs border border-gray-300 bg-white rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono-data"
                                         />
                                         {dates[k] && (
                                             <div className="text-[10px] text-gray-500 mt-0.5 capitalize">{formatDateLong(dates[k])}</div>

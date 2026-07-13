@@ -77,7 +77,7 @@ function nightPositionInWeek(nuit, weeks) {
 const NIGHT_COLORS = [
     { bg: "#FEF3C7", border: "#FCD34D" }, // 1 jaune
     { bg: "#DBEAFE", border: "#93C5FD" }, // 2 bleu
-    { bg: "#D1FAE5", border: "#6EE7B7" }, // 3 vert
+    { bg: "#DBEAFE", border: "#6EE7B7" }, // 3 vert
     { bg: "#FCE7F3", border: "#F9A8D4" }, // 4 rose
     { bg: "#E0E7FF", border: "#A5B4FC" }, // 5 indigo
     { bg: "#FED7AA", border: "#FDBA74" }, // 6 orange
@@ -460,9 +460,9 @@ export default function PhasageTab({ uploadId }) {
                     value={nbNuits}
                     onChange={(e) => onChangeNbNuits(e.target.value)}
                     data-testid="phasage-nb-nuits"
-                    className="h-7 w-16 px-2 text-sm border border-gray-300 rounded text-right focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                    className="h-7 w-16 px-2 text-sm border border-gray-300 rounded text-right focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                 />
-                <div className="flex items-center gap-2 ml-2 px-3 py-1 bg-[#056839] text-white rounded text-xs font-medium" data-testid="phasage-moyenne">
+                <div className="flex items-center gap-2 ml-2 px-3 py-1 bg-[#005BAB] text-white rounded text-xs font-medium" data-testid="phasage-moyenne">
                     Moyenne / nuit :
                     <span className="font-mono-data font-bold">{fmt(Math.round(avg))}</span>
                     <span className="opacity-80">EEG</span>
@@ -508,7 +508,7 @@ export default function PhasageTab({ uploadId }) {
                         setRows((prev) => prev.map((rr) => (rr.nuit && rr.nuit > newTotal ? { ...rr, nuit: null } : rr)));
                     }}
                     data-testid="phasage-nb-semaines"
-                    className="h-7 w-14 px-2 text-sm border border-gray-300 rounded text-right focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                    className="h-7 w-14 px-2 text-sm border border-gray-300 rounded text-right focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                 />
                 {weeks.length === 0 && (
                     <span className="text-[11px] text-gray-500 italic ml-2">Pas de découpage (le tableau Excel reste en un seul bloc)</span>
@@ -549,10 +549,10 @@ export default function PhasageTab({ uploadId }) {
 
             {/* Totaux globaux */}
             <div className="border-b border-gray-200 px-3 py-2 flex flex-wrap items-start gap-2 text-xs flex-shrink-0">
-                <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded">
+                <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 rounded">
                     <span className="text-gray-600">Total EEG :</span>{" "}
                     <span
-                        className="font-mono-data font-bold text-emerald-900"
+                        className="font-mono-data font-bold text-blue-900"
                         data-testid="total-es"
                         title={`ES (${fmt(totalESBrut)})${totalES15Bonus > 0 ? ` + Bonus rails→ES 1.5 (${fmt(totalES15Bonus)})` : ""}${totalFleches > 0 ? ` + Flèches → ES 1.5 noir (${fmt(totalFleches)})` : ""}${totalSA15 > 0 ? ` + SA 1.5 (${fmt(totalSA15)})` : ""}${sa21Saisonnier > 0 ? ` + SA 2.1 saisonnier (${fmt(sa21Saisonnier)})` : ""}`}
                     >
@@ -587,10 +587,10 @@ export default function PhasageTab({ uploadId }) {
                     </div>
                 )}
                 {saInstallTotal > 0 && (
-                    <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-300 rounded" data-testid="sa-install-chip"
+                    <div className="px-3 py-1.5 bg-blue-50 border border-blue-300 rounded" data-testid="sa-install-chip"
                         title={`SA à installer — SA 1.5 ${fmt(saToInstall.sa_15)} / SA 2.1 ${fmt(saToInstall.sa_21)} / Freezer ${fmt(saToInstall.freezer)} / 4.2/4.2 WP ${fmt(saToInstall.sa_42)}`}>
                         <span className="text-gray-600">EEG SA à installer :</span>{" "}
-                        <span className="font-mono-data font-bold" style={{ color: "#056839" }}>+{fmt(saInstallTotal)}</span>
+                        <span className="font-mono-data font-bold" style={{ color: "#005BAB" }}>+{fmt(saInstallTotal)}</span>
                         <span className="text-gray-400 text-[10px] ml-1">
                             (1.5 {fmt(saToInstall.sa_15)} / 2.1 {fmt(saToInstall.sa_21)} / frz {fmt(saToInstall.freezer)} / 4.2 {fmt(saToInstall.sa_42)})
                         </span>
@@ -626,7 +626,7 @@ export default function PhasageTab({ uploadId }) {
                             <button
                                 onClick={addRow}
                                 data-testid="phasage-add-row"
-                                className="h-7 px-2 text-xs font-medium bg-white border border-[#056839] text-[#056839] rounded hover:bg-emerald-50 flex items-center gap-1"
+                                className="h-7 px-2 text-xs font-medium bg-white border border-[#005BAB] text-[#005BAB] rounded hover:bg-blue-50 flex items-center gap-1"
                             >
                                 <Plus className="w-3.5 h-3.5" />
                                 Ajouter une allée
@@ -644,10 +644,10 @@ export default function PhasageTab({ uploadId }) {
                                             EEG
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT) — selon la config du panneau">SA 1.5</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT) — selon la config du panneau">SA 2.1</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT) — selon la config du panneau">SA 2.1 frz</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="4.2 / 4.2 WP à installer (VT) — selon la config du panneau">4.2/4.2 WP</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 1.5 à installer (VT) — selon la config du panneau">SA 1.5</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 2.1 à installer (VT) — selon la config du panneau">SA 2.1</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 2.1 Freezer à installer (VT) — selon la config du panneau">SA 2.1 frz</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="4.2 / 4.2 WP à installer (VT) — selon la config du panneau">4.2/4.2 WP</th>
                                         {!hideSaMagasin && (
                                             <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info, non incluses dans EEG)">SA magasin</th>
                                         )}
@@ -689,7 +689,7 @@ export default function PhasageTab({ uploadId }) {
                                                         value={r.allee || ""}
                                                         onChange={(e) => updateRow(r.id, { allee: e.target.value })}
                                                         data-testid={`row-allee-${r.id}`}
-                                                        className="w-full h-6 px-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none font-mono-data bg-white"
+                                                        className="w-full h-6 px-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none font-mono-data bg-white"
                                                     >
                                                         <option value="">Sélectionner…</option>
                                                         {availableAllees.map((a) => {
@@ -722,16 +722,16 @@ export default function PhasageTab({ uploadId }) {
                                                     ) : ""}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {node && inst.sa_15 > 0 ? fmt(inst.sa_15) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {node && inst.sa_21 > 0 ? fmt(inst.sa_21) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {node && inst.freezer > 0 ? fmt(inst.freezer) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {node && inst.sa_42 > 0 ? fmt(inst.sa_42) : <span className="text-gray-300">—</span>}
                                                 </td>
                                                 {!hideSaMagasin && (
@@ -745,7 +745,7 @@ export default function PhasageTab({ uploadId }) {
                                                         value={r.nuit ?? ""}
                                                         onChange={(e) => updateRow(r.id, { nuit: e.target.value === "" ? null : Number(e.target.value) })}
                                                         data-testid={`row-nuit-${r.id}`}
-                                                        className="w-full h-6 px-1 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none bg-white"
+                                                        className="w-full h-6 px-1 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none bg-white"
                                                     >
                                                         <option value="">—</option>
                                                         {Array.from({ length: nbNuits }, (_, i) => i + 1).map((n) => (
@@ -789,10 +789,10 @@ export default function PhasageTab({ uploadId }) {
                                             EEG ES
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 1.5 à installer (VT)">SA 1.5</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 à installer (VT)">SA 2.1</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="SA 2.1 Freezer à installer (VT)">SA 2.1 frz</th>
-                                        <th className="px-2 py-1.5 text-right font-semibold text-emerald-700" title="4.2 / 4.2 WP à installer (VT)">4.2/4.2 WP</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 1.5 à installer (VT)">SA 1.5</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 2.1 à installer (VT)">SA 2.1</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 2.1 Freezer à installer (VT)">SA 2.1 frz</th>
+                                        <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="4.2 / 4.2 WP à installer (VT)">4.2/4.2 WP</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-gray-900" title="Total = EEG ES + SA 1.5 + SA 2.1 + SA 2.1 Freezer + 4.2/4.2 WP (hors Rails ES)">Total</th>
                                         {!hideSaMagasin && (
                                             <th className="px-2 py-1.5 text-right font-semibold italic text-gray-500" title="SA restantes installées par le magasin (info)">SA magasin</th>
@@ -837,16 +837,16 @@ export default function PhasageTab({ uploadId }) {
                                                     {fmt(eegES)}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-600">{fmt(t.rails_es)}</td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {t.sa_inst_15 > 0 ? fmt(t.sa_inst_15) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {t.sa_inst_21 > 0 ? fmt(t.sa_inst_21) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {t.sa_inst_freezer > 0 ? fmt(t.sa_inst_freezer) : <span className="text-gray-300">—</span>}
                                                 </td>
-                                                <td className="px-2 py-1 text-right font-mono-data text-emerald-700 font-semibold">
+                                                <td className="px-2 py-1 text-right font-mono-data text-blue-700 font-semibold">
                                                     {t.sa_inst_42 > 0 ? fmt(t.sa_inst_42) : <span className="text-gray-300">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" data-testid={`recap-nuit-total-${n}`}>
@@ -873,16 +873,16 @@ export default function PhasageTab({ uploadId }) {
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                        <td className="px-2 py-1 text-right font-mono-data text-blue-700">
                                             {fmt(grandTotals.sa_inst_15)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                        <td className="px-2 py-1 text-right font-mono-data text-blue-700">
                                             {fmt(grandTotals.sa_inst_21)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                        <td className="px-2 py-1 text-right font-mono-data text-blue-700">
                                             {fmt(grandTotals.sa_inst_freezer)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data text-emerald-700">
+                                        <td className="px-2 py-1 text-right font-mono-data text-blue-700">
                                             {fmt(grandTotals.sa_inst_42)}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" data-testid="recap-nuit-total-grand">

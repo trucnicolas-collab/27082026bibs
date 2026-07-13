@@ -35,7 +35,7 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
 __PPTX_VERSION__ = "2026-07-10-v25-strict-11cols"
 
 # Palette par position dans la semaine (alignée Excel)
-WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#D1FAE5"]
+WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#DBEAFE"]
 WHITE = "#FFFFFF"
 HEADER_BG = "#1F2937"
 SUBHEADER_BG = "#F3F4F6"

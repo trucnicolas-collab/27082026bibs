@@ -1,7 +1,7 @@
 import React from "react";
 import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
-const BRAND = "#056839";
+const BRAND = "#005BAB";
 
 // Barre de progression (stepper) + sous-onglets de l'étape + navigation Précédent/Suivant.
 export default function WizardSteps({

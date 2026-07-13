@@ -46,10 +46,10 @@ export default function AuthScreen({ onForgotPassword }) {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-gray-100 px-4" data-testid="auth-screen">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-gray-100 px-4" data-testid="auth-screen">
             <div className="w-full max-w-md">
                 <div className="flex items-center gap-3 mb-8 justify-center">
-                    <div className="w-12 h-12 rounded-lg bg-[#056839] flex items-center justify-center shadow-md">
+                    <div className="w-12 h-12 rounded-lg bg-[#005BAB] flex items-center justify-center shadow-md">
                         <FileSpreadsheet className="w-7 h-7 text-white" strokeWidth={2} />
                     </div>
                     <div>
@@ -65,7 +65,7 @@ export default function AuthScreen({ onForgotPassword }) {
                             data-testid="auth-tab-login"
                             className={`flex-1 py-3 text-sm font-semibold transition-colors ${
                                 mode === "login"
-                                    ? "text-[#056839] border-b-2 border-[#056839] bg-emerald-50/40"
+                                    ? "text-[#005BAB] border-b-2 border-[#005BAB] bg-blue-50/40"
                                     : "text-gray-500 hover:text-gray-700"
                             }`}
                         >
@@ -76,7 +76,7 @@ export default function AuthScreen({ onForgotPassword }) {
                             data-testid="auth-tab-register"
                             className={`flex-1 py-3 text-sm font-semibold transition-colors ${
                                 mode === "register"
-                                    ? "text-[#056839] border-b-2 border-[#056839] bg-emerald-50/40"
+                                    ? "text-[#005BAB] border-b-2 border-[#005BAB] bg-blue-50/40"
                                     : "text-gray-500 hover:text-gray-700"
                             }`}
                         >
@@ -96,7 +96,7 @@ export default function AuthScreen({ onForgotPassword }) {
                                         onChange={(e) => setName(e.target.value)}
                                         placeholder="Votre nom (optionnel)"
                                         data-testid="auth-name"
-                                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#056839]/30 focus:border-[#056839] outline-none"
+                                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#005BAB]/30 focus:border-[#005BAB] outline-none"
                                     />
                                 </div>
                             </div>
@@ -113,7 +113,7 @@ export default function AuthScreen({ onForgotPassword }) {
                                     autoComplete={mode === "login" ? "username" : "email"}
                                     placeholder="vous@exemple.com"
                                     data-testid="auth-email"
-                                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#056839]/30 focus:border-[#056839] outline-none"
+                                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#005BAB]/30 focus:border-[#005BAB] outline-none"
                                 />
                             </div>
                         </div>
@@ -130,7 +130,7 @@ export default function AuthScreen({ onForgotPassword }) {
                                     autoComplete={mode === "login" ? "current-password" : "new-password"}
                                     placeholder="••••••••"
                                     data-testid="auth-password"
-                                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#056839]/30 focus:border-[#056839] outline-none"
+                                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-[#005BAB]/30 focus:border-[#005BAB] outline-none"
                                 />
                             </div>
                             {mode === "register" && (
@@ -148,7 +148,7 @@ export default function AuthScreen({ onForgotPassword }) {
                             type="submit"
                             disabled={loading}
                             data-testid="auth-submit"
-                            className="w-full h-10 bg-[#056839] hover:bg-[#04502b] text-white text-sm font-semibold rounded transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                            className="w-full h-10 bg-[#005BAB] hover:bg-[#04502b] text-white text-sm font-semibold rounded transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                         >
                             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                             {mode === "login" ? "Se connecter" : "Créer mon compte"}
@@ -160,7 +160,7 @@ export default function AuthScreen({ onForgotPassword }) {
                                     type="button"
                                     onClick={onForgotPassword}
                                     data-testid="auth-forgot-link"
-                                    className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline"
+                                    className="text-xs text-blue-700 hover:text-blue-900 hover:underline"
                                 >
                                     Mot de passe oublié ?
                                 </button>

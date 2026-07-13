@@ -159,7 +159,7 @@ export default function SuiviPhasageTab({ uploadId }) {
     };
     const pctCellColor = (p) => {
         if (p == null) return "text-gray-400";
-        if (p >= 90) return "text-emerald-700 font-bold";
+        if (p >= 90) return "text-blue-700 font-bold";
         if (p >= 50) return "text-amber-700 font-bold";
         return "text-red-700 font-bold";
     };
@@ -194,7 +194,7 @@ export default function SuiviPhasageTab({ uploadId }) {
     const pctGeoloc = pct(totals.geoloc, totals.railsReel);
     const gaugeColor = (p) => {
         if (p == null) return { bar: "bg-gray-300", text: "text-gray-500" };
-        if (p >= 90) return { bar: "bg-emerald-500", text: "text-emerald-700" };
+        if (p >= 90) return { bar: "bg-blue-500", text: "text-blue-700" };
         if (p >= 50) return { bar: "bg-amber-500", text: "text-amber-700" };
         return { bar: "bg-red-500", text: "text-red-700" };
     };
@@ -236,7 +236,7 @@ export default function SuiviPhasageTab({ uploadId }) {
             {/* Bandeau d'avancement global */}
             <div className="border-b border-gray-200 px-4 py-3 bg-gradient-to-r from-gray-50 to-white flex-shrink-0">
                 <div className="flex items-start gap-6 flex-wrap">
-                    <Gauge label="ES" p={pctES} reel={totals.esReel} prevu={totals.es} color="bg-emerald-500" testid="gauge-es" />
+                    <Gauge label="ES" p={pctES} reel={totals.esReel} prevu={totals.es} color="bg-blue-500" testid="gauge-es" />
                     <Gauge label="Caméras" p={pctCam} reel={totals.camReel} prevu={totals.cam} color="bg-purple-500" testid="gauge-cam" />
                     <Gauge label="Rails ES" p={pctRails} reel={totals.railsReel} prevu={totals.rails} color="bg-amber-500" testid="gauge-rails" />
                     <Gauge label="Géoloc" p={pctGeoloc} reel={totals.geoloc} prevu={totals.railsReel} color="bg-sky-500" testid="gauge-geoloc" />
@@ -252,16 +252,16 @@ export default function SuiviPhasageTab({ uploadId }) {
                                 <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Type</th>
                                 <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b">Allée phasage</th>
                                 <th rowSpan={2} className="px-2 py-1.5 text-left font-semibold border-b bg-yellow-50">Allée réelle</th>
-                                <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-emerald-50 border-l border-b">ES</th>
+                                <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-blue-50 border-l border-b">ES</th>
                                 <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-purple-50 border-l border-b">Caméras</th>
                                 <th colSpan={4} className="px-2 py-1 text-center font-semibold bg-amber-50 border-l border-b">Rails ES</th>
                                 <th colSpan={2} className="px-2 py-1 text-center font-semibold bg-sky-50 border-l border-b">Géoloc</th>
                             </tr>
                             <tr>
-                                <th className="px-2 py-1 text-right font-semibold bg-emerald-50 border-l">Prévu</th>
-                                <th className="px-2 py-1 text-right font-semibold bg-emerald-50">Réel</th>
-                                <th className="px-2 py-1 text-right font-semibold bg-emerald-50">Diff</th>
-                                <th className="px-2 py-1 text-right font-semibold bg-emerald-50">%</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-blue-50 border-l">Prévu</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-blue-50">Réel</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-blue-50">Diff</th>
+                                <th className="px-2 py-1 text-right font-semibold bg-blue-50">%</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50 border-l">Prévue</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50">Réelle</th>
                                 <th className="px-2 py-1 text-right font-semibold bg-purple-50">Diff</th>
@@ -288,7 +288,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                     || (sv.rails_geoloc_count !== "" && sv.rails_geoloc_count != null);
                                 const color = nightColor(r.nuit, (summary?.phasage?.es?.weeks) || []);
                                 const rowStyle = treated
-                                    ? { backgroundColor: "#D1FAE5", borderLeft: "4px solid #10B981" }
+                                    ? { backgroundColor: "#DBEAFE", borderLeft: "4px solid #10B981" }
                                     : (color ? { backgroundColor: color.bg, borderLeft: `4px solid ${color.border}` } : {});
                                 const dEs = diff(sv.es_reel, r.es);
                                 const dCam = diff(sv.cam_reel, r.cam);
@@ -299,16 +299,16 @@ export default function SuiviPhasageTab({ uploadId }) {
                                 const pGeoloc = pctRow(sv.rails_geoloc_count, sv.rails_geoloc);
                                 const diffColor = (v) => {
                                     if (v == null) return "text-gray-400";
-                                    if (v > 0) return "text-emerald-700";
+                                    if (v > 0) return "text-blue-700";
                                     if (v < 0) return "text-red-700";
                                     return "text-gray-700";
                                 };
                                 const fmtPct = (p) => p == null ? "" : `${p.toFixed(0)}%`;
                                 const inputCls = treated
-                                    ? "w-20 h-6 px-1 text-xs border border-emerald-300 bg-emerald-50 rounded text-right font-mono-data focus:ring-1 focus:ring-emerald-500 outline-none"
+                                    ? "w-20 h-6 px-1 text-xs border border-blue-300 bg-blue-50 rounded text-right font-mono-data focus:ring-1 focus:ring-blue-500 outline-none"
                                     : "w-20 h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-right font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none";
                                 const textInputCls = treated
-                                    ? "w-full h-6 px-1 text-xs border border-emerald-300 bg-emerald-50 rounded text-left font-mono-data focus:ring-1 focus:ring-emerald-500 outline-none"
+                                    ? "w-full h-6 px-1 text-xs border border-blue-300 bg-blue-50 rounded text-left font-mono-data focus:ring-1 focus:ring-blue-500 outline-none"
                                     : "w-full h-6 px-1 text-xs border border-yellow-300 bg-yellow-50 rounded text-left font-mono-data focus:ring-1 focus:ring-yellow-500 outline-none";
                                 return (
                                     <tr key={r.nuit} className={`border-t border-gray-100 ${treated ? "font-semibold" : ""}`}
@@ -316,7 +316,7 @@ export default function SuiviPhasageTab({ uploadId }) {
                                         data-testid={`suivi-nuit-${r.nuit}`}>
                                         <td className="px-2 py-1 font-medium text-gray-900">
                                             Nuit {r.nuit}
-                                            {treated && <span className="ml-1 text-emerald-700" title="Traitée">✓</span>}
+                                            {treated && <span className="ml-1 text-blue-700" title="Traitée">✓</span>}
                                         </td>
                                         <td className="px-2 py-1 text-gray-700 text-[11px]">{r.type}</td>
                                         <td className="px-2 py-1 font-mono-data text-gray-700 text-[11px] max-w-[180px] truncate" title={r.allees.join(", ")}>

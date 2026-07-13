@@ -143,9 +143,9 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
     return (
         <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4" onClick={onClose} data-testid="prefill-dialog">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-emerald-50 to-white">
+                <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-white">
                     <div className="flex items-center gap-2">
-                        <Wand2 className="w-5 h-5 text-emerald-700" />
+                        <Wand2 className="w-5 h-5 text-blue-700" />
                         <h3 className="text-base font-bold text-gray-900">Pré-remplir les dates</h3>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600" data-testid="prefill-close">
@@ -161,7 +161,7 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
                             value={nuit1Date}
                             onChange={(e) => setNuit1Date(e.target.value)}
                             data-testid="prefill-nuit1-date"
-                            className="w-full sm:w-56 h-9 px-3 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 outline-none font-mono-data"
+                            className="w-full sm:w-56 h-9 px-3 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono-data"
                         />
                         <p className="mt-1 text-xs text-gray-500">
                             Choisissez le jour de pose de la <strong>première nuit</strong>. L'app calcule le reste à partir de cette date.
@@ -182,7 +182,7 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
                                 return (
                                     <div
                                         key={wi}
-                                        className={`p-2 rounded border ${ok ? "border-emerald-200 bg-emerald-50/40" : "border-amber-300 bg-amber-50/40"}`}
+                                        className={`p-2 rounded border ${ok ? "border-blue-200 bg-blue-50/40" : "border-amber-300 bg-amber-50/40"}`}
                                     >
                                         <div className="flex items-center gap-3">
                                             <span className="text-xs font-semibold text-gray-700 w-24 flex-shrink-0">
@@ -203,7 +203,7 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
                                                             data-testid={`prefill-w${wi}-day-${d.idx}`}
                                                             className={`px-2.5 py-1 text-xs rounded border transition-colors relative ${
                                                                 on
-                                                                    ? "bg-emerald-600 text-white border-emerald-600"
+                                                                    ? "bg-blue-600 text-white border-blue-600"
                                                                     : isHoliday
                                                                         ? "bg-red-50 text-red-700 border-red-200"
                                                                         : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
@@ -216,7 +216,7 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
                                                     );
                                                 })}
                                             </div>
-                                            <span className={`text-xs ml-auto ${ok ? "text-emerald-700" : "text-amber-700 font-semibold"}`}>
+                                            <span className={`text-xs ml-auto ${ok ? "text-blue-700" : "text-amber-700 font-semibold"}`}>
                                                 {selected.length} / {cnt}
                                             </span>
                                         </div>
@@ -257,7 +257,7 @@ export default function PrefillDatesDialog({ open, weeks, nbNuits, initialNuit1,
                             onClick={handleApply}
                             disabled={!nuit1Date}
                             data-testid="prefill-apply"
-                            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded disabled:opacity-50 flex items-center gap-1.5"
+                            className="h-9 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded disabled:opacity-50 flex items-center gap-1.5"
                         >
                             <Wand2 className="w-4 h-4" /> Appliquer
                         </button>

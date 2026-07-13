@@ -40,7 +40,7 @@ export default function SuiviMateriel({ actions, phaseKind = "eeg" }) {
             <div className="space-y-3" data-testid="materiel-night-detail">
                 <button onClick={() => { setSelectedNight(null); setNightDetail(null); }}
                     data-testid="materiel-back"
-                    className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+                    className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
                     <ArrowLeft className="w-4 h-4" /> Toutes les nuits
                 </button>
                 <h3 className="text-base font-bold flex items-center gap-2">
@@ -48,7 +48,7 @@ export default function SuiviMateriel({ actions, phaseKind = "eeg" }) {
                     {nightDetail?.date && <span className="text-xs text-slate-500 font-normal">{new Date(nightDetail.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
                 </h3>
                 {loading || !nightDetail ? (
-                    <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-emerald-400 animate-spin" /></div>
+                    <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-blue-400 animate-spin" /></div>
                 ) : (
                     <div className="space-y-2">
                         {nightDetail.allees.map((a) => <AlleeMateriel key={a.uid} allee={a} />)}
@@ -63,7 +63,7 @@ export default function SuiviMateriel({ actions, phaseKind = "eeg" }) {
     return (
         <div className="space-y-3" data-testid="suivi-materiel">
             <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 text-xs text-slate-400 flex items-center gap-2">
-                <Boxes className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <Boxes className="w-4 h-4 text-blue-400 flex-shrink-0" />
                 Matériel prévu par nuit. Touchez une nuit pour voir le détail par allée, puis par élément.
             </div>
             {(overview.nights || []).map((n) => (
@@ -86,7 +86,7 @@ function NightMateriel({ night, onOpen }) {
         <section className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden" data-testid={`materiel-night-${night.nuit}`}>
             <button onClick={onOpen} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-800/40 transition-colors"
                 data-testid={`materiel-night-open-${night.nuit}`}>
-                <div className="w-9 h-9 rounded-lg bg-slate-800 text-emerald-400 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-slate-800 text-blue-400 flex items-center justify-center font-bold text-sm flex-shrink-0">
                     {night.nuit}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -102,7 +102,7 @@ function NightMateriel({ night, onOpen }) {
                 <ProductTable products={shown} />
                 {night.products.length > 5 && (
                     <button onClick={() => setExpanded(!expanded)}
-                        className="mt-1.5 text-[11px] text-emerald-400 hover:text-emerald-300">
+                        className="mt-1.5 text-[11px] text-blue-400 hover:text-blue-300">
                         {expanded ? "Voir moins" : `Voir les ${night.products.length - 5} autres produits`}
                     </button>
                 )}
@@ -147,7 +147,7 @@ function ProductTable({ products, small = false }) {
             {products.map((p) => (
                 <div key={p.designation} className={`flex items-center justify-between gap-3 ${small ? "py-0.5" : "py-1"}`}>
                     <span className={`${small ? "text-[11px]" : "text-xs"} text-slate-300 min-w-0 truncate`} title={p.designation}>{p.designation}</span>
-                    <span className={`${small ? "text-[11px]" : "text-xs"} font-bold text-emerald-300 tabular-nums flex-shrink-0`}>{fmt(p.qty)}</span>
+                    <span className={`${small ? "text-[11px]" : "text-xs"} font-bold text-blue-300 tabular-nums flex-shrink-0`}>{fmt(p.qty)}</span>
                 </div>
             ))}
         </div>
@@ -172,7 +172,7 @@ function EcartRecap({ night, accent = "emerald" }) {
     }
     const filtered = filter === "all" ? ecarts : ecarts.filter((e) => e.status === filter);
     const shown = showAll ? filtered : filtered.slice(0, 8);
-    const statusColor = (s) => s === "bonus" ? "text-sky-400" : s === "manque" ? "text-red-400" : "text-emerald-400";
+    const statusColor = (s) => s === "bonus" ? "text-sky-400" : s === "manque" ? "text-red-400" : "text-blue-400";
     const statusIcon = (s) => s === "bonus" ? TrendingUp : s === "manque" ? TrendingDown : CheckCircle2;
 
     const filterBtn = (id, label, count, color) => (
@@ -191,17 +191,17 @@ function EcartRecap({ night, accent = "emerald" }) {
                 <Scale className={`w-4 h-4 text-${accent}-400`} />
                 <h4 className="text-sm font-bold flex-1">Écart phasage vs réel — fin de nuit</h4>
                 {stats.complete
-                    ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-bold">NUIT VALIDÉE</span>
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 font-bold">NUIT VALIDÉE</span>
                     : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">EN COURS</span>}
             </div>
             <div className="px-4 py-3 grid grid-cols-3 gap-2 border-b border-slate-800">
-                <MiniStat label="Conforme (±5%)" value={stats.nb_conforme || 0} icon={CheckCircle2} color="text-emerald-400" testid="ecart-stat-conforme" />
+                <MiniStat label="Conforme (±5%)" value={stats.nb_conforme || 0} icon={CheckCircle2} color="text-blue-400" testid="ecart-stat-conforme" />
                 <MiniStat label="Bonus posé (>+5%)" value={stats.nb_bonus || 0} icon={TrendingUp} color="text-sky-400" testid="ecart-stat-bonus" />
                 <MiniStat label="Sous-livré (<-5%)" value={stats.nb_manque || 0} icon={TrendingDown} color="text-red-400" testid="ecart-stat-manque" />
             </div>
             <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap border-b border-slate-800 bg-slate-950/40">
                 {filterBtn("all", "Tous", ecarts.length, "text-slate-200")}
-                {filterBtn("conforme", "Conforme", stats.nb_conforme || 0, "text-emerald-400")}
+                {filterBtn("conforme", "Conforme", stats.nb_conforme || 0, "text-blue-400")}
                 {filterBtn("bonus", "Bonus", stats.nb_bonus || 0, "text-sky-400")}
                 {filterBtn("manque", "Manque", stats.nb_manque || 0, "text-red-400")}
             </div>

@@ -102,7 +102,7 @@ export default function AdminUsersPanel({ currentUser, onClose }) {
                 onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
                     <div className="flex items-center gap-2">
-                        <Users className="w-5 h-5 text-[#056839]" />
+                        <Users className="w-5 h-5 text-[#005BAB]" />
                         <h3 className="text-base font-bold text-gray-900">Gestion des utilisateurs</h3>
                         <span className="text-xs text-gray-500 ml-2">({users.length} compte{users.length > 1 ? "s" : ""})</span>
                     </div>
@@ -159,7 +159,7 @@ export default function AdminUsersPanel({ currentUser, onClose }) {
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="font-semibold text-sm text-gray-900">{u.name || "—"}</span>
                                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${rs.color}`}>{rs.label.toUpperCase()}</span>
-                                                {isSelf && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">VOUS</span>}
+                                                {isSelf && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300">VOUS</span>}
                                                 {u.locked && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300">BLOQUÉ</span>}
                                             </div>
                                             <div className="text-xs text-gray-600 truncate" title={u.email}>{u.email}</div>

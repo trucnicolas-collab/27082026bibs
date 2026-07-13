@@ -101,13 +101,13 @@ export default function SharedView({ token }) {
             <Toaster position="top-right" richColors />
             <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded bg-[#056839] flex items-center justify-center flex-shrink-0">
+                    <div className="w-8 h-8 rounded bg-[#005BAB] flex items-center justify-center flex-shrink-0">
                         <FileSpreadsheet className="w-5 h-5 text-white" strokeWidth={2} />
                     </div>
                     <div className="min-w-0">
                         <h1 className="text-base font-semibold text-gray-900 leading-tight truncate flex items-center gap-2" data-testid="shared-title">
                             {dataset.label || dataset.filename}
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
                                 <Eye className="w-3 h-3 mr-1" /> LECTURE SEULE
                             </span>
                         </h1>
@@ -123,12 +123,12 @@ export default function SharedView({ token }) {
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         data-testid="shared-search"
-                        className="h-8 w-48 sm:w-64 px-3 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-[#056839] focus:border-[#056839] outline-none"
+                        className="h-8 w-48 sm:w-64 px-3 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-[#005BAB] focus:border-[#005BAB] outline-none"
                     />
                     <button
                         onClick={handleExport}
                         data-testid="shared-export"
-                        className="h-8 px-3 bg-[#056839] text-white text-sm rounded hover:bg-[#04502b] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
+                        className="h-8 px-3 bg-[#005BAB] text-white text-sm rounded hover:bg-[#04502b] flex items-center gap-1.5 transition-colors font-medium shadow-sm"
                     >
                         <Download className="w-4 h-4" />
                         <span className="hidden sm:inline">Télécharger</span>

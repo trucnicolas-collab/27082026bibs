@@ -35,7 +35,7 @@ function nightColor(n, weeks) {
 }
 
 const TYPE_BADGE = {
-    "ES": { bg: "#D1FAE5", text: "#065F46" },
+    "ES": { bg: "#DBEAFE", text: "#065F46" },
     "Caméras": { bg: "#EDE9FE", text: "#5B21B6" },
     "Mixte": { bg: "#FEF3C7", text: "#92400E" },
 };
@@ -125,7 +125,7 @@ export default function PhasageFullTab({ uploadId }) {
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="phasage-full-tab">
-            <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-emerald-50/40 flex-shrink-0">
+            <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-blue-50/40 flex-shrink-0">
                 <h2 className="text-sm font-semibold text-gray-800">Phasage full — Planning consolidé (ES + Caméras)</h2>
                 <span className="text-[11px] italic text-gray-500">Vue agrégée des nuits planifiées dans « Phasage de pose » et « Phasage caméras »</span>
             </div>
@@ -134,8 +134,8 @@ export default function PhasageFullTab({ uploadId }) {
                 <div className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded">
                     Nuits planifiées : <span className="font-mono-data font-bold">{totals.nuits}</span>
                 </div>
-                <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded">
-                    Total ES : <span className="font-mono-data font-bold text-emerald-900" data-testid="full-total-es">{fmt(totals.es)}</span>
+                <div className="px-3 py-1.5 bg-blue-50 border border-blue-200 rounded">
+                    Total ES : <span className="font-mono-data font-bold text-blue-900" data-testid="full-total-es">{fmt(totals.es)}</span>
                 </div>
                 <div className="px-3 py-1.5 bg-purple-50 border border-purple-200 rounded">
                     Total Caméras : <span className="font-mono-data font-bold text-purple-900" data-testid="full-total-cam">{fmt(totals.cam)}</span>

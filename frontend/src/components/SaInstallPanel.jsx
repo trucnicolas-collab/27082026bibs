@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { ChevronDown, ChevronRight, Save, PackagePlus, ArrowRight } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const BRAND = "#056839";
+const BRAND = "#005BAB";
 const key = (secteur, rayon, allee) =>
     allee != null && allee !== undefined
         ? `${secteur}|||${rayon}|||${allee}`
@@ -137,7 +137,7 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
                                 checked={sAll}
                                 ref={(el) => { if (el) el.indeterminate = sSome; }}
                                 onChange={() => toggleKeys(skeys, !sAll)}
-                                className="w-3.5 h-3.5 accent-emerald-700"
+                                className="w-3.5 h-3.5 accent-blue-700"
                                 data-testid={`sa-sec-${field}-${sec.secteur}`}
                             />
                             <span className="font-medium text-gray-800">{sec.secteur}</span>
@@ -168,7 +168,7 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
                                                     checked={rAll}
                                                     ref={(el) => { if (el) el.indeterminate = rSome; }}
                                                     onChange={() => toggleKeys(rkeys, !rAll)}
-                                                    className="w-3.5 h-3.5 accent-emerald-700"
+                                                    className="w-3.5 h-3.5 accent-blue-700"
                                                     data-testid={`sa-ray-${field}-${sec.secteur}-${r.rayon}`}
                                                 />
                                                 <span>{r.rayon}</span>
@@ -187,7 +187,7 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
                                                                     type="checkbox"
                                                                     checked={selSet.has(ak)}
                                                                     onChange={() => toggleKeys([ak], !selSet.has(ak))}
-                                                                    className="w-3 h-3 accent-emerald-700"
+                                                                    className="w-3 h-3 accent-blue-700"
                                                                     data-testid={`sa-allee-${field}-${sec.secteur}-${r.rayon}-${a.allee}`}
                                                                 />
                                                                 Allée {a.allee || "—"} <span className="text-gray-400">({fmt(a[field] || 0)})</span>
@@ -305,29 +305,29 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
                 <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-4 text-sm">
                         <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" checked={cfg.toutes} onChange={(e) => set({ toutes: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-toutes" />
+                            <input type="checkbox" checked={cfg.toutes} onChange={(e) => set({ toutes: e.target.checked })} className="w-4 h-4 accent-blue-700" data-testid="sa-type-toutes" />
                             <span className="font-medium">Toutes</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
                             <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_15} onChange={(e) => {
                                 const checked = e.target.checked;
                                 setCfg((p) => ({ ...p, sa_15: checked, selection: { ...p.selection, sa_15: checked ? allKeysForField(breakdown, "sa_15") : [] } }));
-                            }} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-15" />
+                            }} className="w-4 h-4 accent-blue-700" data-testid="sa-type-15" />
                             <span>SA 1.5</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
                             <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_21} onChange={(e) => {
                                 const checked = e.target.checked;
                                 setCfg((p) => ({ ...p, sa_21: checked, selection: { ...p.selection, sa_21: checked ? allKeysForField(breakdown, "sa_21_std") : [] } }));
-                            }} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-21" />
+                            }} className="w-4 h-4 accent-blue-700" data-testid="sa-type-21" />
                             <span>SA 2.1</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
-                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.freezer} onChange={(e) => set({ freezer: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-freezer" />
+                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.freezer} onChange={(e) => set({ freezer: e.target.checked })} className="w-4 h-4 accent-blue-700" data-testid="sa-type-freezer" />
                             <span>Freezer (SA 2.1)</span>
                         </label>
                         <label className={`flex items-center gap-1.5 ${cfg.toutes ? "opacity-40" : "cursor-pointer"}`}>
-                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_42} onChange={(e) => set({ sa_42: e.target.checked })} className="w-4 h-4 accent-emerald-700" data-testid="sa-type-42" />
+                            <input type="checkbox" disabled={cfg.toutes} checked={cfg.sa_42} onChange={(e) => set({ sa_42: e.target.checked })} className="w-4 h-4 accent-blue-700" data-testid="sa-type-42" />
                             <span>4.2/4.2 WP</span>
                         </label>
                     </div>
@@ -395,7 +395,7 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
 
     // ── Mode INLINE (existant) : bandeau repliable ─────────────────────────
     return (
-        <div className="border-b border-gray-200 bg-emerald-50/30 flex-shrink-0" data-testid="sa-install-panel">
+        <div className="border-b border-gray-200 bg-blue-50/30 flex-shrink-0" data-testid="sa-install-panel">
             <button
                 onClick={() => setCollapsed((c) => !c)}
                 className="w-full flex items-center gap-2 px-3 py-2 text-left"

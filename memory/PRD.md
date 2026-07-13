@@ -1,5 +1,42 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v23 — Rebrand bleu Carrefour + contrôle de cohérence à l'upload)
+
+### Rebrand couleur (vert → bleu Carrefour #005BAB)
+Objectif : différencier visuellement le nouvel outil de l'ancien (qui reste vert) pour éviter que les utilisateurs se trompent.
+- **264 occurrences** remplacées automatiquement sur ~30 fichiers frontend + backend :
+  - Tailwind `emerald-*` → `blue-*` (login, dashboards, boutons, tabs, alerts, phase picker, écarts, matériel...).
+  - Excel exports : `#056839` (vert foncé) → `#005BAB` (bleu Carrefour) pour headers de feuille.
+  - Excel fond conforme : `#D1FAE5` (vert clair) → `#DBEAFE` (bleu clair).
+  - Excel accent : `#059669` → `#0369A1` (sky-700).
+- Header de l'app avait déjà `#005BAB` — désormais cohérent avec le reste de l'UI.
+- Validé par screenshots preview : login, phase picker (EEG en bleu foncé), suivi tabs, matériel & écart phasage — tout est aligné.
+
+### Contrôle de cohérence automatique à l'upload (`server.py::_compute_coherence_warnings`)
+Nouvelle fonction appelée à chaque `/upload-excel` qui inspecte le DataFrame et retourne des warnings structurés.
+
+**Codes détectés** :
+- `qty_negative` (**error**) — quantités négatives présentes.
+- `qty_non_numeric` (warning) — quantités illisibles (texte / formule cassée).
+- `empty_es/sa/rail/camera` (info) — famille présente dans les types mais totalise 0.
+- `missing_column_secteur/rayon` (warning) — colonnes clés absentes.
+- `sa_ratio_high` (warning) — SA > 2× ES pur, potentiel double comptage source.
+- `few_rows` (warning) — fichier < 5 lignes.
+- `check_failed` (info) — filet de sécurité si l'inspection plante sur un fichier atypique.
+
+**Restitution frontend** (`App.js::handleUpload`) : chaque warning est affiché sous forme de toast persistant (8s) après le toast succès. Le niveau détermine l'icône :
+- `error` → toast rouge « ⚠ Anomalie détectée ».
+- `warning` → toast ambré « Cohérence — attention ».
+- `info` → toast neutre « Cohérence ».
+
+**Réponse API** enrichie de `coherence_warnings: []` dans le retour de `POST /api/upload-excel`.
+
+### Validé
+- Iter25 : 4 nouveaux tests + 43 régression = **47/47 backend, 100%**.
+- Test manuel curl OK : fichier avec 1 qty négative + ratio SA/ES = 3.4 → détecte `qty_negative` (error) + `sa_ratio_high` (warning).
+- Screenshot preview post-rebrand OK sur login, suivi et main app.
+
+
 ## Changelog 13/02/2026 (v22 — Fix double comptage colonne « EEG ES » exports Excel/PPTX)
 
 ### Bug rapporté par l'utilisateur

@@ -51,7 +51,7 @@ function EditableCell({ value, onCommit, type = "text", align = "left", placehol
                     }
                 }}
                 placeholder={placeholder}
-                className={`w-full h-full px-2 py-1 text-sm border border-[#056839] outline-none font-mono-data bg-white ${
+                className={`w-full h-full px-2 py-1 text-sm border border-[#005BAB] outline-none font-mono-data bg-white ${
                     align === "right" ? "text-right" : ""
                 }`}
             />
@@ -60,7 +60,7 @@ function EditableCell({ value, onCommit, type = "text", align = "left", placehol
     return (
         <div
             onClick={startEdit}
-            className={`w-full h-full px-3 py-1.5 text-sm cursor-text font-mono-data hover:bg-emerald-50/60 ${
+            className={`w-full h-full px-3 py-1.5 text-sm cursor-text font-mono-data hover:bg-blue-50/60 ${
                 align === "right" ? "text-right" : ""
             } ${value === "" || value === null ? "text-gray-400 italic" : ""}`}
             data-testid="editable-cell"
@@ -135,7 +135,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                     <span className="ml-2 text-gray-500">
                         Cliquez sur une ligne vide pour saisir vos propres données
                     </span>
-                    <span className="ml-2 inline-flex items-center gap-1 text-[#056839] font-medium" data-testid="eeg-step3-hint">
+                    <span className="ml-2 inline-flex items-center gap-1 text-[#005BAB] font-medium" data-testid="eeg-step3-hint">
                         <Info className="w-3.5 h-3.5" />
                         Le choix des EEG à poser se fait à l'étape 3 (Phasage).
                     </span>
@@ -151,7 +151,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                 onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "moins_10000" ? null : "moins_10000")}
                                 className={`px-5 py-2.5 text-base font-bold transition-colors ${
                                     surfaceCategory === "moins_10000"
-                                        ? "bg-[#056839] text-white shadow-inner"
+                                        ? "bg-[#005BAB] text-white shadow-inner"
                                         : "bg-white text-amber-900 hover:bg-amber-50"
                                 }`}
                             >
@@ -163,7 +163,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                 onClick={() => onSurfaceChange && onSurfaceChange(surfaceCategory === "plus_10000" ? null : "plus_10000")}
                                 className={`px-5 py-2.5 text-base font-bold border-l-2 border-amber-500 transition-colors ${
                                     surfaceCategory === "plus_10000"
-                                        ? "bg-[#056839] text-white shadow-inner"
+                                        ? "bg-[#005BAB] text-white shadow-inner"
                                         : "bg-white text-amber-900 hover:bg-amber-50"
                                 }`}
                             >
@@ -249,7 +249,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap">
                                 Total
                             </th>
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-emerald-50">
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-blue-50">
                                 Spare
                             </th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider text-right border-r border-gray-300 whitespace-nowrap bg-amber-50" data-testid="header-fleche">
@@ -284,7 +284,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                             if (r.kind === "header") rowClass = "row-total";
                             else if (r.kind === "section") rowClass = "";
                             else if (r.kind === "empty") rowClass = "row-empty";
-                            else if (r.kind === "manual") rowClass = "bg-emerald-50/30";
+                            else if (r.kind === "manual") rowClass = "bg-blue-50/30";
                             if (missingRef) rowClass = "bg-red-50";
 
                             // Ligne de section bleu clair (fusion sur toute la largeur)
@@ -313,7 +313,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                         <td className="px-3 py-1.5 text-sm border-r border-gray-200 font-mono-data whitespace-nowrap">{r.reference}</td>
                                         <td className="px-3 py-1.5 text-sm border-r border-gray-200 whitespace-nowrap">{r.designation}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap">{fmtNum(r.quantite)}</td>
-                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-emerald-50/40">{fmtNum(r.spare)}</td>
+                                        <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-blue-50/40">{fmtNum(r.spare)}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-amber-50/40">{fmtNum(r.fleche)}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-purple-50/40">{fmtNum(r.signaletique)}</td>
                                         <td className="px-3 py-1.5 text-sm text-right font-mono-data border-r border-gray-200 whitespace-nowrap bg-orange-50/40">{fmtNum(r.saisonnier)}</td>
@@ -381,7 +381,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                                             }}
                                         />
                                     </td>
-                                    <td className="p-0 border-r border-gray-200 align-middle bg-emerald-50/40">
+                                    <td className="p-0 border-r border-gray-200 align-middle bg-blue-50/40">
                                         <EditableCell
                                             value={r.spare}
                                             placeholder="Spare"
@@ -426,7 +426,7 @@ export default function RecapTable({ rows, search, onUpdateRow, onAddRow, onDele
                         <span className="w-3 h-3 rounded-sm" style={{ background: "#FEF3C7" }} /> Total
                     </span>
                     <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm bg-emerald-50 border border-emerald-200" /> Spare
+                        <span className="w-3 h-3 rounded-sm bg-blue-50 border border-blue-200" /> Spare
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="w-3 h-3 rounded-sm bg-blue-50 border border-blue-200" /> Total + Spare

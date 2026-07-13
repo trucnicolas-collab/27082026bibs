@@ -217,6 +217,14 @@ function MainApp() {
             setCurrentStep(1);
             try { localStorage.setItem(LS_KEY, res.data.upload_id); } catch (_) {}
             toast.success(`Fichier traité : ${res.data.row_count.toLocaleString("fr-FR")} lignes`);
+            // Contrôle de cohérence : toasts empilés pour chaque anomalie
+            const warns = res.data.coherence_warnings || [];
+            for (const w of warns) {
+                const opts = { description: w.message, duration: 8000 };
+                if (w.level === "error") toast.error("⚠ Anomalie détectée", opts);
+                else if (w.level === "warning") toast.warning("Cohérence — attention", opts);
+                else toast.info("Cohérence", opts);
+            }
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
             toast.error(`Erreur : ${msg}`);
@@ -720,7 +728,7 @@ function MainApp() {
                                         </div>
                                         <div className="grid sm:grid-cols-3 gap-3">
                                             <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-rtr">
-                                                <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: "#056839" }}>
+                                                <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: "#005BAB" }}>
                                                     {exportingRTR && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Excel RTR
                                                 </span>
                                                 <span className="text-xs text-gray-500">Fichier de commande RTR (toutes feuilles)</span>

@@ -104,7 +104,7 @@ function ChefApp() {
     if (user === null) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+                <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
             </div>
         );
     }
@@ -126,7 +126,7 @@ function ChefApp() {
                             <ChevronLeft className="w-5 h-5" />
                         </button>
                     )}
-                    <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center flex-shrink-0">
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
                         <ClipboardList className="w-5 h-5 text-white" />
                     </div>
                     <div className="min-w-0">
@@ -137,7 +137,7 @@ function ChefApp() {
                                     ? `${state.store_name}${state.store_code ? ` (${state.store_code})` : ""}`
                                     : state.filename}
                                 {phaseKind && (
-                                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${phaseKind === "cam" ? "bg-sky-900/60 text-sky-300" : "bg-emerald-900/60 text-emerald-300"}`}>
+                                    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${phaseKind === "cam" ? "bg-sky-900/60 text-sky-300" : "bg-blue-900/60 text-blue-300"}`}>
                                         {phaseKind === "cam" ? "PHASAGE CAMÉRA" : "PHASAGE EEG"}
                                     </span>
                                 )}
@@ -146,7 +146,7 @@ function ChefApp() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <a href="/" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors hidden sm:block">
+                    <a href="/" className="text-[11px] text-slate-400 hover:text-blue-400 transition-colors hidden sm:block">
                         ← App Phasage
                     </a>
                     <button onClick={logout} data-testid="suivi-logout"
@@ -160,7 +160,7 @@ function ChefApp() {
                 <SessionPicker sessions={sessions} onOpen={openSession} />
             ) : loading || !state ? (
                 <div className="flex items-center justify-center py-32">
-                    <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+                    <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
                 </div>
             ) : !phaseKind ? (
                 <PhaseCategoryPicker state={state} onPick={pickPhase} accent="emerald" />
@@ -176,7 +176,7 @@ function ChefApp() {
                                     <button key={t.id} onClick={() => setTab(t.id)}
                                         data-testid={`suivi-tab-${t.id}`}
                                         className={`flex-1 sm:flex-none sm:px-6 py-2.5 flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-[11px] sm:text-sm font-medium transition-colors relative
-                                            ${active ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"}`}>
+                                            ${active ? "text-blue-400" : "text-slate-500 hover:text-slate-300"}`}>
                                         <Icon className="w-5 h-5 sm:w-4 sm:h-4" />
                                         <span className="sm:hidden">{t.shortLabel}</span>
                                         <span className="hidden sm:inline">{t.label}</span>
@@ -185,7 +185,7 @@ function ChefApp() {
                                                 {alertCount}
                                             </span>
                                         )}
-                                        {active && <span className="absolute bottom-0 inset-x-4 h-0.5 bg-emerald-400 rounded-full hidden sm:block" />}
+                                        {active && <span className="absolute bottom-0 inset-x-4 h-0.5 bg-blue-400 rounded-full hidden sm:block" />}
                                     </button>
                                 );
                             })}
@@ -210,19 +210,19 @@ function SessionPicker({ sessions, onOpen }) {
             <h2 className="text-lg font-bold mb-1">Choisir un magasin</h2>
             <p className="text-sm text-slate-400 mb-5">Le suivi reprend automatiquement le phasage validé de la session.</p>
             {sessions === null ? (
-                <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-emerald-400 animate-spin" /></div>
+                <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-blue-400 animate-spin" /></div>
             ) : sessions.length === 0 ? (
                 <div className="text-center py-16 text-slate-500 text-sm">
-                    Aucune session. Créez d'abord un phasage dans l'<a href="/" className="text-emerald-400 underline">app Phasage</a>.
+                    Aucune session. Créez d'abord un phasage dans l'<a href="/" className="text-blue-400 underline">app Phasage</a>.
                 </div>
             ) : (
                 <div className="space-y-2">
                     {sessions.map((s) => (
                         <button key={s.upload_id} onClick={() => onOpen(s.upload_id)}
                             data-testid={`suivi-session-${s.upload_id}`}
-                            className="w-full flex items-center gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-600/60 hover:bg-slate-900/60 transition-all text-left group">
-                            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-900/40 transition-colors">
-                                <Store className="w-5 h-5 text-emerald-400" />
+                            className="w-full flex items-center gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-blue-600/60 hover:bg-slate-900/60 transition-all text-left group">
+                            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-900/40 transition-colors">
+                                <Store className="w-5 h-5 text-blue-400" />
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="text-sm font-semibold truncate">{s.label || s.filename}</div>
@@ -230,7 +230,7 @@ function SessionPicker({ sessions, onOpen }) {
                                     {s.row_count?.toLocaleString("fr-FR")} lignes · {s.uploaded_at ? new Date(s.uploaded_at).toLocaleDateString("fr-FR") : ""}
                                 </div>
                             </div>
-                            <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-emerald-400 transition-colors" />
+                            <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-blue-400 transition-colors" />
                         </button>
                     ))}
                 </div>

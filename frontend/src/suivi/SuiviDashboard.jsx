@@ -34,11 +34,11 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                         </div>
                     </div>
                     <div className="text-right text-sm text-slate-400">
-                        <span className="text-emerald-400 font-semibold">{fmt(st.eeg_posees)}</span> / {fmt(st.eeg_prevues)} EEG
+                        <span className="text-blue-400 font-semibold">{fmt(st.eeg_posees)}</span> / {fmt(st.eeg_prevues)} EEG
                     </div>
                 </div>
                 <div className="h-3 rounded-full bg-slate-800 overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-700"
+                    <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-700"
                         style={{ width: `${pct}%` }} />
                 </div>
                 {/* Double jauge Pose vs Géoloc (indicateurs distincts) */}
@@ -49,7 +49,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                             <span className="text-slate-300 font-semibold tabular-nums">{st.pose_saisis || 0} / {st.pose_total || 0} <span className="text-slate-500 ml-1">({(st.pose_pct || 0).toLocaleString("fr-FR")}%)</span></span>
                         </div>
                         <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
+                            <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500"
                                 style={{ width: `${Math.min(100, st.pose_pct || 0)}%` }} />
                         </div>
                     </div>
@@ -65,7 +65,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                     </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-                    <Kpi label="Allées validées" value={`${st.allees_validees || 0} / ${st.allees_total || 0}`} icon={CheckCircle2} color="text-emerald-400" testid="dash-allees" />
+                    <Kpi label="Allées validées" value={`${st.allees_validees || 0} / ${st.allees_total || 0}`} icon={CheckCircle2} color="text-blue-400" testid="dash-allees" />
                     <Kpi label="Allées déplacées" value={st.allees_deplacees || 0} icon={MoveRight} color={st.allees_deplacees ? "text-orange-400" : "text-slate-400"} testid="dash-deplacees" />
                     <Kpi label="Nuits terminées" value={`${st.nuits_terminees || 0} / ${state.nb_nuits || 0}`} icon={Moon} color="text-sky-400" testid="dash-nuits" />
                     <Kpi label="Rythme réel / prévu" value={`${fmt(st.rythme_reel) || "—"} / ${fmt(st.rythme_prevu)}`} icon={TrendingUp} color="text-amber-400" testid="dash-rythme" />
@@ -75,7 +75,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
             {/* Avance / retard */}
             <section className={`rounded-2xl border p-4 flex items-center gap-4
                 ${avance === null || avance === undefined ? "bg-slate-900 border-slate-800"
-                    : avance > 0 ? "bg-emerald-950/50 border-emerald-800/60"
+                    : avance > 0 ? "bg-blue-950/50 border-blue-800/60"
                         : avance < 0 ? "bg-red-950/40 border-red-900/60" : "bg-slate-900 border-slate-800"}`}
                 data-testid="dash-avance">
                 {avance === null || avance === undefined ? (
@@ -88,9 +88,9 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                     </>
                 ) : avance > 0 ? (
                     <>
-                        <Zap className="w-8 h-8 text-emerald-400 flex-shrink-0" />
+                        <Zap className="w-8 h-8 text-blue-400 flex-shrink-0" />
                         <div className="flex-1">
-                            <div className="font-semibold text-sm text-emerald-300">En avance d'environ {avance} nuit{avance > 1 ? "s" : ""} ⚡</div>
+                            <div className="font-semibold text-sm text-blue-300">En avance d'environ {avance} nuit{avance > 1 ? "s" : ""} ⚡</div>
                             <div className="text-xs text-slate-400">
                                 Restant estimé : {st.nuits_estimees_restantes} nuit(s) au rythme réel ({fmt(st.rythme_reel)} EEG/nuit).
                             </div>
@@ -108,7 +108,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                     </>
                 ) : (
                     <>
-                        <CheckCircle2 className="w-8 h-8 text-emerald-400 flex-shrink-0" />
+                        <CheckCircle2 className="w-8 h-8 text-blue-400 flex-shrink-0" />
                         <div className="font-semibold text-sm">Parfaitement dans le planning ✔</div>
                     </>
                 )}
@@ -125,7 +125,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                 </h3>
                 {alerts.length === 0 ? (
                     <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 text-sm text-slate-500 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Aucune alerte — tout est sous contrôle.
+                        <CheckCircle2 className="w-4 h-4 text-blue-500" /> Aucune alerte — tout est sous contrôle.
                     </div>
                 ) : (
                     <div className="space-y-2">
@@ -174,21 +174,21 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {(state.nights || []).map((n) => (
                         <button key={n.nuit} onClick={() => setNightSummary(n)} data-testid={`dash-night-${n.nuit}`}
-                            className={`rounded-xl border p-3 text-left transition-colors hover:border-emerald-700
-                                ${n.complete ? "bg-emerald-950/40 border-emerald-900/60" : n.started ? "bg-slate-900 border-sky-900/60" : "bg-slate-900 border-slate-800"}`}>
+                            className={`rounded-xl border p-3 text-left transition-colors hover:border-blue-700
+                                ${n.complete ? "bg-blue-950/40 border-blue-900/60" : n.started ? "bg-slate-900 border-sky-900/60" : "bg-slate-900 border-slate-800"}`}>
                             <div className="flex items-center justify-between">
                                 <div className="text-sm font-semibold">
                                     Nuit {n.nuit}
                                     {n.date && <span className="text-slate-500 font-normal text-xs ml-2">{new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
                                 </div>
-                                {n.complete ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                {n.complete ? <CheckCircle2 className="w-4 h-4 text-blue-400" />
                                     : n.started ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold">EN COURS</span>
                                         : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">À VENIR</span>}
                             </div>
                             <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
                                 {n.nb_validees}/{n.nb_allees} allées · {fmt(n.eeg_reel)} / {fmt(n.eeg_plan)} EEG
                                 {n.delta_eeg !== null && n.delta_eeg !== undefined && (
-                                    <span className={n.delta_eeg > 0 ? "text-emerald-400" : n.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}>
+                                    <span className={n.delta_eeg > 0 ? "text-blue-400" : n.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}>
                                         {n.delta_eeg > 0 ? "+" : ""}{fmt(n.delta_eeg)}
                                     </span>
                                 )}
@@ -215,7 +215,7 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                 onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start gap-2">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold flex-shrink-0
-                        ${night.complete ? "bg-emerald-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
+                        ${night.complete ? "bg-blue-600 text-white" : night.started ? "bg-sky-700 text-white" : "bg-slate-800 text-slate-400"}`}>
                         {night.nuit}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -241,7 +241,7 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                         <div className="text-[10px] uppercase text-slate-500 font-semibold">EEG posées</div>
                         <div className="text-lg font-bold" data-testid="night-summary-eeg">{fmt(night.eeg_reel)} / {fmt(night.eeg_plan)}</div>
                         {night.delta_eeg !== null && night.delta_eeg !== undefined && (
-                            <div className={`text-[10px] font-semibold ${night.delta_eeg > 0 ? "text-emerald-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
+                            <div className={`text-[10px] font-semibold ${night.delta_eeg > 0 ? "text-blue-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
                                 {night.delta_eeg > 0 ? "+" : ""}{fmt(night.delta_eeg)}
                             </div>
                         )}
@@ -262,12 +262,12 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                                 <div className="rounded-lg bg-slate-800/50 p-2">
                                     <div className="flex items-center justify-between text-[10px] mb-1">
                                         <span className="uppercase tracking-widest text-slate-500 font-semibold">Pose</span>
-                                        <span className={`tabular-nums font-semibold ${complete ? "text-emerald-400" : "text-slate-300"}`}>
+                                        <span className={`tabular-nums font-semibold ${complete ? "text-blue-400" : "text-slate-300"}`}>
                                             {night.pose_saisis || 0}/{night.pose_total || 0} <span className="text-slate-500">({pctPose}%)</span>
                                         </span>
                                     </div>
                                     <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
+                                        <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500"
                                             style={{ width: `${Math.min(100, pctPose)}%` }} />
                                     </div>
                                 </div>
@@ -280,7 +280,7 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                                 <div className="rounded-lg bg-slate-800/50 p-2">
                                     <div className="flex items-center justify-between text-[10px] mb-1">
                                         <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-2.5 h-2.5" /> Géoloc</span>
-                                        <span className={`tabular-nums font-semibold ${complete ? "text-emerald-400" : "text-sky-300"}`}>
+                                        <span className={`tabular-nums font-semibold ${complete ? "text-blue-400" : "text-sky-300"}`}>
                                             {night.geo_saisis || 0}/{night.geo_total || 0} <span className="text-slate-500">({pctGeo}%)</span>
                                         </span>
                                     </div>
@@ -305,12 +305,12 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                     {allees.map((a) => {
                         const status = a.status || "a_faire";
                         const color =
-                            status === "validee" ? "text-emerald-400 bg-emerald-950/40" :
+                            status === "validee" ? "text-blue-400 bg-blue-950/40" :
                             status === "bloquee" ? "text-red-400 bg-red-950/40" :
                             status === "a_finaliser" ? "text-red-300 bg-red-950/40" :
                             "text-slate-400 bg-slate-800/40";
                         const dot =
-                            status === "validee" ? "bg-emerald-500" :
+                            status === "validee" ? "bg-blue-500" :
                             status === "bloquee" ? "bg-red-500" :
                             status === "a_finaliser" ? "bg-red-400" :
                             "bg-slate-600";
@@ -331,7 +331,7 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                     })}
                 </div>
                 <button onClick={() => { onClose(); goTab && goTab("nuits"); }} data-testid="night-summary-open"
-                    className="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                    className="w-full h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                     Ouvrir la nuit <ArrowRight className="w-4 h-4" />
                 </button>
             </div>
@@ -376,7 +376,7 @@ function PublishCard({ publication, actions }) {
                     <div className="text-sm font-semibold flex items-center gap-2">
                         Espace équipe terrain
                         {published
-                            ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-bold">PUBLIÉ</span>
+                            ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 font-bold">PUBLIÉ</span>
                             : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-bold">NON PUBLIÉ</span>}
                     </div>
                     <div className="text-xs text-slate-400">
@@ -392,11 +392,11 @@ function PublishCard({ publication, actions }) {
                 </button>
             </div>
             <div className="mt-3 flex items-center gap-2 flex-wrap">
-                <code className="flex-1 min-w-[180px] truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-emerald-300" data-testid="terrain-link">
+                <code className="flex-1 min-w-[180px] truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-blue-300" data-testid="terrain-link">
                     {link}
                 </code>
                 <button onClick={copy} data-testid="terrain-copy"
-                    className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                    className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
                     <Copy className="w-3.5 h-3.5" /> Copier
                 </button>
                 {!confirmReset ? (
@@ -465,10 +465,10 @@ export function ReplanButton({ actions, canReplan }) {
                             <button onClick={() => setPreview(null)} className="p-1 rounded hover:bg-slate-800 text-slate-400"><X className="w-4 h-4" /></button>
                         </div>
                         <div className="text-sm text-slate-300 mb-3 space-y-1">
-                            <p>Rythme réel mesuré : <b className="text-emerald-400">{Number(preview.rythme_reel).toLocaleString("fr-FR")} EEG/nuit</b> (prévu : {Number(preview.rythme_prevu).toLocaleString("fr-FR")}).</p>
+                            <p>Rythme réel mesuré : <b className="text-blue-400">{Number(preview.rythme_reel).toLocaleString("fr-FR")} EEG/nuit</b> (prévu : {Number(preview.rythme_prevu).toLocaleString("fr-FR")}).</p>
                             <p>Capacité retenue : <b>{Number(preview.capacity).toLocaleString("fr-FR")} EEG/nuit</b> · {preview.allees_deplacees} allée(s) déplacée(s).</p>
                             {preview.nuits_gagnees > 0 ? (
-                                <p className="text-emerald-300 font-semibold">🎉 {preview.nuits_gagnees} nuit(s) gagnée(s) sur le planning initial !</p>
+                                <p className="text-blue-300 font-semibold">🎉 {preview.nuits_gagnees} nuit(s) gagnée(s) sur le planning initial !</p>
                             ) : preview.nuits_gagnees < 0 ? (
                                 <p className="text-red-300 font-semibold">⚠️ {Math.abs(preview.nuits_gagnees)} nuit(s) supplémentaire(s) nécessaire(s).</p>
                             ) : (
@@ -550,12 +550,12 @@ function CamDashboard({ state, goTab, mode }) {
                             <span className="text-slate-300 font-semibold tabular-nums">{fmt(totalFixReel)} / {fmt(totalFixPlan)} <span className="text-slate-500 ml-1">({pctFix}%)</span></span>
                         </div>
                         <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500" style={{ width: `${pctFix}%` }} />
+                            <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500" style={{ width: `${pctFix}%` }} />
                         </div>
                     </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
-                    <Kpi label="Allées validées" value={`${nbValid} / ${allees.length}`} icon={CheckCircle2} color="text-emerald-400" testid="cam-dash-valid" />
+                    <Kpi label="Allées validées" value={`${nbValid} / ${allees.length}`} icon={CheckCircle2} color="text-blue-400" testid="cam-dash-valid" />
                     <Kpi label="Allées bloquées" value={nbBlock} icon={Ban} color={nbBlock ? "text-red-400" : "text-slate-400"} testid="cam-dash-block" />
                     <Kpi label="Nuits caméras" value={nights.length} icon={Moon} color="text-sky-400" testid="cam-dash-nights" />
                 </div>
@@ -567,7 +567,7 @@ function CamDashboard({ state, goTab, mode }) {
                 </h3>
                 {alerts.length === 0 ? (
                     <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 text-sm text-slate-500 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Aucune alerte côté caméras.
+                        <CheckCircle2 className="w-4 h-4 text-blue-500" /> Aucune alerte côté caméras.
                     </div>
                 ) : (
                     <div className="space-y-2">
@@ -588,14 +588,14 @@ function CamDashboard({ state, goTab, mode }) {
                     {nights.map((n) => (
                         <button key={n.nuit} onClick={() => goTab && goTab("cam")} data-testid={`cam-dash-night-${n.nuit}`}
                             className={`rounded-xl border p-3 text-left transition-colors hover:border-sky-700
-                                ${n.complete ? "bg-emerald-950/40 border-emerald-900/60" : "bg-slate-900 border-slate-800"}`}>
+                                ${n.complete ? "bg-blue-950/40 border-blue-900/60" : "bg-slate-900 border-slate-800"}`}>
                             <div className="flex items-center justify-between">
                                 <div className="text-sm font-semibold">
                                     Nuit {n.nuit_abs}
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold ml-2">CAM {n.nuit}</span>
                                     {n.date && <span className="text-slate-500 font-normal text-xs ml-2">{new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
                                 </div>
-                                {n.complete && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                                {n.complete && <CheckCircle2 className="w-4 h-4 text-blue-400" />}
                             </div>
                             <div className="text-xs text-slate-400 mt-1">
                                 {n.nb_validees}/{n.nb_allees} allées · {fmt(n.cam_reel)} / {fmt(n.cam_plan)} caméras

@@ -1066,6 +1066,104 @@ def _normalize_reference_column(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+
+def _compute_coherence_warnings(df: pd.DataFrame, cols: dict) -> list:
+    """Vérifie la cohérence des totaux du fichier Excel uploadé.
+
+    Détecte des anomalies silencieuses type :
+     - Quantités négatives ou non-numériques
+     - Familles totalement absentes alors qu'attendues
+     - Colonnes clés manquantes
+     - Ratios anormaux entre catégories
+
+    Retourne une liste de dicts {level: 'info'|'warning'|'error', code, message, ctx}."""
+    warnings = []
+    try:
+        type_col = cols.get("type")
+        desig_col = cols.get("designation")
+        qty_col = cols.get("quantite")
+        if not (type_col and desig_col and qty_col):
+            return warnings
+
+        q = pd.to_numeric(df[qty_col], errors="coerce")
+
+        # 1. Quantités négatives
+        nb_neg = int((q < 0).sum())
+        if nb_neg > 0:
+            warnings.append({
+                "level": "error", "code": "qty_negative",
+                "message": f"{nb_neg} ligne(s) ont une quantité négative.",
+                "ctx": {"nb": nb_neg},
+            })
+
+        # 2. Quantités non numériques
+        nb_nan = int(q.isna().sum()) - int(df[qty_col].isna().sum())
+        if nb_nan > 0:
+            warnings.append({
+                "level": "warning", "code": "qty_non_numeric",
+                "message": f"{nb_nan} ligne(s) avec une quantité illisible (texte ou formule cassée).",
+                "ctx": {"nb": nb_nan},
+            })
+
+        # 3. Cohérence catégories : SA vs ES vs Rails vs Caméra
+        types = df[type_col].astype(str).str.lower().fillna("")
+        desigs = df[desig_col].astype(str).str.lower().fillna("")
+        by_type = {
+            "es": float(q[types.str.contains("eeg", na=False) & ~desigs.str.contains("sa", na=False)].sum()),
+            "sa": float(q[types.str.contains("eeg", na=False) & desigs.str.contains("sa", na=False)].sum()),
+            "rail": float(q[types.str.contains("rail", na=False)].sum()),
+            "camera": float(q[types.str.contains("caméra|camera", na=False, regex=True)].sum()),
+        }
+        markers = {"es": "eeg", "sa": "eeg", "rail": "rail", "camera": "caméra|camera"}
+        for fam, val in by_type.items():
+            has_rows = types.str.contains(markers[fam], regex=(fam == "camera"), na=False).any()
+            if has_rows and (val or 0) == 0:
+                warnings.append({
+                    "level": "info", "code": f"empty_{fam}",
+                    "message": f"La famille « {fam.upper()} » apparaît dans les types mais totalise 0 unités.",
+                    "ctx": {"family": fam},
+                })
+
+        # 4. Colonnes clés manquantes
+        for key in ("secteur", "rayon"):
+            if not cols.get(key):
+                warnings.append({
+                    "level": "warning", "code": f"missing_column_{key}",
+                    "message": f"Colonne « {key.title()} » introuvable — la ventilation par {key} sera limitée.",
+                    "ctx": {"column": key},
+                })
+
+        # 5. Ratio SA/ES suspect (double comptage source ?)
+        if by_type["es"] > 0 and by_type["sa"] > 0:
+            ratio = by_type["sa"] / max(1.0, by_type["es"])
+            if ratio > 2.0:
+                warnings.append({
+                    "level": "warning", "code": "sa_ratio_high",
+                    "message": (f"Le nombre de SA ({int(by_type['sa'])}) représente "
+                                f"plus du double des ES pur ({int(by_type['es'])}). "
+                                f"Vérifiez que les SA ne sont pas incluses dans les lignes ES."),
+                    "ctx": {"es": int(by_type["es"]), "sa": int(by_type["sa"]), "ratio": round(ratio, 2)},
+                })
+
+        # 6. Fichier anormalement petit
+        if len(df) < 5:
+            warnings.append({
+                "level": "warning", "code": "few_rows",
+                "message": f"Le fichier ne contient que {len(df)} ligne(s). "
+                           "Vérifiez qu'il s'agit bien de l'export complet.",
+                "ctx": {"nb": len(df)},
+            })
+    except Exception as e:  # pragma: no cover — filet de sécurité
+        logger.warning(f"Coherence check failed: {e}")
+        warnings.append({
+            "level": "info", "code": "check_failed",
+            "message": "Contrôle de cohérence indisponible (fichier atypique).",
+            "ctx": {"error": str(e)[:120]},
+        })
+    return warnings
+
+
+
 def _parse_excel(contents: bytes) -> pd.DataFrame:
     """Parse un xlsx avec calamine (rapide) puis openpyxl en fallback."""
     try:
@@ -1441,6 +1539,11 @@ async def upload_excel(file: UploadFile = File(...), current_user: dict = Depend
     raw_records = df_to_records(df)
     logger.info(f"Raw records: {len(raw_records)} rows")
 
+    # Contrôle de cohérence des totaux (v22 iter24 — prévention double comptage)
+    coherence_warnings = _compute_coherence_warnings(df, cols)
+    if coherence_warnings:
+        logger.warning(f"Coherence warnings for {file.filename}: {len(coherence_warnings)} anomalie(s)")
+
     user_id = str(current_user["_id"])  # creation ownership (do not scope)
     upload_id = str(uuid.uuid4())
     DATASTORE[upload_id] = {
@@ -1489,7 +1592,8 @@ async def upload_excel(file: UploadFile = File(...), current_user: dict = Depend
             "total_rows": len(raw_records),
             "types": sanitize_dict(df[cols["type"]].value_counts().to_dict()),
             "secteurs": sanitize_dict(df[cols["secteur"]].value_counts().to_dict()),
-        }
+        },
+        "coherence_warnings": coherence_warnings,
     }
 
 
@@ -3207,7 +3311,7 @@ def _write_phasage_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_total):
     ws.set_column(15, 15, 11) # P 4.2/4.2 WP
     ws.set_column(16, 16, 10) # Q Caméras
 
-    fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
                                      "border": 1, "font_size": 12, "align": "left"})
     fmt_lbl = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "left"})
     fmt_num = workbook.add_format({"border": 1, "align": "right"})
@@ -4155,9 +4259,9 @@ def _write_phasage_full_sheet(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     ws.set_column(11, 11, 28) # L Allées (Cam)
     ws.set_column(12, 12, 10) # M Caméras
 
-    fmt_title = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+    fmt_title = workbook.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
                                      "border": 1, "font_size": 13, "align": "center"})
-    fmt_subtitle_es = workbook.add_format({"bold": True, "bg_color": "#D1FAE5", "font_color": "#065F46",
+    fmt_subtitle_es = workbook.add_format({"bold": True, "bg_color": "#DBEAFE", "font_color": "#065F46",
                                             "border": 1, "font_size": 11, "align": "center"})
     fmt_subtitle_cam = workbook.add_format({"bold": True, "bg_color": "#EDE9FE", "font_color": "#5B21B6",
                                              "border": 1, "font_size": 11, "align": "center"})
@@ -4889,9 +4993,9 @@ def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
     global_desigs_sorted = [d_ for d_, _t in sorted(all_desigs.items(), key=lambda kv: (kv[1], kv[0]))]
 
     # Formats spécifiques
-    fmt_sec_hdr = workbook.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+    fmt_sec_hdr = workbook.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
                                        "border": 1, "font_size": 11, "align": "left"})
-    fmt_ray_hdr = workbook.add_format({"bold": True, "bg_color": "#D1FAE5", "font_color": "#064E3B",
+    fmt_ray_hdr = workbook.add_format({"bold": True, "bg_color": "#DBEAFE", "font_color": "#064E3B",
                                        "border": 1, "align": "left"})
     fmt_col_hdr = workbook.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1,
                                        "align": "center", "text_wrap": True, "valign": "vcenter"})
@@ -5022,7 +5126,7 @@ def _write_recap_par_nuit_sheet(wb, writer, agg):
     Utilisée par les 2 exports Excel pour garantir un rendu identique."""
     ws = wb.add_worksheet("Récap par nuit")
     writer.sheets["Récap par nuit"] = ws
-    fmt_h = wb.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+    fmt_h = wb.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
                            "border": 1, "align": "center", "valign": "vcenter"})
     fmt_lbl = wb.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "left"})
     fmt_date = wb.add_format({"border": 1, "align": "center", "num_format": "dd/mm/yyyy"})
@@ -5114,7 +5218,7 @@ def _write_week_sheets(wb, writer, agg):
     base_cols = ["Nuit", "Date", "Secteur/Rayon", "Allées", "EEG ES", "Rails ES"]
     base_w = [10, 12, 28, 36, 12, 12]
 
-    fmt_h = wb.add_format({"bold": True, "bg_color": "#056839", "font_color": "white",
+    fmt_h = wb.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
                            "border": 1, "align": "center", "valign": "vcenter"})
     fmt_lbl = wb.add_format({"bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "center"})
     fmt_sub_lbl = wb.add_format({"bold": True, "bg_color": "#E5E7EB", "border": 1, "align": "left"})
@@ -5854,7 +5958,7 @@ async def _build_carrefour_export(d: dict):
 
         # Formats communs
         fmt_h = wb.add_format({
-            "bold": True, "bg_color": "#056839", "font_color": "white",
+            "bold": True, "bg_color": "#005BAB", "font_color": "white",
             "border": 1, "align": "center", "valign": "vcenter",
         })
         fmt_h_eeg = wb.add_format({

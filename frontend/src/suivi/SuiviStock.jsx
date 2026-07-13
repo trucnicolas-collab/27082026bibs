@@ -48,7 +48,7 @@ export default function SuiviStock({ state, actions, phaseKind = null }) {
                     <input value={query} onChange={(e) => setQuery(e.target.value)}
                         placeholder="Rechercher un produit..."
                         data-testid="stock-search"
-                        className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-900 border border-slate-800 text-xs placeholder:text-slate-600 focus:border-emerald-600 outline-none" />
+                        className="w-full h-9 pl-8 pr-3 rounded-lg bg-slate-900 border border-slate-800 text-xs placeholder:text-slate-600 focus:border-blue-600 outline-none" />
                 </div>
                 <button onClick={() => setOnlyAlerts(!onlyAlerts)} data-testid="stock-filter-alerts"
                     className={`h-9 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-colors
@@ -78,7 +78,7 @@ function StockRow({ s, actions }) {
             data-testid={`stock-row-${s.designation}`}>
             <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="font-semibold text-xs sm:text-sm flex items-center gap-2 min-w-0">
-                    {s.alert ? <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" /> : <PackageCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />}
+                    {s.alert ? <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" /> : <PackageCheck className="w-4 h-4 text-blue-500 flex-shrink-0" />}
                     <span className="truncate" title={s.designation}>{s.designation}</span>
                     {s.type && <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-normal flex-shrink-0">{s.type}</span>}
                 </div>
@@ -87,7 +87,7 @@ function StockRow({ s, actions }) {
                         MANQUE {fmt(s.manque)}
                     </span>
                 ) : (
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-900/60 text-emerald-300 font-semibold flex items-center gap-1 flex-shrink-0">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 font-semibold flex items-center gap-1 flex-shrink-0">
                         <CheckCircle2 className="w-3 h-3" /> OK
                     </span>
                 )}
@@ -108,9 +108,9 @@ function StockRow({ s, actions }) {
                         onChange={(e) => setRecu(e.target.value)} onBlur={save}
                         placeholder={String(s.prevu)}
                         data-testid={`stock-recu-${s.designation}`}
-                        className="w-full mt-0.5 h-7 px-1 rounded bg-slate-900 border border-slate-700 text-xs sm:text-sm font-bold text-center focus:border-emerald-500 outline-none placeholder:text-slate-600" />
+                        className="w-full mt-0.5 h-7 px-1 rounded bg-slate-900 border border-slate-700 text-xs sm:text-sm font-bold text-center focus:border-blue-500 outline-none placeholder:text-slate-600" />
                 </div>
-                <Cell label="Posé" value={fmt(s.pose)} accent="text-emerald-400" />
+                <Cell label="Posé" value={fmt(s.pose)} accent="text-blue-400" />
                 <Cell label="Reste stock" value={fmt(s.restant_stock)} accent={s.restant_stock < 0 ? "text-red-400" : ""} />
                 <Cell label="Reste à poser" value={fmt(s.restant_a_poser)} accent={s.alert ? "text-red-400" : ""} />
             </div>
