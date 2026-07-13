@@ -1,5 +1,24 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 iter5 — Indicateur visuel ZS dans le Suivi mobile)
+
+### Demande utilisateur
+« Ajouter un indicateur visuel dédié pour distinguer les Zones Saisonnières des allées standard, afin d'éviter les confusions de comptage par les poseurs sur le terrain. »
+
+### Fix appliqué (`frontend/src/suivi/SuiviNuits.jsx`)
+- Import de `Sun` (lucide-react).
+- Détection `isSeasonal = a.secteur === "Zone saisonnier"` (aligné backend v27).
+- **Liste allées d'une nuit** : fond `bg-amber-950/20 border-amber-800/60`, badge `bg-amber-600` avec icône Sun, pastille orange `SAISON` en tooltip explicatif « Zone saisonnière — posée par la VT (400 SA 1.5 + 1600 SA 2.1) ».
+- **Écran détail allée** (`AlleeScreen`) : bloc en-tête ambré, badge principal `ZS1` (au lieu de `Allée ZS1`) avec icône Sun, pastille orange `SAISON · VT`.
+- **Panneau de rapatriement** (« Ajouter allée ») : badge ambré + icône Sun sur les ZS proposées.
+- Data-testids ajoutés : `allee-seasonal-badge-ZS{n}`, `allee-screen-seasonal-badge-ZS{n}`.
+
+### Validation
+- 100% frontend testé bout-en-bout via testing_agent_v3_fork (iter24).
+- Régression OK : allées standard gardent leur style gris sans marqueur SAISON.
+
+
+
 ## Changelog 13/02/2026 (v27 iter4 — SUIVI de déploiement synchronisé avec Phasage pour les Zones Saisonnières)
 
 ### Problème remonté
