@@ -1,0 +1,35 @@
+{
+  "summary": "REGRESSION: le fix appliqué dans useMobileBack.js NE RÉSOUT PAS le bug. Même symptôme qu'iteration_18 : le clic sur une nuit (ou allée) ne fait rien. Séquence d'événements de navigation observée après clic night-open-2 : pushState, history.back(), pushState, popstate → night-screen invisible. Le check 'topMarker === marker' au cleanup est toujours TRUE parce que l'écran suivant n'a pas encore monté au moment du cleanup (React unmounte l'ancien avant de monter le nouveau dans le même commit).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SuiviNuits / useMobileBack",
+        "issue": "Fix inefficace. Le clic sur night-open-2 (et par extension allee-open-*) déclenche encore la fermeture immédiate. Après clic, la vue reste sur suivi-nuits (data-testid=night-back invisible, aucun data-testid=night-screen-*). Séquence observée : pushState(markerN) → history.back() (cleanup) → pushState(markerA) → popstate (asynchrone, intercepté par le nouveau listener) → onBack appelé → écran refermé.",
+        "selector": "[data-testid='night-open-2'], [data-testid^='allee-open-']",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Le fix actuel dans useMobileBack.js est logiquement incorrect : au moment du cleanup de l'écran sortant, le nouvel écran n'a PAS encore appelé son pushState (React commit exécute cleanup A puis mount B dans la même tâche synchrone). Donc `history.state._suiviBack === marker` est TOUJOURS vrai au cleanup — on continue d'appeler history.back() de façon asynchrone, et le popstate arrive après le pushState du nouvel écran → intercepté par lui → il se referme. Le check proposé ne peut pas fonctionner tel quel.",
+    "SOLUTION RECOMMANDÉE (option A — la plus robuste) : abandonner l'approche pushState-par-écran. Gérer l'historique UNE SEULE FOIS au niveau SuiviNuits : au premier mount (level='nights'), pushState. Un unique popstate handler au niveau SuiviNuits redescend `view.level` d'un cran (allee→allees→nights→sortie). Les composants NightScreen/AlleeScreen n'utilisent plus useMobileBack. Le bouton back UI appelle directement setView vers le parent (pas window.history.back()).",
+    "SOLUTION ALTERNATIVE (option B — patch minimal) : ne PAS appeler history.back() dans le cleanup du tout. Laisser les entrées d'historique s'accumuler. Le popstate (Android back button) fait onBack, ce qui déclenche à son tour un nouveau cleanup — mais cette fois avec poppedByUser=true donc pas de history.back(). Inconvénient : la stack accumule des entrées bidon pendant la session, nettoyées à la sortie de la page. En pratique acceptable pour un écran de suivi terrain.",
+    "SOLUTION ALTERNATIVE (option C) : déférer le history.back() du cleanup avec un microtask/setTimeout(0) et re-vérifier `history.state._suiviBack === marker` à ce moment-là. Après le mount du nouvel écran, le top state sera markerB ≠ marker → skip. À tester mais fragile car dépend d'un ordre asynchrone."
+  ],
+  "critical_code_review_comments": [
+    "useMobileBack.js:36-45 — La condition `topMarker === marker` au cleanup ne peut discriminer le cas 'écran suivant sur le point de monter' du cas 'sortie du flux' car React exécute le cleanup AVANT le mount du composant suivant. À ce moment, aucune nouvelle entrée n'a été pushée. Le fix est basé sur une hypothèse fausse.",
+    "useMobileBack.js — Le hook est fondamentalement fragile : pushState au mount + history.back() au cleanup ne compose PAS bien avec une navigation forward interne dans le même arbre React. Recommandation forte : gérer l'historique au niveau du dispatcher (SuiviNuits) et pas dans chaque écran feuille."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "0% (bug non résolu, click nuit toujours cassé)"},
+  "test_credentials": "admin@vusion.local / admin123 ; bug reproductible aussi sur /suivi/terrain public",
+  "seed_data_creation": "Aucune. Dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (ST PIERRE DES CORPS H7351) réutilisé.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le bug 'clic sur nuit/allée ne fait rien' persiste après l'itération 19. La séquence pushState→history.back()→pushState→popstate est reproductible facilement en instrumentant window.history. Prochaine itération : après nouveau fix, re-tester /suivi/terrain → ST PIERRE → onglet Nuits → click night-open-2 → attendre 1.5s → vérifier data-testid=night-back visible → click allee-open-1 → attendre 1.5s → vérifier data-testid=allee-back visible ET data-testid^=product-*. Puis tester back UI + back navigateur (page.go_back()). Puis chips filter-*.",
+  "rca of the issue": "Root cause inchangée depuis iteration_18. Le cleanup React d'un composant se produit AVANT le mount du composant suivant lors d'une transition dans le même commit. Donc au cleanup de NightScreen, AlleeScreen n'a pas encore pushé son marker → history.state._suiviBack est ENCORE le marker de NightScreen → la condition `topMarker === marker` est vraie → history.back() est appelé. history.back() est asynchrone : entre-temps AlleeScreen mount et push markerA. Le popstate arrive alors avec le nouveau listener (AlleeScreen) actif → AlleeScreen appelle son onBack → setView vers 'allees' → AlleeScreen se démonte. Utilisateur : rien ne se passe. Le fix corrige une condition mais ne peut pas distinguer les deux cas parce que le hook n'a aucune visibilité sur ce que React va monter juste après."
+}

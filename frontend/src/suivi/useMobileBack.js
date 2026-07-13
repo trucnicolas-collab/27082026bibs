@@ -18,7 +18,9 @@ export function useMobileBack(onBack, active = true) {
 
     useEffect(() => {
         if (!active) return undefined;
-        window.history.pushState({ _suiviBack: Math.random() }, "");
+        // Marqueur unique pour vérifier que notre entrée est bien au sommet de la stack au cleanup
+        const marker = "_sb_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+        window.history.pushState({ _suiviBack: marker }, "");
         let poppedByUser = false;
         const handler = () => {
             poppedByUser = true;
@@ -28,11 +30,19 @@ export function useMobileBack(onBack, active = true) {
         window.addEventListener("popstate", handler);
         return () => {
             window.removeEventListener("popstate", handler);
-            // Démontage programmatique (navigation interne, ex: passage d'un écran à un autre plus profond)
-            // → on retire l'entrée pushée pour ne pas polluer la stack.
-            // Le listener est déjà retiré → history.back() ne déclenchera pas onBack.
+            // Ne PAS appeler history.back() si un écran plus profond a déjà pushé par-dessus
+            // (sinon history.back() est asynchrone et vient refermer le nouvel écran).
+            // On ne dépile que si notre marqueur est encore au sommet de la stack.
             if (!poppedByUser) {
-                window.history.back();
+                try {
+                    const topMarker = window.history.state && window.history.state._suiviBack;
+                    if (topMarker === marker) {
+                        window.history.back();
+                    }
+                    // Sinon : un autre écran a pushé par-dessus, ne rien faire ; il gèrera son propre cleanup.
+                } catch (_) {
+                    /* ignore */
+                }
             }
         };
     }, [active]);
