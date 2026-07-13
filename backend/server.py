@@ -4403,6 +4403,8 @@ def _write_code_couleur_sheet(workbook, writer, d):
     is_mag2 = store_mode == "magasin_2"
     idx_allee = {str(a.get("uid") or a["allee"]): a for a in summary["allees"]}
     seasonal_idx = {z["id"]: z for z in (summary.get("seasonal_zones") or [])}
+    # Config SA install pour calculer SA à installer vs SA magasin (hors phasage)
+    cfg_sa_td = d.get("sa_install") or {}
     totals_by_nuit: dict[int, dict] = {}
     for r in es.get("rows") or []:
         n = r.get("nuit")
@@ -4414,16 +4416,25 @@ def _write_code_couleur_sheet(workbook, writer, d):
         if zone:
             t["eeg"] += zone.get("eeg") or 0
             # 26/02/2026 — les Zones Saisonnières sont aussi comptées en SA
-            # (cohérence avec l'App). Avant, SA des nuits avec uniquement
-            # des ZS apparaissait à 0 dans Excel/PPTX alors que l'App
-            # affichait l'eeg de la zone.
             t["sa"] += zone.get("eeg") or 0
         elif node:
             base = (node.get("es_15") or 0) + (node.get("es_21") or 0)
             bonus = 0 if is_mag2 else ((node.get("es_15_bonus_noir") or 0) + (node.get("es_15_bonus_blanc") or 0))
-            sa15 = (node.get("sa_15") or 0) if is_mag2 else 0
-            t["eeg"] += base + bonus + sa15
-            t["sa"] += (node.get("sa_21") or 0) if is_mag2 else (node.get("sa") or 0)
+            fleches = node.get("fleches") or 0
+            # Calcule les SA à installer pour cette allée (via config sa_install)
+            inst_td = compute_node_sa_install(node, cfg_sa_td) if not is_mag2 else {"sa_15": 0, "sa_21": 0, "freezer": 0, "sa_42": 0}
+            sa_inst_15 = float(inst_td.get("sa_15") or 0)
+            sa_inst_21 = float(inst_td.get("sa_21") or 0)
+            sa_inst_frz = float(inst_td.get("freezer") or 0)
+            sa_inst_42 = float(inst_td.get("sa_42") or 0)
+            sa_inst_total = sa_inst_15 + sa_inst_21 + sa_inst_frz + sa_inst_42
+            # "EEG ES+SA" = pur ES + bonus rails + flèches + SA à installer
+            #   (aligné sur le libellé de la ligne dans les exports)
+            t["eeg"] += base + bonus + fleches + sa_inst_total
+            # "SA magasin" = SA total du node MOINS les SA à installer (le reste
+            # est posé par le magasin lui-même, hors phasage VT)
+            sa_total_node = node.get("sa") or 0
+            t["sa"] += max(0.0, sa_total_node - sa_inst_total)
     for r in cam.get("rows") or []:
         n = r.get("nuit")
         if not n: continue
@@ -5552,13 +5563,23 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
                 "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
                 "cam": b.get("cam", 0),
             }
-        # totals_by_nuit pour Tableau date
+        # totals_by_nuit pour Tableau date (PPTX slide 11) :
+        #   - eeg = ES + SA à installer (aligné sur libellé "EEG ES+SA")
+        #   - sa  = SA magasin (SA hors phasage, restant à poser par le magasin)
         totals_by_nuit = {}
         for n in set(nuit_es.keys()) | set(nuit_cam.keys()):
+            es_node = nuit_es.get(n, {})
+            eeg_total = (
+                float(es_node.get("eeg") or 0)  # ES pur (es_only)
+                + float(es_node.get("sa_inst_15") or 0)
+                + float(es_node.get("sa_inst_21") or 0)
+                + float(es_node.get("sa_inst_freezer") or 0)
+                + float(es_node.get("sa_inst_42") or 0)
+            )
             totals_by_nuit[n] = {
-                "eeg": nuit_es.get(n, {}).get("eeg", 0),
+                "eeg": eeg_total,
                 "cam": nuit_cam.get(n, {}).get("cam", 0),
-                "sa":  nuit_es.get(n, {}).get("sa",  0),
+                "sa":  es_node.get("sa_mag", 0),  # SA magasin (hors phasage)
             }
         all_nights = sorted(set(nuit_es.keys()) | set(nuit_cam.keys()))
         cam_nights = sorted(nuit_cam.keys())

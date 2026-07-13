@@ -1,5 +1,34 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v24 — Fix Tableau date « EEG ES+SA » et « SA magasin »)
+
+### Bugs remontés par l'utilisateur (PJ2/PJ3 sur PPTX)
+Dans la slide « Plan de phasage EEG et rails par nuit complet » (PPTX slide 11 + feuille Excel « Tableau date ») :
+
+1. **Ligne « EEG ES+SA »** affichait uniquement l'ES pur (155 pour Nuit 2 du dataset test) alors que le label sous-entend ES + SA à installer (215 attendu).
+2. **Ligne « SA magasin »** affichait le total SA du nœud (incluant les SA à installer). Résultat : valeurs incohérentes entre le tableau Récap par nuit de l'UI (colonne « SA magasin » quasi vide) et la ligne SA magasin de la slide (2499, 2541, 1549, 1720…).
+
+### Root causes
+- `_write_code_couleur_sheet` (Excel Tableau date) : `t["eeg"] += base + bonus + 0` (SA jamais ajouté hors mag2) et `t["sa"] += node.get("sa")` = **total SA du nœud** au lieu du reliquat magasin.
+- Adapter PPTX (`_adapter`) : `totals_by_nuit[n]["eeg"] = nuit_es[n]["eeg"]` = ES pur (après iter24) → cohérent AVEC la Récap par nuit mais **incohérent** avec le label « EEG ES+SA » du slide 11.
+
+### Fix appliqué
+**Excel `_write_code_couleur_sheet`** :
+- `t["eeg"] = pure ES + bonus rails + flèches + SA à installer` (aligné label ES+SA).
+- `t["sa"] = max(0, SA total node - SA à installer)` = **SA magasin** au sens VT (le reliquat qui reste posé par le magasin hors phasage).
+
+**PPTX Adapter (`server.py::_adapter`)** :
+- `totals_by_nuit[n]["eeg"] = es_only + Σ(sa_inst_*)` — utilise les 4 sous-familles de SA à installer déjà calculées par `_aggregate_phasage_for_export`.
+- `totals_by_nuit[n]["sa"] = es_node["sa_mag"]` — reliquat magasin déjà correctement calculé côté agrégation.
+
+### Validé
+- Iter26 : 3 nouveaux tests + 47 régression = **50/50 backend, 100%**.
+- Vérification dataset test (Nuit 2, 155 ES pur + 60 SA à installer) :
+  - Avant : « EEG ES+SA » = 155 ❌ · « SA magasin » = total SA du node (60) ❌
+  - Après : « EEG ES+SA » = **215** ✅ · « SA magasin » = 0 ✅
+- ⚠ Le point PJ3 (nuits 17-18 manquantes sur le slide 11) n'est **pas reproductible** dans le preview (dataset limité à 10 nuits). Le code `_ensure_table_cols(t, 1 + len(all_nights))` étend correctement la table jusqu'à `len(all_nights)` colonnes. À valider en prod après redeploy — si le problème persiste, il vient probablement d'un template PPTX avec `tblGrid` figé qui ne se prolonge pas ; il faudra alors examiner le template PowerPoint source.
+
+
 ## Changelog 13/02/2026 (v23 — Rebrand bleu Carrefour + contrôle de cohérence à l'upload)
 
 ### Rebrand couleur (vert → bleu Carrefour #005BAB)
