@@ -5931,7 +5931,16 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
         # utiliser dans les colonnes « EEG ES » des tableaux (double comptage
         # avec les colonnes SA dédiées) — utiliser b["es_only"].
         b["es"] += inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]
-        b["sa_mag"] += max(0.0, node_sa_total(node) - (inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]))
+        # sa_mag = SA restants à poser par le magasin (hors phasage VT).
+        # Pour une allée standard : SA total du node - SA à installer par VT.
+        # Pour une Zone Saisonnière : node_sa_total() renvoie 0, mais la zone
+        # est SÉMANTIQUEMENT du « SA magasin » (SA 2.1 saisonnier posé par le
+        # magasin). On ajoute donc zone.eeg à sa_mag pour rester cohérent avec
+        # le comportement Excel (`_write_code_couleur_sheet`).
+        if node.get("is_seasonal"):
+            b["sa_mag"] += float(node.get("seasonal_eeg") or 0)
+        else:
+            b["sa_mag"] += max(0.0, node_sa_total(node) - (inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]))
         sr = _sr_key(node)
         if sr and sr not in b["secteurs_rayons"]:
             b["secteurs_rayons"].append(sr)

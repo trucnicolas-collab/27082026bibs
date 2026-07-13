@@ -1,5 +1,30 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 — Fix Zones Saisonnières dans PPTX slide 11)
+
+### Bug root cause (enfin identifié après iter26/iter27)
+L'utilisateur a partagé le tableau Excel montrant Nuits 17-18 avec Zones Saisonnières (SA magasin 2000 et 4000). Le PPTX slide 11 restait tronqué. Analyse XML du fichier généré : l'extension de table à 19 colonnes fonctionnait, mais **le pipeline agrégat retournait `sa_mag=0` pour les nuits Zone Saisonnière uniquement**.
+
+Cause : `_aggregate_phasage_for_export` utilisait `node_sa_total(node)` pour calculer `sa_mag`. Or `node_sa_total` retourne **0 pour les zones saisonnières** (par design : `is_seasonal=True → return 0.0`). Résultat : `sa_mag = max(0, 0 - 0) = 0` alors que l'Excel `_write_code_couleur_sheet` ajoutait directement `zone.eeg` en SA magasin.
+
+### Fix appliqué
+Dans `_aggregate_phasage_for_export` (server.py), branche dédiée pour les Zones Saisonnières :
+```python
+if node.get("is_seasonal"):
+    b["sa_mag"] += float(node.get("seasonal_eeg") or 0)
+else:
+    b["sa_mag"] += max(0.0, node_sa_total(node) - sa_inst_total)
+```
+
+Résultat pour Nuit 17 (1 ZS) : `sa_mag = 2000` ✅ (auparavant 0).
+Résultat pour Nuit 18 (2 ZS) : `sa_mag = 4000` ✅ (auparavant 0).
+
+### Validé
+- Iter28 : 4 nouveaux tests dédiés (zone_populates_sa_mag, 2zs_sums, es_only_includes_zone, nights_beyond_nb_nuits) + 53 régression = **57/57 backend, 100%**.
+- Test intégré simulé : dataset avec `nb_nuits=16` + ZS sur Nuits 17-18 → aggregate populé pour toutes les nuits avec les bonnes valeurs (Nuit 17: es_only=2000/sa_mag=2000, Nuit 18: es_only=4000/sa_mag=4000).
+- Ce fix + iter25/iter26/iter27 rendent enfin le slide 11 PPTX 100 % cohérent avec le tableau Excel.
+
+
 ## Changelog 13/02/2026 (v26 — Robustification all_nights pour Zones Saisonnières au-delà de nb_nuits)
 
 ### Contexte
