@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ChevronDown, ChevronRight, Loader2, Boxes, Moon, ArrowLeft } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Boxes, Moon, ArrowLeft, TrendingUp, TrendingDown, CheckCircle2, Scale } from "lucide-react";
 
 const fmt = (v) => Number(v || 0).toLocaleString("fr-FR");
 
@@ -52,6 +52,7 @@ export default function SuiviMateriel({ actions, phaseKind = "eeg" }) {
                 ) : (
                     <div className="space-y-2">
                         {nightDetail.allees.map((a) => <AlleeMateriel key={a.uid} allee={a} />)}
+                        <EcartRecap night={nightDetail} accent={accent} />
                     </div>
                 )}
             </div>
@@ -149,6 +150,103 @@ function ProductTable({ products, small = false }) {
                     <span className={`${small ? "text-[11px]" : "text-xs"} font-bold text-emerald-300 tabular-nums flex-shrink-0`}>{fmt(p.qty)}</span>
                 </div>
             ))}
+        </div>
+    );
+}
+
+
+function EcartRecap({ night, accent = "emerald" }) {
+    const [showAll, setShowAll] = useState(false);
+    const [filter, setFilter] = useState("all"); // all | bonus | manque | conforme
+    const ecarts = night.ecarts || [];
+    const stats = night.ecart_stats || {};
+    if (!ecarts.length) {
+        return (
+            <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-center" data-testid="ecart-recap-empty">
+                <Scale className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+                <p className="text-xs text-slate-500">
+                    Aucun réel saisi pour cette nuit. L&apos;écart phasage vs réel s&apos;affichera dès qu&apos;une allée aura une saisie.
+                </p>
+            </section>
+        );
+    }
+    const filtered = filter === "all" ? ecarts : ecarts.filter((e) => e.status === filter);
+    const shown = showAll ? filtered : filtered.slice(0, 8);
+    const statusColor = (s) => s === "bonus" ? "text-sky-400" : s === "manque" ? "text-red-400" : "text-emerald-400";
+    const statusIcon = (s) => s === "bonus" ? TrendingUp : s === "manque" ? TrendingDown : CheckCircle2;
+
+    const filterBtn = (id, label, count, color) => (
+        <button onClick={() => { setFilter(id); setShowAll(false); }}
+            data-testid={`ecart-filter-${id}`}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition-colors border ${filter === id
+                ? `bg-slate-800 border-slate-600 ${color}`
+                : `bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-300`}`}>
+            {label} <span className="tabular-nums">{count}</span>
+        </button>
+    );
+
+    return (
+        <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden" data-testid="ecart-recap">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2 flex-wrap">
+                <Scale className={`w-4 h-4 text-${accent}-400`} />
+                <h4 className="text-sm font-bold flex-1">Écart phasage vs réel — fin de nuit</h4>
+                {stats.complete
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-bold">NUIT VALIDÉE</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">EN COURS</span>}
+            </div>
+            <div className="px-4 py-3 grid grid-cols-3 gap-2 border-b border-slate-800">
+                <MiniStat label="Conforme (±5%)" value={stats.nb_conforme || 0} icon={CheckCircle2} color="text-emerald-400" testid="ecart-stat-conforme" />
+                <MiniStat label="Bonus posé (>+5%)" value={stats.nb_bonus || 0} icon={TrendingUp} color="text-sky-400" testid="ecart-stat-bonus" />
+                <MiniStat label="Sous-livré (<-5%)" value={stats.nb_manque || 0} icon={TrendingDown} color="text-red-400" testid="ecart-stat-manque" />
+            </div>
+            <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap border-b border-slate-800 bg-slate-950/40">
+                {filterBtn("all", "Tous", ecarts.length, "text-slate-200")}
+                {filterBtn("conforme", "Conforme", stats.nb_conforme || 0, "text-emerald-400")}
+                {filterBtn("bonus", "Bonus", stats.nb_bonus || 0, "text-sky-400")}
+                {filterBtn("manque", "Manque", stats.nb_manque || 0, "text-red-400")}
+            </div>
+            <div className="divide-y divide-slate-800/60" data-testid="ecart-rows">
+                {shown.map((e) => {
+                    const Icon = statusIcon(e.status);
+                    const color = statusColor(e.status);
+                    const pct = e.plan > 0 ? Math.round((e.delta / e.plan) * 100) : 0;
+                    return (
+                        <div key={e.designation} className="flex items-center gap-3 px-4 py-2" data-testid={`ecart-row-${e.designation}`}>
+                            <Icon className={`w-4 h-4 flex-shrink-0 ${color}`} />
+                            <div className="flex-1 min-w-0">
+                                <div className="text-xs text-slate-200 truncate" title={e.designation}>{e.designation}</div>
+                                <div className="text-[10px] text-slate-500">
+                                    Plan {fmt(e.plan)} · Réel <span className={color}>{fmt(e.reel)}</span>
+                                </div>
+                            </div>
+                            <div className={`text-xs font-bold tabular-nums ${color} flex-shrink-0`}>
+                                {e.delta > 0 ? "+" : ""}{fmt(e.delta)}
+                                {e.plan > 0 && <span className="text-[10px] text-slate-500 ml-1">({pct > 0 ? "+" : ""}{pct}%)</span>}
+                            </div>
+                        </div>
+                    );
+                })}
+                {filtered.length === 0 && (
+                    <div className="px-4 py-4 text-xs text-slate-500 text-center italic">Aucun produit dans cette catégorie.</div>
+                )}
+            </div>
+            {filtered.length > 8 && (
+                <button onClick={() => setShowAll(!showAll)}
+                    data-testid="ecart-toggle-all"
+                    className={`w-full py-2 text-[11px] text-${accent}-400 hover:text-${accent}-300 border-t border-slate-800 bg-slate-950/30 transition-colors`}>
+                    {showAll ? "Voir moins" : `Voir les ${filtered.length - 8} autres produits`}
+                </button>
+            )}
+        </section>
+    );
+}
+
+function MiniStat({ label, value, icon: Icon, color, testid }) {
+    return (
+        <div className="text-center" data-testid={testid}>
+            <Icon className={`w-4 h-4 ${color} mx-auto mb-1`} />
+            <div className={`text-lg font-bold ${color} tabular-nums`}>{value}</div>
+            <div className="text-[9px] uppercase tracking-widest text-slate-500 font-semibold leading-tight">{label}</div>
         </div>
     );
 }

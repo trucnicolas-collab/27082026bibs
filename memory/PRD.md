@@ -1,5 +1,29 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v20 — Vue "Écart phasage vs réel" fin de nuit)
+
+Nouvelle fonctionnalité proposée et confirmée par l'utilisateur : à la fin de chaque nuit dans l'onglet **Matériel**, un récap automatique compare **plan phasage vs réel posé** et catégorise chaque produit.
+
+### Backend (`suivi_deploy.py::_materiel_nuit`)
+- Chaque appel `GET /materiel/{nuit}?mode=eeg|cam` retourne désormais :
+  - `ecarts[]` : liste des produits avec `designation`, `type`, `plan`, `reel`, `delta`, `status` (`conforme`/`bonus`/`manque`).
+  - `ecart_stats` : `nb_saisis`, `nb_conforme`, `nb_bonus`, `nb_manque`, `nb_allees_validees/bloquees/a_faire`, `complete` (booléen).
+  - Chaque `allees[i]` gagne aussi son propre `ecarts[]` et `status` pour le drill-down.
+- Règle de classification : `conforme` si `|delta|/plan ≤ 5%`, `bonus` si `delta > 0` et écart > 5%, `manque` si `delta < 0` et écart > 5%.
+- Mode CAM : le réel `cameras_reel` / `fixations_reel` est **réparti proportionnellement** aux quantités prévues par produit (même logique que le stock).
+
+### Frontend (`SuiviMateriel.jsx::EcartRecap`)
+- Nouvelle section affichée sous les allées d'une nuit dans le drill-down Matériel.
+- Trois mini-KPI colorés : Conforme (vert), Bonus posé (bleu), Sous-livré (rouge).
+- Filtre par catégorie (Tous / Conforme / Bonus / Manque) + pagination "Voir les X autres produits" au-delà de 8.
+- Badge NUIT VALIDÉE si toutes les allées de la nuit sont validées, sinon EN COURS.
+- Icônes CheckCircle2 / TrendingUp / TrendingDown selon le statut.
+
+### Validé
+- Iter23 : 4/4 nouveaux tests + 35/35 régression = **39/39 backend, 100%**.
+- Screenshot preview OK : Nuit 2 EEG affiche 3 conformes / 2 bonus / 1 manque avec filtres opérationnels.
+
+
 ## Changelog 13/02/2026 (v19 — Fix Matériel affichait toujours caméras/SA-off + Matériel onglet Caméra)
 
 ### Bug fix critique — Matériel filtrait mal

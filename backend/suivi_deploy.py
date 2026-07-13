@@ -1506,24 +1506,102 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         nights_map = _eff_nights_map(d, doc, mode=mode)
         ph = normalize_phasage(d.get("phasage"))
         dates = ph.get("dates") or {}
+        # Index des entrées de suivi pour construire l'écart plan vs réel
+        eeg_entries = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
+        cam_entries = {str(e.get("uid")): e for e in (doc.get("cam_allees") or [])}
 
         def _elem_sort(t):
             try:
                 return (0, float(str(t[0]).replace(",", ".")))
             except (ValueError, TypeError):
                 return (1, str(t[0]))
+
+        # Agrégats plan/réel par désignation sur toute la nuit
+        totals_plan = {}
+        totals_reel = {}
+        totals_type = {}
+        # Statuts d'allée pour affichage (nb validées / à faire / bloquée)
+        nb_val, nb_block, nb_todo = 0, 0, 0
         allees = []
-        for uid, node in idx.items():
+        for uid, node_raw in idx.items():
             if nights_map.get(uid) != nuit:
                 continue
-            node = _filter_materiel_node(node, mode, by_uid, cfg_sa)
+            node = _filter_materiel_node(node_raw, mode, by_uid, cfg_sa)
             if not node.get("totals"):
                 continue
             elements = [{"element": k, "products": _products_list(v)}
                         for k, v in sorted(node["elements"].items(), key=_elem_sort)]
+            # Récupération du réel selon le mode
+            reel_by_desig = {}
+            if mode == "cam":
+                ce = cam_entries.get(uid) or {}
+                # Le réel caméra est aggregé (cameras_reel + fixations_reel) — on le
+                # répartit proportionnellement aux quantités prévues.
+                plan_cam_tot, plan_fix_tot = 0.0, 0.0
+                for dg, q in (node["totals"] or {}).items():
+                    typ = (node["types"] or {}).get(dg) or ""
+                    if (typ or "").strip().lower() in ("caméra", "camera"):
+                        plan_cam_tot += float(q or 0)
+                    else:
+                        plan_fix_tot += float(q or 0)
+                r_cam = float(ce.get("cameras_reel") or 0)
+                r_fix = float(ce.get("fixations_reel") or 0)
+                for dg, q in (node["totals"] or {}).items():
+                    typ = (node["types"] or {}).get(dg) or ""
+                    q = float(q or 0)
+                    if q <= 0:
+                        continue
+                    if (typ or "").strip().lower() in ("caméra", "camera"):
+                        if plan_cam_tot > 0:
+                            reel_by_desig[dg] = r_cam * (q / plan_cam_tot)
+                    else:
+                        if plan_fix_tot > 0:
+                            reel_by_desig[dg] = r_fix * (q / plan_fix_tot)
+                status_a = (ce or {}).get("status") or "a_faire"
+            else:
+                ee = eeg_entries.get(uid) or {}
+                for p in (ee.get("products") or []):
+                    dg = str(p.get("designation") or "")
+                    if p.get("reel") is not None and dg in (node["totals"] or {}):
+                        reel_by_desig[dg] = float(p.get("reel") or 0)
+                status_a = (ee or {}).get("status") or "a_faire"
+            if status_a == "validee":
+                nb_val += 1
+            elif status_a == "bloquee":
+                nb_block += 1
+            else:
+                nb_todo += 1
+            # Agrégats nuit
+            for dg, q in (node["totals"] or {}).items():
+                totals_plan[dg] = totals_plan.get(dg, 0.0) + float(q or 0)
+                totals_type[dg] = (node["types"] or {}).get(dg) or totals_type.get(dg, "")
+                if dg in reel_by_desig:
+                    totals_reel[dg] = totals_reel.get(dg, 0.0) + reel_by_desig[dg]
+            # Construction de l'écart au niveau allée (utile pour drill-down)
+            allee_ecarts = []
+            for dg in sorted(node["totals"].keys(), key=lambda s: s.lower()):
+                pplan = float(node["totals"][dg] or 0)
+                if pplan <= 0 and dg not in reel_by_desig:
+                    continue
+                preel = reel_by_desig.get(dg)
+                if preel is None:
+                    continue
+                delta = preel - pplan
+                pct = (abs(delta) / pplan) if pplan > 0 else (1.0 if preel > 0 else 0.0)
+                if delta > 0 and pct > 0.05:
+                    st = "bonus"
+                elif delta < 0 and pct > 0.05:
+                    st = "manque"
+                else:
+                    st = "conforme"
+                allee_ecarts.append({
+                    "designation": dg, "plan": _r(pplan), "reel": _r(preel),
+                    "delta": _r(delta), "status": st,
+                })
             allees.append({"uid": uid, "allee": node["allee"], "secteur": node["secteur"],
                            "rayon": node["rayon"], "products": _products_list(node["totals"]),
-                           "elements": elements})
+                           "elements": elements, "ecarts": allee_ecarts,
+                           "status": status_a})
         if not allees:
             raise HTTPException(status_code=404, detail=f"Aucune allée sur la nuit {nuit}")
 
@@ -1533,7 +1611,46 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             except (ValueError, TypeError):
                 return (1, str(x["allee"]))
         allees.sort(key=_sk)
-        return {"nuit": nuit, "date": str(dates.get(str(nuit)) or ""), "allees": allees}
+
+        # Écart global de la nuit — un item par désignation posée au moins partiellement
+        ecarts_nuit = []
+        for dg in sorted(totals_plan.keys(), key=lambda s: s.lower()):
+            pplan = totals_plan[dg]
+            if dg not in totals_reel:
+                continue
+            preel = totals_reel[dg]
+            delta = preel - pplan
+            pct = (abs(delta) / pplan) if pplan > 0 else (1.0 if preel > 0 else 0.0)
+            if delta > 0 and pct > 0.05:
+                st = "bonus"
+            elif delta < 0 and pct > 0.05:
+                st = "manque"
+            else:
+                st = "conforme"
+            ecarts_nuit.append({
+                "designation": dg, "type": totals_type.get(dg, ""),
+                "plan": _r(pplan), "reel": _r(preel),
+                "delta": _r(delta), "status": st,
+            })
+        nb_bonus = sum(1 for e in ecarts_nuit if e["status"] == "bonus")
+        nb_manque = sum(1 for e in ecarts_nuit if e["status"] == "manque")
+        nb_conforme = sum(1 for e in ecarts_nuit if e["status"] == "conforme")
+
+        return {
+            "nuit": nuit, "date": str(dates.get(str(nuit)) or ""),
+            "allees": allees,
+            "ecarts": ecarts_nuit,
+            "ecart_stats": {
+                "nb_saisis": len(ecarts_nuit),
+                "nb_conforme": nb_conforme,
+                "nb_bonus": nb_bonus,
+                "nb_manque": nb_manque,
+                "nb_allees_validees": nb_val,
+                "nb_allees_bloquees": nb_block,
+                "nb_allees_a_faire": nb_todo,
+                "complete": (nb_todo == 0 and nb_block == 0 and (nb_val > 0)),
+            },
+        }
 
     def _justifs_after_update(matnode: dict, entry: dict, fields: dict) -> list:
         """Produits EEG/rails avec écart > 5% après application du payload."""
