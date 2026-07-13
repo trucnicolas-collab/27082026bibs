@@ -1,5 +1,24 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v21 — Feuille Excel "Écart phasage vs réel")
+
+Extension du rapport Excel de nuit : nouvelle feuille dédiée qui reprend le récap d'écart affiché dans l'app.
+
+### Backend (`suivi_deploy.py::_rapport_response`)
+- Nouvelle feuille **"Écart phasage vs réel"** insérée entre "Détail produits" et "Synthèse déploiement".
+- Génère un tableau par bloc (EEG + Caméras si applicable) avec :
+  - Bandeau de mini-KPI : Conforme (fond vert) · Bonus (fond ambre) · Sous-livré (fond rouge).
+  - Colonnes : Désignation · Type · Prévu · Réel · Δ · Écart % · Statut.
+  - Tri prioritaire : **manques d'abord** (action logistique urgente), puis bonus, puis conforme.
+  - Ligne **TOTAL** en gras avec somme prévu/réel/delta + écart global %.
+- Ne s'affiche que si au moins un réel a été saisi pour la nuit (sinon la feuille est omise pour ne pas polluer).
+
+### Validé
+- Iter23bis : 5/5 tests iter23 + 35/35 régression = **40/40 backend, 100%**.
+- Test `test_rapport_nuit_two_sheets_with_details` mis à jour pour accepter l'ajout de la nouvelle feuille.
+- Curl E2E OK sur preview : feuille présente, KPIs corrects, tri par statut respecté, total agrégé.
+
+
 ## Changelog 13/02/2026 (v20 — Vue "Écart phasage vs réel" fin de nuit)
 
 Nouvelle fonctionnalité proposée et confirmée par l'utilisateur : à la fin de chaque nuit dans l'onglet **Matériel**, un récap automatique compare **plan phasage vs réel posé** et catégorise chaque produit.

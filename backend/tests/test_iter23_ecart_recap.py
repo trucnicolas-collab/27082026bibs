@@ -67,3 +67,30 @@ def test_ecart_recap_cam_mode_no_crash():
     d = r.json()
     assert "ecarts" in d
     assert "ecart_stats" in d
+
+
+def test_rapport_nuit_xlsx_contient_feuille_ecart():
+    """Le rapport Excel d'une nuit avec des saisies contient la feuille 'Écart phasage vs réel'."""
+    import io
+    from openpyxl import load_workbook
+    s = _session()
+    # S'assurer qu'au moins un réel est saisi pour la nuit 2
+    r0 = s.patch(f"{API}/suivi/{DATASET_ID}/allee",
+                 json={"uid": "1__A__R1",
+                       "products": [{"designation": "ES 1.5 noir", "reel": 95}]})
+    assert r0.status_code == 200, r0.text
+    r = s.get(f"{API}/suivi/{DATASET_ID}/rapport-nuit/2")
+    assert r.status_code == 200, r.text
+    assert r.headers.get("content-type", "").startswith("application/vnd.openxmlformats"), r.headers
+    wb = load_workbook(io.BytesIO(r.content))
+    assert "Écart phasage vs réel" in wb.sheetnames, f"Feuilles: {wb.sheetnames}"
+    ws = wb["Écart phasage vs réel"]
+    # Titre reconnaissable
+    rows = list(ws.iter_rows(values_only=True, max_row=15))
+    all_text = "\n".join(str(c) for r in rows for c in r if c is not None)
+    assert "Écart phasage vs réel" in all_text
+    assert "EEG · Écarts par produit" in all_text
+    # Tableau des colonnes
+    assert any("Désignation" == r[0] for r in rows if r[0])
+    # Au moins une ligne TOTAL
+    assert any(str(r[0]).strip() == "TOTAL" for r in rows if r and r[0])

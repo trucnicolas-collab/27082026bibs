@@ -1221,7 +1221,79 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     ws2.write(rr, 7, dv, f_ok if dv == 0 else (f_neg if dv < 0 else f_pos))
                 rr += 1
 
-        # Feuille 3 : synthèse dashboard de toutes les nuits
+        # Feuille 3 : Écart phasage vs réel (EEG + Caméras)
+        ecart_eeg = None
+        ecart_cam = None
+        try:
+            ecart_eeg = _materiel_nuit(d, doc, nuit, mode="eeg")
+        except HTTPException:
+            pass
+        try:
+            ecart_cam = _materiel_nuit(d, doc, nuit, mode="cam")
+        except HTTPException:
+            pass
+        if (ecart_eeg and ecart_eeg.get("ecarts")) or (ecart_cam and ecart_cam.get("ecarts")):
+            ws_ec = wb.add_worksheet("Écart phasage vs réel")
+            ws_ec.write(0, 0, f"Écart phasage vs réel — Nuit {nuit}", f_title)
+            ws_ec.write(1, 0, "Comparaison quantités prévues (phasage) vs réel posé, par produit. "
+                              "Bonus > +5%, Manque < -5%.", f_sub)
+            ws_ec.set_column(0, 0, 42)
+            ws_ec.set_column(1, 1, 12)
+            ws_ec.set_column(2, 6, 11)
+            r_ec = 3
+
+            def _write_ecart_block(title: str, block: dict):
+                nonlocal r_ec
+                if not block or not block.get("ecarts"):
+                    return
+                stats = block.get("ecart_stats") or {}
+                ws_ec.write(r_ec, 0, title, f_kpi_l)
+                r_ec += 1
+                ws_ec.write(r_ec, 0, "Conforme (±5%)", f_kpi_l)
+                ws_ec.write(r_ec, 1, stats.get("nb_conforme", 0), f_ok)
+                ws_ec.write(r_ec, 2, "Bonus posé (>+5%)", f_kpi_l)
+                ws_ec.write(r_ec, 3, stats.get("nb_bonus", 0), f_pos)
+                ws_ec.write(r_ec, 4, "Sous-livré (<-5%)", f_kpi_l)
+                ws_ec.write(r_ec, 5, stats.get("nb_manque", 0), f_neg)
+                r_ec += 2
+                # En-tête tableau
+                for c0, h in enumerate(["Désignation", "Type", "Prévu", "Réel", "Δ", "Écart %", "Statut"]):
+                    ws_ec.write(r_ec, c0, h, f_h)
+                r_ec += 1
+                status_lbl_ec = {"conforme": "Conforme", "bonus": "Bonus", "manque": "Manque"}
+                fmt_ec = {"conforme": f_ok, "bonus": f_pos, "manque": f_neg}
+                # Manques d'abord (priorité logistique), puis bonus, puis conforme
+                order = {"manque": 0, "bonus": 1, "conforme": 2}
+                for e in sorted(block["ecarts"], key=lambda x: (order.get(x["status"], 9), x["designation"].lower())):
+                    fc = fmt_ec.get(e["status"], f_c)
+                    ws_ec.write(r_ec, 0, e["designation"], f_cl)
+                    ws_ec.write(r_ec, 1, e.get("type") or "", f_c)
+                    ws_ec.write(r_ec, 2, e["plan"], f_c)
+                    ws_ec.write(r_ec, 3, e["reel"], fc)
+                    dv = e["delta"]
+                    ws_ec.write(r_ec, 4, dv, fc)
+                    pct = (dv / e["plan"] * 100) if e["plan"] else 0
+                    ws_ec.write(r_ec, 5, f"{pct:+.1f}%", fc)
+                    ws_ec.write(r_ec, 6, status_lbl_ec.get(e["status"], e["status"]), fc)
+                    r_ec += 1
+                # Sous-total
+                total_plan = sum(e["plan"] or 0 for e in block["ecarts"])
+                total_reel = sum(e["reel"] or 0 for e in block["ecarts"])
+                total_delta = total_reel - total_plan
+                ws_ec.write(r_ec, 0, "TOTAL", f_tot)
+                ws_ec.write(r_ec, 1, "", f_tot)
+                ws_ec.write(r_ec, 2, total_plan, f_tot)
+                ws_ec.write(r_ec, 3, total_reel, f_tot)
+                ws_ec.write(r_ec, 4, total_delta, f_tot)
+                pct_tot = (total_delta / total_plan * 100) if total_plan else 0
+                ws_ec.write(r_ec, 5, f"{pct_tot:+.1f}%", f_tot)
+                ws_ec.write(r_ec, 6, "", f_tot)
+                r_ec += 2
+
+            _write_ecart_block("EEG · Écarts par produit", ecart_eeg)
+            _write_ecart_block("CAMÉRAS · Écarts par produit", ecart_cam)
+
+        # Feuille 4 : synthèse dashboard de toutes les nuits
         ws3 = wb.add_worksheet("Synthèse déploiement")
         ws3.write(0, 0, "Synthèse du déploiement — toutes les nuits", f_title)
         ws3.write(1, 0, f"{store} — état au {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} UTC", f_sub)

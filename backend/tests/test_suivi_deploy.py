@@ -249,7 +249,11 @@ def test_rapport_nuit_two_sheets_with_details(client):
     assert r.status_code == 200
     assert r.content[:2] == b"PK"
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Nuit 2", "Détail produits", "Synthèse déploiement"], f"got {wb.sheetnames}"
+    # La feuille "Écart phasage vs réel" apparaît si au moins une saisie
+    # réelle existe pour la nuit — sinon on garde le trio historique.
+    assert wb.sheetnames[0] == "Nuit 2"
+    assert "Détail produits" in wb.sheetnames
+    assert "Synthèse déploiement" in wb.sheetnames
     ws2 = wb["Détail produits"]
     flat = "\n".join(" | ".join(str(c) if c is not None else "" for c in row)
                      for row in ws2.iter_rows(values_only=True))
