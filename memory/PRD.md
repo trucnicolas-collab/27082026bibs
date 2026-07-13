@@ -1,5 +1,31 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v22 — Fix double comptage colonne « EEG ES » exports Excel/PPTX)
+
+### Bug rapporté par l'utilisateur
+Les tableaux Excel exportés (Récap par nuit + Semaine Sx) et les slides PPTX affichaient dans la colonne « EEG ES » la valeur du **total EEG à poser** (ES + SA à installer) au lieu du **pur ES**. Comme les SA sont déjà affichées dans leurs propres colonnes (SA 1.5 / SA 2.1 / SA 2.1 frz / 4.2/4.2 WP), il y avait double comptage.
+
+### Root cause (`server.py::_aggregate_phasage_for_export`)
+Le champ `b["es"]` cumulait successivement :
+1. Pur ES (es_15 + es_21 + bonus rails + flèches)
+2. **+ SA à installer** (sa_inst_15 + sa_inst_21 + sa_inst_freezer + sa_inst_42)
+
+Puis ce même `b["es"]` était utilisé partout : indicateurs globaux du dashboard (correct) MAIS aussi colonne « EEG ES » des tableaux (incorrect).
+
+### Fix appliqué
+- Nouveau champ `b["es_only"]` = pur ES uniquement (ES 1.5 + ES 2.1 + bonus rails + flèches).
+- `b["es"]` conservé pour rétrocompatibilité (dashboards / indicateurs globaux « EEG à poser total »).
+- `_write_recap` et `_write_week_sheets` (Excel) → colonne « EEG ES » utilise désormais `es_only`.
+- `_adapter` pour PPTX → champ `"eeg"` reçoit `es_only` (fix étendu aux slides Récap et Semaine Sx du PowerPoint).
+- Nouveau champ `"eeg_total"` (= `es`) disponible dans l'adapter PPTX si besoin d'un indicateur ES+SA cumulé ailleurs.
+
+### Validé
+- Iter24 : 3 nouveaux tests dédiés + 40 régression = **43/43 backend, 100%**.
+- Vérification manuelle sur dataset test (1 allée Nuit 2, es_15=105, es_21=50, SA à installer=60) :
+  - Avant : EEG ES = 215 (155 pur ES + 60 SA doublement comptées)
+  - Après : EEG ES = **155** ✅
+
+
 ## Changelog 13/02/2026 (v21 — Feuille Excel "Écart phasage vs réel")
 
 Extension du rapport Excel de nuit : nouvelle feuille dédiée qui reprend le récap d'écart affiché dans l'app.

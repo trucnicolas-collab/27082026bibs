@@ -5066,7 +5066,7 @@ def _write_recap_par_nuit_sheet(wb, writer, agg):
             ws.write_blank(row, 1, None, p["date"])
         ws.write(row, 2, _format_sr_grouped(b.get("secteurs_rayons") or []), p["sr"])
         ws.write(row, 3, ", ".join(str(a) for a in (b.get("allees") or [])), p["left"])
-        eeg = int(round(b.get("es") or 0))
+        eeg = int(round(b.get("es_only") or 0))
         rails = int(round(b.get("rails_es") or 0))
         sa15 = int(round(b.get("sa_inst_15") or 0))
         sa21 = int(round(b.get("sa_inst_21") or 0))
@@ -5177,7 +5177,7 @@ def _write_week_sheets(wb, writer, agg):
                 ws.write_blank(row, 1, None, dfmt)
             ws.write(row, 2, _format_sr_grouped(b.get("secteurs_rayons") or []), lfmt)
             ws.write(row, 3, ", ".join(str(a) for a in (b.get("allees") or [])), lfmt)
-            eeg = int(round(b.get("es") or 0)); rails = int(round(b.get("rails_es") or 0))
+            eeg = int(round(b.get("es_only") or 0)); rails = int(round(b.get("rails_es") or 0))
             ws.write(row, 4, eeg, _pal(n)); ws.write(row, 5, rails, _pal(n))
             sub["eeg"] += eeg; sub["rails"] += rails
             for j, (h, keys, ital) in enumerate(sa_cols):
@@ -5425,7 +5425,12 @@ async def export_pptx(upload_id: str, current_user: dict = Depends(get_current_u
                 "date": (a.get("dates") or {}).get(str(n)),
                 "sr": _compress_sr_list(b.get("secteurs_rayons") or []),
                 "allees_str": ", ".join(str(x) for x in (b.get("allees") or [])),
-                "eeg": b.get("es", 0),
+                # « eeg » = ES pur (1.5 + 2.1 + bonus rails + flèches) SANS les
+                # SA à installer. Les SA sont dans leurs propres champs
+                # sa_inst_15/21/frz/42 pour éviter le double comptage dans les
+                # colonnes « EEG ES » vs « SA X » des tableaux exportés.
+                "eeg": b.get("es_only", 0),
+                "eeg_total": b.get("es", 0),  # ES + SA à installer (indicateur global)
                 "rails_es": b.get("rails_es", 0),
                 "sa": (b.get("sa_inst_15", 0) + b.get("sa_inst_21", 0) + b.get("sa_inst_freezer", 0) + b.get("sa_inst_42", 0)),
                 "sa_inst_15": b.get("sa_inst_15", 0),
@@ -5753,23 +5758,32 @@ def _aggregate_phasage_for_export(d: dict) -> dict:
             continue
         gn = int(n)
         b = es_per_nuit.setdefault(gn, {
-            "allees": [], "es": 0, "rails_es": 0, "sa": 0, "secteurs_rayons": [],
+            "allees": [], "es": 0, "es_only": 0, "rails_es": 0, "sa": 0, "secteurs_rayons": [],
             "sa_inst_15": 0, "sa_inst_21": 0, "sa_inst_freezer": 0, "sa_inst_42": 0, "sa_mag": 0,
         })
         b["allees"].append(_lbl(a_uid, node))
-        # EEG par nuit = ES (1.5+2.1) + bonus rails (sur ES 1.5) + flèches.
-        # Aligné sur l'affichage frontend du Phasage de pose (magasin_1).
-        b["es"] += float(node.get("es_15") or 0) + float(node.get("es_21") or 0)
-        b["es"] += float(node.get("es_15_bonus_noir") or 0) + float(node.get("es_15_bonus_blanc") or 0)
-        b["es"] += float(node.get("fleches") or 0)
+        # EEG « pur » par nuit (colonne « EEG ES » des exports) = ES 1.5 + ES 2.1
+        #   + bonus rails (ES 1.5) + flèches. N'inclut PAS les SA — celles-ci
+        #   sont comptées dans leurs propres colonnes (SA 1.5, SA 2.1, ...).
+        eeg_pur = (
+            float(node.get("es_15") or 0) + float(node.get("es_21") or 0)
+            + float(node.get("es_15_bonus_noir") or 0) + float(node.get("es_15_bonus_blanc") or 0)
+            + float(node.get("fleches") or 0)
+        )
+        b["es_only"] += eeg_pur
+        b["es"] += eeg_pur
         b["rails_es"] += float(node.get("rails_es") or 0)
         b["sa"] += float(node.get("sa") or 0)
-        # SA à installer (VT) selon la config — comptées dans l'EEG à poser
+        # SA à installer (VT) selon la config
         inst = compute_node_sa_install(node, cfg_sa)
         b["sa_inst_15"] += inst["sa_15"]
         b["sa_inst_21"] += inst["sa_21"]
         b["sa_inst_freezer"] += inst["freezer"]
         b["sa_inst_42"] += inst["sa_42"]
+        # Total « EEG à poser » (b["es"]) inclut les SA à installer — utilisé
+        # dans les indicateurs globaux (dashboard, PPTX résumé). NE PAS
+        # utiliser dans les colonnes « EEG ES » des tableaux (double comptage
+        # avec les colonnes SA dédiées) — utiliser b["es_only"].
         b["es"] += inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]
         b["sa_mag"] += max(0.0, node_sa_total(node) - (inst["sa_15"] + inst["sa_21"] + inst["freezer"] + inst["sa_42"]))
         sr = _sr_key(node)
