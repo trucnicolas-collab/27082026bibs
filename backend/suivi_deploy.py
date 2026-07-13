@@ -291,6 +291,15 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             plan = _plan_for_allee(a)
             mat = matidx.get(uid) or {"totals": {}, "types": {}}
             sa_off = _sa_families_off(uid)
+            # Neutralise le plan pour les familles SA « à ne pas poser » afin
+            # que les KPI (eeg_plan, total_eeg_plan, restant à poser) ne comptent
+            # plus ces produits qui ne relèvent pas de ce magasin.
+            for fam in sa_off:
+                if fam in plan:
+                    plan[fam] = 0.0
+            # Neutralise aussi les caméras côté EEG (elles ont leur propre suivi).
+            if "cameras" in plan:
+                plan["cameras"] = 0.0
             pentries = {str(p.get("designation")): p for p in (e.get("products") or [])}
             products = []
             reel_fam = {k: None for k in FAMILY_KEYS}
@@ -1350,10 +1359,94 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     def _products_list(totals: dict) -> list:
         return [{"designation": k, "qty": _r(v)} for k, v in sorted(totals.items(), key=lambda t: t[0].lower())]
 
-    def _eff_nights_map(d: dict, doc: dict) -> dict:
-        """uid -> nuit effective (plan EEG + overrides nuit_reelle du suivi)."""
+    def _sa_families_off_for(a: dict, cfg_sa: dict) -> set:
+        """Version standalone de _sa_families_off (utilisée hors _build_state)."""
+        answered = bool((cfg_sa or {}).get("answered"))
+        enabled = bool((cfg_sa or {}).get("enabled"))
+        off = set()
+        if answered and not enabled:
+            for fam in ("sa_15", "sa_21_std", "sa_21_freezer", "sa_42"):
+                val = a.get(fam)
+                if fam == "sa_21_std" and (val is None or float(val or 0) == 0):
+                    val = a.get("sa_21")
+                if float(val or 0) > 0:
+                    off.add(fam)
+            return off
+        if not enabled:
+            return off
+        inst = compute_node_sa_install(a, cfg_sa) if compute_node_sa_install else {}
+        if not inst.get("sa_15") and float(a.get("sa_15") or 0) > 0:
+            off.add("sa_15")
+        if not inst.get("sa_21") and float(a.get("sa_21_std") or a.get("sa_21") or 0) > 0:
+            off.add("sa_21_std")
+        if not inst.get("freezer") and float(a.get("sa_21_freezer") or 0) > 0:
+            off.add("sa_21_freezer")
+        if not inst.get("sa_42") and float(a.get("sa_42") or 0) > 0:
+            off.add("sa_42")
+        return off
+
+    def _filter_materiel_node(node: dict, mode: str, by_uid: dict, cfg_sa: dict) -> dict:
+        """Filtre les produits d'un nœud matériel selon le mode :
+         - "eeg" : exclut caméras/Captana, SA à ne pas poser, plan<=0
+         - "cam" : ne conserve QUE les produits côté caméra (caméras + fixations Captana), plan>0
+         - autre : renvoie le nœud tel quel (comportement legacy)."""
+        if mode not in ("eeg", "cam"):
+            return node
+        uid = node.get("uid") or ""
+        types = node.get("types") or {}
+        totals = node.get("totals") or {}
+        allee_node = by_uid.get(uid) or {}
+        sa_off = _sa_families_off_for(allee_node, cfg_sa) if mode == "eeg" else set()
+        new_totals = {}
+        new_elems = {}
+        for desig, qty in totals.items():
+            if (qty or 0) <= 0:
+                continue
+            typ = types.get(desig) or ""
+            cam_side = is_cam_side_product(desig, typ)
+            if mode == "eeg":
+                if cam_side:
+                    continue
+                fam = classify_family(typ, desig)
+                if fam == "cameras" or fam in sa_off:
+                    continue
+            else:  # mode == "cam"
+                if not cam_side:
+                    continue
+            new_totals[desig] = qty
+        # Reconstruire les éléments en gardant les mêmes règles
+        for elem_key, prods in (node.get("elements") or {}).items():
+            kept = {}
+            for desig, qty in prods.items():
+                if desig in new_totals:
+                    kept[desig] = qty
+            if kept:
+                new_elems[elem_key] = kept
+        return {
+            "uid": uid, "allee": node.get("allee"),
+            "secteur": node.get("secteur"), "rayon": node.get("rayon"),
+            "totals": new_totals, "elements": new_elems, "types": types,
+        }
+
+    def _eff_nights_map(d: dict, doc: dict, mode: str = "eeg") -> dict:
+        """uid -> nuit effective (ABSOLUE, par rapport au planning global).
+         - mode="eeg" : plan EEG (ES) + overrides nuit_reelle du suivi EEG.
+         - mode="cam" : nuit caméra = cam.start_at_nuit + row.nuit - 1
+                       + overrides nuit_reelle du suivi cam si présent."""
         ph = normalize_phasage(d.get("phasage"))
         out = {}
+        if mode == "cam":
+            cam = ph.get("cam") or {}
+            start = int(cam.get("start_at_nuit") or 1)
+            for row in (cam.get("rows") or []):
+                n = row.get("nuit")
+                if n:
+                    out[str(row.get("allee") or row.get("id"))] = start + int(n) - 1
+            for e in (doc.get("cam_allees") or []):
+                nr = e.get("nuit_reelle")
+                if nr and str(e.get("uid")) in out:
+                    out[str(e.get("uid"))] = start + int(nr) - 1
+            return out
         for row in (ph.get("es") or {}).get("rows") or []:
             n = row.get("nuit")
             if n:
@@ -1364,14 +1457,28 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 out[str(e.get("uid"))] = int(nr)
         return out
 
-    def _materiel_overview(d: dict, doc: dict) -> dict:
+    def _materiel_context(d: dict) -> tuple:
+        """Retourne (by_uid, cfg_sa) pour un dataset : nécessaire aux filtres SA."""
+        ph = normalize_phasage(d.get("phasage"))
+        by_uid = {str(a.get("id")): a for a in (ph.get("es") or {}).get("rows") or []}
+        cfg_sa = d.get("sa_install") or {}
+        return by_uid, cfg_sa
+
+    def _materiel_overview(d: dict, doc: dict, mode: str = "eeg") -> dict:
         idx = _materiel_par_allee(d)
-        nights_map = _eff_nights_map(d, doc)
+        by_uid, cfg_sa = _materiel_context(d)
+        nights_map = _eff_nights_map(d, doc, mode=mode)
         ph = normalize_phasage(d.get("phasage"))
         dates = ph.get("dates") or {}
         by_night = {}
         unassigned = {"totals": {}, "nb_allees": 0}
         for uid, node in idx.items():
+            if mode in ("eeg", "cam") and uid not in nights_map:
+                # En mode filtré, on ignore les allées qui ne relèvent pas de ce phasage.
+                continue
+            node = _filter_materiel_node(node, mode, by_uid, cfg_sa)
+            if not node.get("totals"):
+                continue
             n = nights_map.get(uid)
             if not n:
                 unassigned["nb_allees"] += 1
@@ -1393,9 +1500,10 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                            "products": _products_list(unassigned["totals"])},
         }
 
-    def _materiel_nuit(d: dict, doc: dict, nuit: int) -> dict:
+    def _materiel_nuit(d: dict, doc: dict, nuit: int, mode: str = "eeg") -> dict:
         idx = _materiel_par_allee(d)
-        nights_map = _eff_nights_map(d, doc)
+        by_uid, cfg_sa = _materiel_context(d)
+        nights_map = _eff_nights_map(d, doc, mode=mode)
         ph = normalize_phasage(d.get("phasage"))
         dates = ph.get("dates") or {}
 
@@ -1407,6 +1515,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         allees = []
         for uid, node in idx.items():
             if nights_map.get(uid) != nuit:
+                continue
+            node = _filter_materiel_node(node, mode, by_uid, cfg_sa)
+            if not node.get("totals"):
                 continue
             elements = [{"element": k, "products": _products_list(v)}
                         for k, v in sorted(node["elements"].items(), key=_elem_sort)]
@@ -1548,17 +1659,18 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return {"ok": True, "uid": uid}
 
     @router.get("/{upload_id}/materiel")
-    async def get_materiel(upload_id: str, current_user: dict = Depends(get_current_user)):
+    async def get_materiel(upload_id: str, mode: str = "eeg",
+                           current_user: dict = Depends(get_current_user)):
         d = await _load(upload_id, current_user)
         doc = await _get_doc(upload_id, str(current_user["_id"]))
-        return _materiel_overview(d, doc)
+        return _materiel_overview(d, doc, mode=mode)
 
     @router.get("/{upload_id}/materiel/{nuit}")
-    async def get_materiel_nuit(upload_id: str, nuit: int,
+    async def get_materiel_nuit(upload_id: str, nuit: int, mode: str = "eeg",
                                 current_user: dict = Depends(get_current_user)):
         d = await _load(upload_id, current_user)
         doc = await _get_doc(upload_id, str(current_user["_id"]))
-        return _materiel_nuit(d, doc, nuit)
+        return _materiel_nuit(d, doc, nuit, mode=mode)
 
     async def _apply_stock_update(upload_id: str, doc: dict, payload: StockUpdate):
         arr = doc.get("stock_received")
@@ -1798,14 +1910,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return {"ok": True}
 
     @terrain.get("/{upload_id}/materiel")
-    async def terrain_materiel(upload_id: str):
+    async def terrain_materiel(upload_id: str, mode: str = "eeg"):
         d, doc = await _resolve_terrain(upload_id)
-        return _materiel_overview(d, doc)
+        return _materiel_overview(d, doc, mode=mode)
 
     @terrain.get("/{upload_id}/materiel/{nuit}")
-    async def terrain_materiel_nuit(upload_id: str, nuit: int):
+    async def terrain_materiel_nuit(upload_id: str, nuit: int, mode: str = "eeg"):
         d, doc = await _resolve_terrain(upload_id)
-        return _materiel_nuit(d, doc, nuit)
+        return _materiel_nuit(d, doc, nuit, mode=mode)
 
     parent = APIRouter()
     parent.include_router(router)

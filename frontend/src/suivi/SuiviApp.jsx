@@ -29,6 +29,7 @@ const TABS_EEG = [
 const TABS_CAM = [
     { id: "dashboard", label: "Tableau de bord", shortLabel: "Board", icon: LayoutDashboard },
     { id: "cam", label: "Caméras", shortLabel: "Cam", icon: Cctv },
+    { id: "materiel", label: "Matériel", shortLabel: "Matériel", icon: Boxes },
     { id: "stock", label: "Stock", shortLabel: "Stock", icon: Package },
 ];
 
@@ -194,7 +195,7 @@ function ChefApp() {
                         {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} phaseKind={phaseKind} />}
                         {tab === "nuits" && phaseKind === "eeg" && <SuiviNuits state={state} actions={actions} mode="chef" />}
                         {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
-                        {tab === "materiel" && phaseKind === "eeg" && <SuiviMateriel actions={actions} />}
+                        {tab === "materiel" && <SuiviMateriel actions={actions} phaseKind={phaseKind} />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
                     </main>
                 </>

@@ -4,30 +4,34 @@ import { ChevronDown, ChevronRight, Loader2, Boxes, Moon, ArrowLeft } from "luci
 const fmt = (v) => Number(v || 0).toLocaleString("fr-FR");
 
 // Matériel prévu : Nuits → Allées → Éléments (drill-down 3 niveaux)
-export default function SuiviMateriel({ actions }) {
+export default function SuiviMateriel({ actions, phaseKind = "eeg" }) {
     const [overview, setOverview] = useState(null);
     const [selectedNight, setSelectedNight] = useState(null);
     const [nightDetail, setNightDetail] = useState(null);
     const [loading, setLoading] = useState(false);
+    const accent = phaseKind === "cam" ? "sky" : "emerald";
 
     useEffect(() => {
+        setOverview(null);
+        setSelectedNight(null);
+        setNightDetail(null);
         (async () => {
-            const data = await actions.getMateriel();
+            const data = await actions.getMateriel(phaseKind);
             setOverview(data);
         })();
-    }, [actions]);
+    }, [actions, phaseKind]);
 
     const openNight = useCallback(async (n) => {
         setSelectedNight(n);
         setNightDetail(null);
         setLoading(true);
-        const data = await actions.getMaterielNuit(n);
+        const data = await actions.getMaterielNuit(n, phaseKind);
         setNightDetail(data);
         setLoading(false);
-    }, [actions]);
+    }, [actions, phaseKind]);
 
     if (!overview) {
-        return <div className="flex justify-center py-24"><Loader2 className="w-7 h-7 text-emerald-400 animate-spin" /></div>;
+        return <div className="flex justify-center py-24"><Loader2 className={`w-7 h-7 text-${accent}-400 animate-spin`} /></div>;
     }
 
     // ---- Niveau 2+3 : détail d'une nuit ----

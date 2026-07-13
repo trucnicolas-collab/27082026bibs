@@ -22,6 +22,7 @@ const TABS_EEG = [
 const TABS_CAM = [
     { id: "dashboard", label: "Board", icon: LayoutDashboard },
     { id: "cam", label: "Caméras", icon: Cctv },
+    { id: "materiel", label: "Matériel", icon: Boxes },
     { id: "stock", label: "Stock", icon: Package },
 ];
 
@@ -159,7 +160,7 @@ export default function TerrainApp() {
                             goTab={(t) => setTab(t === "nuits" ? "pose" : t)} />}
                         {tab === "pose" && phaseKind === "eeg" && <SuiviNuits state={state} actions={actions} mode="terrain" />}
                         {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
-                        {tab === "materiel" && phaseKind === "eeg" && <SuiviMateriel actions={actions} />}
+                        {tab === "materiel" && <SuiviMateriel actions={actions} phaseKind={phaseKind} />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
                     </main>
                 </>

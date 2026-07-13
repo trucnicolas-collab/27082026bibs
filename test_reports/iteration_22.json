@@ -1,0 +1,26 @@
+{
+  "summary": "Iter22 P0 corrections validées end-to-end. Endpoints /materiel et /materiel/{nuit} (chef + terrain public) filtrent correctement selon mode=eeg|cam. Mode CAM utilise les numéros de nuits absolus (cam.start_at_nuit + row.nuit - 1). Plan des allées neutralise cameras=0 et familles SA off. Onglet Matériel présent en Phasage Caméra ET EEG. Frontend split UI fonctionne : CAM Materiel affiche uniquement 'Caméra noire' (Nuit 1), EEG Materiel affiche uniquement ES/SA (Nuit 2) sans aucune caméra/Captana. 11/11 nouveaux tests iter22 + 24/24 tests régression = 35/35 backend.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_materiel_mode.py",
+    "/app/backend/tests/test_iter21_phase_split.py",
+    "/app/backend/tests/test_suivi_deploy.py",
+    "/app/test_reports/pytest/iter22_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "suivi_deploy.py atteint désormais 1926 lignes (contre 1814 iter21). Split en modules dédiés (suivi_filters.py, suivi_materiel.py) reste conseillé pour la maintenabilité.",
+    "_filter_materiel_node/_sa_families_off_for/_eff_nights_map dupliquent la logique de filtrage déjà présente dans _build_state. Factorisable dans un helper commun pour éviter les divergences futures entre les 2 chemins (state vs materiel).",
+    "Le paramètre mode='eeg'/'cam' n'est pas validé au niveau FastAPI (accepte n'importe quelle string). Ajouter un Literal['eeg', 'cam'] ou Enum pour rejeter les valeurs invalides côté API."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_materiel_mode.py (nouveau, 11 tests)"
+  ],
+  "success_rate": {"backend": "100% (35/35)", "frontend": "100%"},
+  "test_credentials": "Superadmin nicolas.truc@vusion.com / Vusion_@2026! · Admin admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune. Dataset admin fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (sample_full.xlsx, 1 allée EEG Nuit 2 + 1 allée cam Nuit 1) réutilisé.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter22 valide : (1) GET /api/suivi/{id}/materiel?mode=eeg exclut caméras/Captana ; (2) mode=cam ne retourne QUE des produits cam-side avec nuits absolues (cam.start_at_nuit+row.nuit-1) ; (3) /materiel/{nuit}?mode=cam 404 sur nuit inexistante (9999 testé) ; (4) endpoints publics /api/suivi-terrain/{id}/materiel?mode=eeg|cam appliquent le même filtre ; (5) state.allees[].plan.cameras=0 et plan[sa_off_family]=0 neutralisés dans _build_state ; (6) Frontend TABS_CAM inclut Matériel avec data-testid='suivi-tab-materiel', SuiviMateriel prop phaseKind re-fetch OK ; (7) CAM Nuit 1 affiche seulement 'Caméra noire', EEG Nuit 2 affiche ES 1.5/2.1, SA 1.5/2.1 Freezer sans aucune caméra ni fixation Captana. Dataset test = 1 allée par mode donc pas de test SA disabled multi-allées — validé par relecture code + backend test build_state_plan_cameras_neutralized."
+}

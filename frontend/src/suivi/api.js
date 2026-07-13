@@ -25,12 +25,12 @@ export function makeActions(base, refresh) {
                 return false;
             }
         },
-        getMateriel: async () => {
-            try { return (await axios.get(`${base}/materiel`)).data; }
+        getMateriel: async (mode) => {
+            try { return (await axios.get(`${base}/materiel`, { params: mode ? { mode } : undefined })).data; }
             catch { toast.error("Chargement du matériel impossible"); return { nights: [], unassigned: { nb_allees: 0, products: [] } }; }
         },
-        getMaterielNuit: async (n) => {
-            try { return (await axios.get(`${base}/materiel/${n}`)).data; }
+        getMaterielNuit: async (n, mode) => {
+            try { return (await axios.get(`${base}/materiel/${n}`, { params: mode ? { mode } : undefined })).data; }
             catch { toast.error("Chargement impossible"); return { nuit: n, allees: [] }; }
         },
         patchStock: async (designation, recu) => {
