@@ -119,6 +119,12 @@ export function AuthProvider({ children }) {
             setUser(res.data);
             setSessionLost(false);
             setRelogPwd("");
+            // (iter6) Prévient tous les composants en cours d'affichage
+            // qu'ils doivent refetch leurs données (les précédents fetch
+            // avaient renvoyé 401 et laissé un état d'erreur affiché).
+            try {
+                window.dispatchEvent(new CustomEvent("auth-session-recovered"));
+            } catch (_) { /* dispatch failed, ignore */ }
         } catch (err) {
             setRelogError(err?.response?.data?.detail || "Reconnexion impossible");
         } finally {

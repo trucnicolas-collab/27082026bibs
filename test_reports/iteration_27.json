@@ -1,0 +1,40 @@
+{
+  "summary": "REGRESSION CRITIQUE : Le fix iter27 (ajout d'un useEffect écoutant 'auth-session-recovered' dans App.js lignes 217-224) casse totalement l'application. La dépendance [refreshWizardStatus] du useEffect est évaluée AVANT que refreshWizardStatus soit déclaré (via useCallback à la ligne 547). Résultat : ReferenceError 'Cannot access refreshWizardStatus before initialization' à chaque render de MainApp → écran blanc, aucune interaction possible. Impossible de tester le scenario Phasage/PhasageCam refetch car l'app ne charge plus.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "MainApp (App.js)",
+        "issue": "PAGEERROR au montage : 'Cannot access refreshWizardStatus before initialization'. L'app affiche un écran blanc, l'écran de login n'apparaît même pas. React error boundary manquant → tout est cassé.",
+        "selector": "app-root",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Session recovered event → refetch Phasage/PhasageCam",
+        "issue": "Non testable — l'app ne monte plus à cause de l'erreur JS. La chaîne submitRelog → dispatch('auth-session-recovered') → App.useEffect → setPhasageVersion+1 n'a pas pu être vérifiée en runtime.",
+        "affected_selectors": ["session-lost-modal", "phasage-tab", "phasage-cam-tab"]
+      }
+    ],
+    "design_issues": []
+  },
+  "rca of the issue": "Dans /app/frontend/src/App.js lignes 217-224, l'useEffect ajouté par le fix référence refreshWizardStatus dans son tableau de dépendances : `}, [refreshWizardStatus]);`. Or refreshWizardStatus est déclarée via `const refreshWizardStatus = useCallback(...)` à la ligne 547 — donc APRÈS ce useEffect dans le corps de la fonction MainApp. À chaque render, JS entre dans la Temporal Dead Zone du const et lance un ReferenceError. React attrape l'erreur (voir le warning 'An error occurred in the <MainApp> component'), mais comme il n'y a pas d'ErrorBoundary, l'arbre est démonté → écran blanc.\n\nReproduction : ouvrir la page d'accueil → voir écran blanc + PAGEERROR 'Cannot access refreshWizardStatus before initialization' dans la console.\n\nMitigation : DÉPLACER le bloc useEffect(lignes 217-224) APRÈS la déclaration de refreshWizardStatus (après la ligne 555). Alternative : fusionner ce useEffect avec celui déjà présent lignes 559-561 qui utilise déjà refreshWizardStatus. Exemple minimal :\n\n```jsx\n// Après la définition de refreshWizardStatus\nuseEffect(() => {\n    const onRecovered = () => {\n        setPhasageVersion((v) => v + 1);\n        refreshWizardStatus();\n    };\n    window.addEventListener('auth-session-recovered', onRecovered);\n    return () => window.removeEventListener('auth-session-recovered', onRecovered);\n}, [refreshWizardStatus]);\n```",
+  "test_report_links": [],
+  "action_items": [
+    "CRITICAL : Dans /app/frontend/src/App.js, DÉPLACER l'useEffect 'auth-session-recovered' (actuellement lignes 217-224) APRÈS la déclaration du useCallback refreshWizardStatus (après ligne 555). Sans ce fix, l'app est totalement inutilisable — même l'écran de login ne s'affiche pas.",
+    "Après déplacement, relancer le test scenario : login admin → ouvrir dataset fd15443f → étape 3/4 Phasage → fetch('/api/auth/logout') via console → cliquer un onglet pour trigger 401 → modal SessionLost → relog → vérifier que PhasageTab/PhasageCamTab refetch et n'affichent plus l'erreur 401.",
+    "Recommandation : ajouter un ErrorBoundary autour de MainApp pour éviter les écrans blancs en cas d'erreur JS runtime."
+  ],
+  "critical_code_review_comments": [
+    "L'ordre des hooks dans MainApp est problématique : useEffect qui dépend de callbacks doit venir APRÈS ceux-ci. Le linter React (eslint-plugin-react-hooks) devrait signaler la TDZ mais ici il ne l'a pas fait car la variable EST dans le scope, juste pas encore initialisée.",
+    "AuthContext.jsx submitRelog dispatche correctement l'event 'auth-session-recovered' (ligne 126). Le côté récepteur (App.js) est mal placé — mais la logique elle-même est saine."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "0% — app ne monte pas"},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "L'app est cassée par une TDZ ReferenceError dans App.js. Une fois le useEffect (lignes 217-224) déplacé après la déclaration de refreshWizardStatus, retester le scenario de refetch Phasage/PhasageCam après relog dans le modal SessionLost. Le fix event 'auth-session-recovered' semble logiquement correct, il faut juste réordonner."
+}
