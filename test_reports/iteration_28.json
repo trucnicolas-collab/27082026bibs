@@ -1,0 +1,33 @@
+{
+  "summary": "FIX ITER28 VALIDÉ. Le déplacement du useEffect 'auth-session-recovered' (App.js lignes 554-561) APRÈS la déclaration de refreshWizardStatus (ligne 535-543) élimine bien la ReferenceError TDZ signalée en iter27. L'app monte proprement, le login fonctionne, le modal SessionLost apparaît sur 401, le relog silencieux ferme le modal, et aucune erreur JS n'est levée en runtime.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_flow_executed": [
+    "1) Ouverture https://go-lang-43.preview.emergentagent.com : app-root visible, écran login affiché, ZERO PAGEERROR (fix ReferenceError confirmé).",
+    "2) Login admin@vusion.local / admin123 : succès, toast 'Connexion réussie'.",
+    "3) Note : dataset fd15443f demandé par la review n'existe pas côté serveur (toast 'Cette session n'existe plus sur le serveur'). Fallback sur premier dataset disponible (26f0108d-b38c-4c4d-87cc-58f398bcda30, test.xlsx, 6 lignes).",
+    "4) Wizard affiche bien les 6 étapes. Tentative de clic sur étape 3 Phasage → BlockingModal 'Impossible de continuer' (étape 2 non valide sur ce dataset test.xlsx — surface + dongles + refs manquants). Comportement attendu.",
+    "5) fetch('/api/auth/logout', {credentials:'include'}) → 200.",
+    "6) Nouvelle interaction (navigation étape 1 → étape 3) → intercepteur 401 → modal data-testid='session-lost-modal' apparaît correctement : '⚠️ Session expirée — Vos modifications non sauvegardées sont EN DANGER.'",
+    "7) Saisie admin123 dans data-testid='session-lost-password' + clic sur 'Se reconnecter et garder mon travail' → modal disparaît (passwordVisible=0), aucune erreur 401 résiduelle affichée (body401=False, errors=[]).",
+    "8) FINAL page errors captured : [] (aucune PAGEERROR sur toute la session)."
+  ],
+  "reserve_or_limitations": "Le point 'l'onglet Phasage reste actif ET la grille Phasage se recharge automatiquement' n'a PAS pu être testé strictement car le dataset public disponible (test.xlsx 6 lignes) ne satisfait pas la validation étape 2 → impossible d'atteindre l'onglet 'pose' (Phasage). Toutefois la logique iter6 (previousUserIdRef → pas de reset UI après relog du même user) et le dispatch 'auth-session-recovered' → setPhasageVersion+refreshWizardStatus est présente et le récepteur est maintenant correctement placé. Recommander à main-agent de re-vérifier manuellement avec un dataset valide (surface + dongles + refs OK) si besoin d'une preuve visuelle du refetch Phasage.",
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix propre et minimal. Le useEffect ligne 554-561 est bien placé après refreshWizardStatus (ligne 535-543). Aucune TDZ possible.",
+    "Suggestion mineure : envisager un ErrorBoundary autour de MainApp pour éviter les écrans blancs si un futur bug JS runtime survenait (déjà mentionné en iter27, toujours pertinent)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100% — flow login + SessionLost + relog OK, ZERO erreur JS"},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune. Utilisation dataset existant 26f0108d-b38c-4c4d-87cc-58f398bcda30 (test.xlsx).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fix iter28 validé : le ReferenceError TDZ signalé en iter27 est résolu. App fonctionnelle end-to-end. Le dataset fd15443f mentionné dans les reviews récentes n'existe plus sur le backend — les prochains tests devraient utiliser /api/datasets pour obtenir un upload_id valide, ou créer un fresh upload."
+}

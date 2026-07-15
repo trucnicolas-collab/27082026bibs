@@ -211,18 +211,6 @@ function MainApp() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
-    // (iter6) Après relog silencieux dans le modal SessionLost, force les
-    // composants Phasage/Cam/etc à refetch leurs données (leur précédent
-    // fetch avait retourné 401 et affichait un état d'erreur).
-    useEffect(() => {
-        const onRecovered = () => {
-            setPhasageVersion((v) => v + 1);
-            refreshWizardStatus();
-        };
-        window.addEventListener("auth-session-recovered", onRecovered);
-        return () => window.removeEventListener("auth-session-recovered", onRecovered);
-    }, [refreshWizardStatus]);
-
     const handleUpload = useCallback(async (file) => {
         setLoading(true);
         const formData = new FormData();
@@ -559,6 +547,18 @@ function MainApp() {
     useEffect(() => {
         refreshWizardStatus();
     }, [refreshWizardStatus, activeTab, currentStep, phasageVersion]);
+
+    // (iter6) Après relog silencieux dans le modal SessionLost, force les
+    // composants Phasage/Cam/etc à refetch leurs données (leur précédent
+    // fetch avait retourné 401 et affichait un état d'erreur).
+    useEffect(() => {
+        const onRecovered = () => {
+            setPhasageVersion((v) => v + 1);
+            refreshWizardStatus();
+        };
+        window.addEventListener("auth-session-recovered", onRecovered);
+        return () => window.removeEventListener("auth-session-recovered", onRecovered);
+    }, [refreshWizardStatus]);
 
     const applyStep = useCallback((target) => {
         const subs = stepSubTabs(target, dataset);
