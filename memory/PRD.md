@@ -1,5 +1,24 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 iter6 — Prévention perte de saisie sur 401)
+
+### Contexte
+L'utilisateur a perdu 2 h de saisie dans le Phasage à cause d'une erreur 401 silencieuse. Le token access de 24 h expirait après une nuit, chaque PATCH remontait en 401 sans alerter → au refresh, l'ancien état revenait.
+
+### Fix appliqué (4 mesures)
+1. **TTL access token : 24 h → 8 jours** (`backend/auth.py` L26). Refresh token : 7 j → 30 j.
+2. **Intercepteur axios global** (`frontend/src/contexts/AuthContext.jsx`) : sur toute réponse 401 (hors endpoints d'auth), appelle silencieusement `/api/auth/refresh` puis rejoue la requête. Une seule promesse de refresh partagée pour éviter les avalanches.
+3. **Modal bloquant SessionLost** (data-testid=`session-lost-modal`) : affiché uniquement si le refresh échoue (refresh_token expiré / cookies effacés). Email pré-rempli, champ password. Reconnexion sans quitter la page → l'état React (données saisies) est préservé.
+4. **Indicateur autosave visible** dans PhasageTab : `Sauvegarde…` → `✓ Sauvegardé à HH:MM` → `⚠️ NON SAUVEGARDÉ — {erreur}` (rouge, très visible). L'utilisateur voit toujours si ses modifs sont bien enregistrées.
+
+Bonus : `App.js` utilise `previousUserIdRef` pour ne PAS ré-initialiser l'onglet actif après un relog silencieux (même utilisateur). Événement `auth-session-recovered` dispatché après relog → force `phasageVersion++` et refetch des composants Phasage/Cam qui affichaient l'erreur 401.
+
+### Validation
+- **Backend** : login/refresh/me OK via curl. Aucune régression sur les 28 tests pré-existants.
+- **Frontend** : iter28 = 100 % OK, zéro erreur JS. Flow relog → onglet préservé → composants refetch.
+
+
+
 ## Changelog 13/02/2026 (v27 iter5 — Indicateur visuel ZS dans le Suivi mobile)
 
 ### Demande utilisateur
