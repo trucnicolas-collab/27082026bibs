@@ -1,0 +1,56 @@
+{
+  "summary": "Retest de la préservation d'état après relog dans le modal SessionLost. Le fix (useRef previousUserIdRef dans App.js) fonctionne : après relog silencieux avec le MÊME utilisateur, loadDataset() n'est PAS ré-appelé, currentStep et activeTab sont préservés, aucun toast 'Session restaurée' ni 'Connexion réussie' n'apparaît. Régression fresh-login OK : premier login avec un lastId en localStorage déclenche bien l'auto-restore + toast 'Session restaurée'. Bug de préservation d'état = RÉSOLU.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Après relog dans modal, contenu du sous-onglet Phasage/Phasage-caméras",
+        "issue": "Le PhasageCamTab (et probablement PhasageTab) conservent l'état d'erreur 'Erreur : Request failed with status code 401' capturé pendant la fenêtre où les cookies étaient invalidés. Le composant ne refetch PAS automatiquement après relog réussi. Impact : l'utilisateur reste bien sur son onglet mais voit un message d'erreur au lieu de sa grille de phasage — il doit changer d'onglet manuellement pour forcer le refetch. Non bloquant pour le fix de préservation d'état, mais dégrade la promesse 'reprendre votre travail sans rien perdre'.",
+        "affected_selectors": ["phasage-tab", "phasage-cam-tab"],
+        "priority": "MEDIUM"
+      }
+    ],
+    "design_issues": []
+  },
+  "detailed_validations": {
+    "state_preservation_after_relog": {
+      "modal_appeared_on_401": true,
+      "email_prefilled_value": "admin@vusion.local",
+      "relog_submit_success": true,
+      "modal_disappeared_after_relog_ms": 1000,
+      "upload_zone_visible_after_relog": false,
+      "import_home_visible_after_relog": false,
+      "current_step_reset_to_1": false,
+      "unwanted_toast_session_restauree": false,
+      "unwanted_toast_connexion_reussie": false,
+      "active_step_remained_at_4_phasage_cam": true,
+      "note": "Le test a placé l'utilisateur en étape 4 (Phasage caméras) avant de logout. Après relog, l'étape 4 reste active et aucun toast n'apparaît. Fix validé."
+    },
+    "regression_fresh_login_auto_restore": {
+      "localstorage_lastid_set_before_login": true,
+      "auto_restore_triggered": true,
+      "session_restauree_toast_shown": true,
+      "connexion_reussie_toast_shown": true,
+      "dataset_filename_loaded": "sample_full.xlsx",
+      "note": "Fresh login (previousUserIdRef = null → currentUserId nouveau) déclenche bien loadDataset() comme attendu."
+    }
+  },
+  "test_report_links": [],
+  "action_items": [
+    "MEDIUM : PhasageCamTab (et probablement PhasageTab, SuiviPhasageTab, TableauDateTab) ne refetchent pas leurs données après un relog dans le modal. Après reconnexion réussie, ils affichent l'erreur 401 capturée pendant l'incident. Solutions possibles : (1) exposer un compteur 'authVersion' dans AuthContext incrémenté à chaque submitRelog réussi, et utiliser une key {authVersion} sur les composants tabs (comme phasageVersion existant) pour forcer le remount, ou (2) écouter un événement 'auth-session-recovered' dispatché par AuthContext après submitRelog et refetch dans chaque tab, ou (3) simplement incrémenter phasageVersion dans AuthContext après submitRelog.",
+    "MINEUR (déjà noté iter25) : PhasageTab.jsx est trop volumineux (~994 lignes) — envisager split en sous-composants."
+  ],
+  "critical_code_review_comments": [
+    "Le fix App.js:184-212 avec previousUserIdRef est correct et minimaliste : compare user.id/email au précédent avant de relancer loadDataset. Le short-circuit préserve l'état React sans toucher au flux du fresh-login.",
+    "AuthContext.jsx submitRelog met bien à jour setUser(res.data) sans dispatcher d'événement de refetch aux composants enfants qui étaient en cours de fetch au moment du 401 — d'où l'issue mentionnée dans integration_issues."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100% sur le scenario ciblé (préservation d'état + régression)"},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune — dataset fd15443f déjà présent",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le fix de préservation d'état après relog dans le modal SessionLost est VALIDÉ. Seul reste un side effect : les composants Phasage/PhasageCam/etc n'auto-refetchent pas après relog et gardent leur état d'erreur 401. Si le main agent veut corriger cela, la solution la plus simple est d'incrémenter phasageVersion (ou un authVersion global) après submitRelog dans AuthContext.",
+  "rca of the issue": "Le fix consiste à mémoriser l'ID utilisateur précédent via useRef. Lorsque submitRelog appelle setUser(res.data), user devient une nouvelle référence et useEffect [user] se redéclenche, MAIS previousUserIdRef.current === currentUserId → short-circuit early return → loadDataset() n'est pas ré-appelé → activeTab et currentStep restent intacts. Test confirmé en plaçant l'utilisateur sur l'étape 4 (Phasage caméras), en supprimant les cookies via /api/auth/logout, en cliquant sur un onglet pour trigger un 401, puis en submitant le modal : l'étape 4 reste active, aucun toast 'Session restaurée' n'apparaît. Régression fresh-login OK aussi."
+}

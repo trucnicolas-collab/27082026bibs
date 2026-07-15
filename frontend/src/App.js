@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import axios from "axios";
 import { Toaster, toast } from "sonner";
 import UploadZone from "./components/UploadZone";
@@ -176,16 +176,28 @@ function MainApp() {
         }
     }, []);
 
-    // Auto-restauration au montage de l'app (après login)
+    // Auto-restauration au montage de l'app (après login initial UNIQUEMENT).
+    // (iter6) On utilise useRef pour tracer l'ID utilisateur précédent : ainsi,
+    // après un relog silencieux dans le modal SessionLost (même utilisateur),
+    // on NE relance PAS loadDataset() qui reset l'onglet actif → l'utilisateur
+    // reprend son travail exactement là où il en était.
+    const previousUserIdRef = useRef(null);
     useEffect(() => {
         // Attend que l'auth soit résolue (user === null = checking)
         if (user === null) return;
         if (!user) {
-            // Pas connecté : on ne tente pas de restaurer
+            previousUserIdRef.current = null;
             setRestoring(false);
             setDataset(null);
             return;
         }
+        // Même utilisateur qu'avant (ex. relog dans le modal SessionLost) →
+        // ne pas ré-initialiser l'UI, l'état React est déjà correct.
+        const currentUserId = user.id || user._id || user.email;
+        if (previousUserIdRef.current === currentUserId) {
+            return;
+        }
+        previousUserIdRef.current = currentUserId;
         const lastId = (() => { try { return localStorage.getItem(LS_KEY); } catch { return null; } })();
         if (!lastId) {
             setRestoring(false);
