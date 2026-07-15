@@ -19,8 +19,12 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_TTL_MINUTES = 60 * 24  # 24h
-REFRESH_TOKEN_TTL_DAYS = 7
+# Access TTL passé de 24h à 8 jours (13/02/2026, iter6) — pour éviter les
+# expirations silencieuses en journée d'utilisation terrain qui provoquaient
+# des pertes de saisie du Phasage. Le refresh token reste à 7 jours mais est
+# désormais utilisé automatiquement par l'intercepteur axios frontend.
+ACCESS_TOKEN_TTL_MINUTES = 60 * 24 * 8  # 8 jours
+REFRESH_TOKEN_TTL_DAYS = 30
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 

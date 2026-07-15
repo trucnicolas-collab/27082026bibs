@@ -101,6 +101,11 @@ export default function PhasageTab({ uploadId }) {
     const [rows, setRows] = useState([]);
     const [weeks, setWeeks] = useState([]); // ex: [5,3,6] ou [] (pas de découpage)
     const [saving, setSaving] = useState(false);
+    // (iter6) État précis de la sauvegarde pour éviter les pertes silencieuses :
+    // "idle" | "saving" | "saved" | "error". L'utilisateur voit toujours le statut.
+    const [saveStatus, setSaveStatus] = useState("idle");
+    const [lastSavedAt, setLastSavedAt] = useState(null);
+    const [saveError, setSaveError] = useState("");
     const [dates, setDates] = useState({}); // {"1": "2026-02-15", ...} (lecture seule ici)
     // Méta-infos magasin / VT
     const [vtStartDate, setVtStartDate] = useState("");
@@ -179,6 +184,7 @@ export default function PhasageTab({ uploadId }) {
         if (!summary || !uploadId) return;
         const t = setTimeout(() => {
             setSaving(true);
+            setSaveStatus("saving");
             const ph = summary.phasage || {};
             axios.patch(`${API}/dataset/${uploadId}/phasage`, {
                 es: {
@@ -188,8 +194,15 @@ export default function PhasageTab({ uploadId }) {
                 },
                 cam: ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 },
                 suivi: ph.suivi || { rows: [] },
-            }).catch((e) => console.error("Save phasage failed:", e))
-              .finally(() => setSaving(false));
+            }).then(() => {
+                setSaveStatus("saved");
+                setLastSavedAt(new Date());
+                setSaveError("");
+            }).catch((e) => {
+                console.error("Save phasage failed:", e);
+                setSaveStatus("error");
+                setSaveError(e?.response?.data?.detail || e?.message || "Erreur inconnue");
+            }).finally(() => setSaving(false));
         }, 600);
         return () => clearTimeout(t);
     }, [nbNuits, rows, weeks, uploadId, summary]);
@@ -497,7 +510,20 @@ export default function PhasageTab({ uploadId }) {
                     <PackagePlus className="w-3.5 h-3.5" />
                     EEG SA à poser
                 </button>
-                {saving && <span className="text-xs text-gray-500">Sauvegarde…</span>}
+                {saving && <span className="text-xs text-gray-500" data-testid="phasage-save-saving">Sauvegarde…</span>}
+                {!saving && saveStatus === "saved" && lastSavedAt && (
+                    <span className="text-xs text-green-700 flex items-center gap-1" data-testid="phasage-save-ok"
+                        title={`Dernière sauvegarde à ${lastSavedAt.toLocaleTimeString("fr-FR")}`}>
+                        ✓ Sauvegardé à {lastSavedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                )}
+                {!saving && saveStatus === "error" && (
+                    <span className="text-xs text-red-700 font-bold flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded"
+                        data-testid="phasage-save-error"
+                        title={`ERREUR SAUVEGARDE : ${saveError}. Vos modifications ne sont PAS enregistrées. Reconnectez-vous et réessayez.`}>
+                        ⚠️ NON SAUVEGARDÉ — {saveError.length > 40 ? saveError.slice(0, 40) + "…" : saveError}
+                    </span>
+                )}
             </div>
 
             {/* Découpage par semaine (optionnel) */}

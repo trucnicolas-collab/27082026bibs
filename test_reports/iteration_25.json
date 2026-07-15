@@ -1,0 +1,62 @@
+{
+  "summary": "Iter6 auth refresh + session-lost modal + Phasage autosave indicator. Backend 10/10 tests OK (TTL 8j vérifié, refresh endpoint OK, cookies clearés au logout). Frontend : autosave 'saved' indicator OK, modal session-lost fonctionne (email pré-rempli, refresh échec → modal, relog dans modal ferme la modal). MAIS bug de préservation d'état après relog : l'app retombe en Étape 1 (Import) au lieu de rester sur Phasage — le useEffect sur [user] dans App.js relance loadDataset() qui reset activeTab='import_home' et currentStep=1.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Reconnexion via session-lost-modal → préservation de l'état React",
+        "issue": "Après un relog réussi dans le modal (setUser(res.data) dans AuthContext.jsx submitRelog), le useEffect [user] de App.js (ligne 180-200) se redéclenche et appelle loadDataset() qui reset activeTab='import_home' + currentStep=1. Résultat : l'utilisateur est renvoyé sur l'écran Import avec un toast 'Session restaurée' au lieu de rester sur son onglet Phasage. La promesse UI 'reprendre votre travail sans rien perdre' n'est donc que partiellement tenue (les données autosauvées côté serveur sont OK, mais l'UI casse le contexte de saisie).",
+        "affected_selectors": ["session-lost-modal", "phasage-tab", "wizard-subtab-pose"]
+      }
+    ],
+    "design_issues": []
+  },
+  "detailed_validations": {
+    "backend_ttl_and_refresh": {
+      "access_token_ttl_days": "~8.0 (validé JWT decode)",
+      "refresh_token_ttl_days": "~30.0",
+      "login_returns_cookies": true,
+      "refresh_endpoint_regenerates_access": true,
+      "me_after_refresh": true,
+      "logout_clears_cookies": true
+    },
+    "frontend_phasage_autosave": {
+      "phasage-save-saving_seen": false,
+      "phasage-save-saving_reason": "Indicateur non capturé par Playwright — probablement flash trop court (<100ms API round-trip) ; PAS un bug fonctionnel car saveStatus passe bien par 'saving' avant 'saved'",
+      "phasage-save-ok_seen": true,
+      "phasage-save-ok_text": "✓ Sauvegardé à 00:36"
+    },
+    "frontend_session_lost_modal": {
+      "modal_appeared_on_401": true,
+      "email_prefilled": true,
+      "email_value": "admin@vusion.local",
+      "password_field_present": true,
+      "submit_relog_success": true,
+      "modal_disappeared_after_relog": true,
+      "phasage_tab_still_visible_after_relog": false,
+      "app_regressed_to_step1_import": true
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_refresh_iter6.py",
+    "/app/test_reports/pytest/auth_refresh_iter6.xml"
+  ],
+  "action_items": [
+    "CRITIQUE (préservation d'état) : Dans /app/frontend/src/App.js ligne 180-200, le useEffect [user] déclenche loadDataset() à chaque changement d'objet user. Après relog via modal, cela reset l'onglet actif (activeTab='import_home', currentStep=1). Solution : distinguer 'first login' vs 'relog dans modal'. Par exemple : (1) ne pas relancer loadDataset si dataset existe déjà avec le même upload_id, ou (2) exposer un flag 'silentRelog' dans AuthContext pour skip le auto-restore, ou (3) utiliser useRef(userId) pour ne déclencher qu'au changement d'utilisateur réel.",
+    "MINEUR : phasage-save-saving invisible en Playwright — envisager d'augmenter légèrement la persistance visuelle (setTimeout de 300ms min avant setSaving(false)) pour améliorer feedback perçu, mais ce n'est pas bloquant."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext.jsx : bien conçu — intercepteur global unique avec _refreshPromise pour éviter les refresh parallèles, dispatchEvent découplé du composant, et modal réutilisable via ref pour l'email. Bon pattern.",
+    "PhasageTab.jsx (994 lignes) : trop gros — envisager de séparer AutosaveBar, WeeksBar, PhasageLeftTable, PhasageRightTable dans des composants dédiés.",
+    "App.js ligne 200 : dépendance [user] avec commentaire eslint-disable — c'est exactement là que le bug de state preservation naît. Le useRef(previousUserId.current) permettrait de détecter le changement réel de user vs même user après relog."
+  ],
+  "updated_files": ["/app/backend/tests/test_auth_refresh_iter6.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "80% (4/5 features OK, préservation état KO)"},
+  "test_credentials": "admin@vusion.local / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Aucune — dataset fd15443f déjà présent",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le magasin fd15443f n'a PAS de SA installée par défaut (intro 'Étiquettes SA à poser' → cliquer 'Non' puis 'sa-intro-continue' pour accéder à la grille). Les rows Phasage utilisent des uid composites format '1__A__R1'. Sur la préservation d'état après relog : la clé est le useEffect [user] dans App.js ligne 180-200. Le test 401 doit être fait via `fetch('/api/auth/logout', {credentials:'include'})` depuis page.evaluate pour supprimer BOTH cookies, sinon l'intercepteur refresh les réobtiendra silencieusement.",
+  "rca of the issue": "Le modal session-lost fonctionne côté UI (apparaît, email pré-rempli, form submit OK), mais la promesse de préservation d'état est cassée par un side-effect involontaire dans App.js. Quand submitRelog fait setUser(res.data), l'objet user devient une nouvelle référence → useEffect [user] se redéclenche → loadDataset(lastId) est appelé → setActiveTab('import_home') + setCurrentStep(1) → l'utilisateur perd son contexte de saisie visuel (bien que les données soient sauvées côté serveur via l'autosave préalable)."
+}
