@@ -1,5 +1,28 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v27 iter7 — Cohérence visuelle Phasage)
+
+### Bugs remontés (PDF « Erreur tableau.pdf »)
+1. **Flèche 1 vs 2** — Récap par nuit : la colonne « EEG ES » par nuit N'INCLUAIT PAS le saisonnier, mais la ligne TOTAL l'INCLUAIT via `grandTotals.seasonal`. Or les Zones Saisonnières sont DÉJÀ comptées dans `sa_inst_15` (1200) + `sa_inst_21` (4800) = 6000 → **doublon numérique** de 6000 EEG dans le total du récap.
+2. **Flèche 3** — Tableau Plan d'attribution par allée : la colonne « EEG » incluait `instTotal` (SA à installer VT) → mélange EEG ES + SA VT, incohérent avec la colonne « EEG ES » du récap à droite.
+
+### Fix appliqué (`frontend/src/components/PhasageTab.jsx`)
+- **Ligne 918** : total colonne EEG ES du récap → retrait de `+ grandTotals.seasonal`.
+- **Ligne 936** : total colonne Total du récap → retrait de `+ grandTotals.seasonal`.
+- **Ligne 691** : colonne renommée « EEG » → « EEG ES » (tableau Plan d'allée).
+- **Ligne 764-768** : formule EEG ES par allée → retrait de `+ instTotal` ; ZS → 0 (les SA sont déjà dans les colonnes dédiées).
+- Tooltips clarifiés partout.
+
+### Cohérence garantie (post-fix)
+- Somme des lignes « EEG ES » = ligne TOTAL colonne « EEG ES » ✓
+- Ligne TOTAL colonne « Total » du récap = KPI « Total EEG » en haut ✓
+- Colonne « EEG ES » du tableau Plan d'allée = même sémantique qu'à droite ✓
+
+### Tests
+- `/app/backend/tests/test_iter30_phasage_recap_totals.py` : 2/2 tests OK (reproduction fidèle du calcul JS).
+
+
+
 ## Changelog 13/02/2026 (v27 iter6 — Prévention perte de saisie sur 401)
 
 ### Contexte

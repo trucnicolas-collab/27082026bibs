@@ -686,9 +686,9 @@ export default function PhasageTab({ uploadId }) {
                                         <th className="px-2 py-1.5 text-left font-semibold">N° Allée</th>
                                         <th className="px-2 py-1.5 text-right font-semibold"
                                             title={isMagasin2
-                                                ? "EEG = ES 1.5 + ES 2.1 + SA 1.5 (à poser) + flèches"
-                                                : "EEG = ES 1.5 + ES 2.1 + bonus rails→ES 1.5 + flèches"}>
-                                            EEG
+                                                ? "EEG ES = ES 1.5 + ES 2.1 + SA 1.5 + flèches (hors SA à installer VT, qui sont dans les colonnes dédiées)"
+                                                : "EEG ES = ES 1.5 + ES 2.1 + bonus rails→ES 1.5 + flèches (hors SA à installer VT, qui sont dans les colonnes dédiées)"}>
+                                            EEG ES
                                         </th>
                                         <th className="px-2 py-1.5 text-right font-semibold">Rails ES</th>
                                         <th className="px-2 py-1.5 text-right font-semibold text-blue-700" title="SA 1.5 à installer (VT) — selon la config du panneau">SA 1.5</th>
@@ -762,10 +762,10 @@ export default function PhasageTab({ uploadId }) {
                                                             : `ES ${fmt((node.es_15 || 0) + (node.es_21 || 0))}${((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0)) > 0 ? ` + bonus rails ${fmt((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0))}` : ""}${(node.fleches || 0) > 0 ? ` + ${fmt(node.fleches)} flèche(s)` : ""}`)
                                                         : undefined}>
                                                     {node ? fmt(node.is_seasonal
-                                                        ? (node.seasonal_eeg || 0)
-                                                        : ((isMagasin2
+                                                        ? 0
+                                                        : (isMagasin2
                                                             ? ((node.es_15 || 0) + (node.es_21 || 0) + (node.sa_15 || 0) + (node.fleches || 0))
-                                                            : ((node.es_15 || 0) + (node.es_21 || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0) + (node.fleches || 0))) + instTotal)
+                                                            : ((node.es_15 || 0) + (node.es_21 || 0) + (node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0) + (node.fleches || 0)))
                                                     ) : ""}
                                                 </td>
                                                 <td className="px-2 py-1 text-right font-mono-data text-gray-800">{node ? fmt(node.rails_es) : ""}</td>
@@ -914,8 +914,9 @@ export default function PhasageTab({ uploadId }) {
                                         <td className="px-2 py-1 text-gray-500 text-[11px]">
                                             {grandTotals.nbAllees} allées
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data">
-                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal))}
+                                        <td className="px-2 py-1 text-right font-mono-data"
+                                            title="Somme des lignes ci-dessus (les Zones Saisonnières sont comptées dans les colonnes SA 1.5 et SA 2.1)">
+                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches))}
                                         </td>
                                         <td className="px-2 py-1 text-right font-mono-data">
                                             {fmt(grandTotals.rails)}
@@ -932,8 +933,9 @@ export default function PhasageTab({ uploadId }) {
                                         <td className="px-2 py-1 text-right font-mono-data text-blue-700">
                                             {fmt(grandTotals.sa_inst_42)}
                                         </td>
-                                        <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" data-testid="recap-nuit-total-grand">
-                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches + grandTotals.seasonal) + grandTotals.sa_inst_15 + grandTotals.sa_inst_21 + grandTotals.sa_inst_freezer + grandTotals.sa_inst_42)}
+                                        <td className="px-2 py-1 text-right font-mono-data font-bold text-gray-900" data-testid="recap-nuit-total-grand"
+                                            title="Total = somme des colonnes EEG ES + SA 1.5 + SA 2.1 + SA 2.1 frz + 4.2/4.2 WP. Doit correspondre au « Total EEG » affiché en haut.">
+                                            {fmt(Math.round(grandTotals.es + (isMagasin2 ? grandTotals.sa_15 : grandTotals.bonus) + grandTotals.fleches) + grandTotals.sa_inst_15 + grandTotals.sa_inst_21 + grandTotals.sa_inst_freezer + grandTotals.sa_inst_42)}
                                         </td>
                                         {!hideSaMagasin && (
                                             <td className="px-2 py-1 text-right font-mono-data italic text-gray-600">
