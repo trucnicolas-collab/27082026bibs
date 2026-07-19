@@ -1608,6 +1608,37 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     row += 1
             row += 1
 
+        # (iter34) Section dédiée : produits posés non géolocalisés + commentaires GÉOLOC
+        # — deux causes = deux sections distinctes, ne pas mélanger avec les écarts pose
+        geo_rows = [x for x in items if any((x.get("geo_gap") or {}).values())]
+        if geo_rows:
+            ws.write(row, 0, "Écarts GÉOLOC (posés non géolocalisés) et commentaires", f_title)
+            row += 1
+            for c0, h in enumerate(["Allée", "Famille", "Posé", "Géoloc", "Non géoloc", "Commentaire géoloc"]):
+                ws.write(row, c0, h, f_h)
+            ws.set_column(5, 5, 40)
+            row += 1
+            for x in geo_rows:
+                geo_gap = x.get("geo_gap") or {}
+                first = True
+                for k, gap in geo_gap.items():
+                    if not gap:
+                        continue
+                    reel_k = (x.get("reel") or {}).get(k) or 0
+                    geo_k = (x.get("geo") or {}).get(k) or 0
+                    ws.write(row, 0, x["allee"] if first else "", f_c)
+                    ws.write(row, 1, k, f_cl)
+                    ws.write(row, 2, reel_k, f_c)
+                    ws.write(row, 3, geo_k, f_c)
+                    ws.write(row, 4, gap, f_neg)
+                    if first:
+                        ws.write(row, 5, x.get("geoloc_comment") or "⚠ manquant", f_cl)
+                    else:
+                        ws.write(row, 5, "", f_cl)
+                    first = False
+                    row += 1
+            row += 1
+
         # Caméras de la nuit (si phasage caméras couvre cette nuit absolue)
         cam_items = [x for x in ((state.get("cam") or {}).get("allees") or []) if x.get("nuit_abs") == nuit]
         if cam_items:

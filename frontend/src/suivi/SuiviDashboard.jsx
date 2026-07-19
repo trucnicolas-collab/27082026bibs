@@ -180,6 +180,8 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                         // (v28 iter3) Détecte présence commentaires/photos/incidents dans la nuit
                         const nAllees = (state.allees || []).filter(a => a.nuit_eff === n.nuit);
                         const nbComments = nAllees.filter(a => (a.comment || "").trim().length > 0).length;
+                        const nbJustifs = nAllees.filter(a => (a.justification || "").trim().length > 0).length;
+                        const nbGeoComments = nAllees.filter(a => (a.geoloc_comment || "").trim().length > 0).length;
                         const nbPhotos = nAllees.reduce((s, a) => s + ((a.photos || []).length), 0);
                         const nbIncidents = (state.incidents || []).filter(i => i.nuit === n.nuit).length;
                         return (
@@ -203,7 +205,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                                         </span>
                                     )}
                                 </div>
-                                {(nbComments > 0 || nbPhotos > 0 || nbIncidents > 0) && (
+                                {(nbComments > 0 || nbPhotos > 0 || nbIncidents > 0 || nbJustifs > 0 || nbGeoComments > 0) && (
                                     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap" data-testid={`dash-night-${n.nuit}-badges`}>
                                         {nbIncidents > 0 && (
                                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-950/60 text-red-300 font-semibold flex items-center gap-1"
@@ -217,6 +219,20 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                                                 title={`${nbComments} allée(s) avec commentaire`}
                                                 data-testid={`dash-night-${n.nuit}-comment-badge`}>
                                                 <MessageSquare className="w-2.5 h-2.5" />{nbComments}
+                                            </span>
+                                        )}
+                                        {nbJustifs > 0 && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-200 font-semibold flex items-center gap-1"
+                                                title={`${nbJustifs} justification(s) d'écart POSE > 5%`}
+                                                data-testid={`dash-night-${n.nuit}-justif-badge`}>
+                                                <AlertTriangle className="w-2.5 h-2.5" />{nbJustifs}
+                                            </span>
+                                        )}
+                                        {nbGeoComments > 0 && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-200 font-semibold flex items-center gap-1"
+                                                title={`${nbGeoComments} commentaire(s) GÉOLOC`}
+                                                data-testid={`dash-night-${n.nuit}-geocomment-badge`}>
+                                                <MapPin className="w-2.5 h-2.5" />{nbGeoComments}
                                             </span>
                                         )}
                                         {nbPhotos > 0 && (
@@ -246,6 +262,8 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
     const eegRestant = Math.max(0, (night.eeg_plan || 0) - (night.eeg_reel || 0));
     // (v28 iter3) Agrégats commentaires/photos/incidents pour cette nuit
     const alleesAvecComment = allees.filter(a => (a.comment || "").trim().length > 0);
+    const alleesAvecJustif = allees.filter(a => (a.justification || "").trim().length > 0);
+    const alleesAvecGeoComment = allees.filter(a => (a.geoloc_comment || "").trim().length > 0);
     const alleesAvecPhoto = allees.filter(a => (a.photos || []).length > 0);
     const nightIncidents = (state.incidents || []).filter(i => i.nuit === night.nuit);
     const [zoomPhoto, setZoomPhoto] = React.useState(null);
@@ -372,6 +390,42 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
                                         Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
                                     </div>
                                     <div className="whitespace-pre-wrap">{a.comment}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* (iter34) Justifications d'écart pose > 5% */}
+                    {alleesAvecJustif.length > 0 && (
+                        <div className="space-y-1" data-testid="night-summary-justifs">
+                            <div className="text-[10px] uppercase text-slate-500 font-semibold flex items-center gap-1">
+                                <AlertTriangle className="w-2.5 h-2.5 text-red-400" /> Justifications écart POSE &gt; 5% ({alleesAvecJustif.length})
+                            </div>
+                            {alleesAvecJustif.map((a) => (
+                                <div key={a.uid} className="rounded-lg bg-red-950/30 border border-red-900/40 p-2 text-[11px] text-red-100"
+                                    data-testid={`night-summary-justif-${a.uid}`}>
+                                    <div className="text-red-300 font-semibold text-[10px] mb-0.5">
+                                        Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                                    </div>
+                                    <div className="whitespace-pre-wrap">{a.justification}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* (iter34) Commentaires géoloc (produits posés non géolocalisés) */}
+                    {alleesAvecGeoComment.length > 0 && (
+                        <div className="space-y-1" data-testid="night-summary-geocomments">
+                            <div className="text-[10px] uppercase text-slate-500 font-semibold flex items-center gap-1">
+                                <MapPin className="w-2.5 h-2.5 text-sky-400" /> Commentaires GÉOLOC ({alleesAvecGeoComment.length})
+                            </div>
+                            {alleesAvecGeoComment.map((a) => (
+                                <div key={a.uid} className="rounded-lg bg-sky-950/30 border border-sky-900/40 p-2 text-[11px] text-sky-100"
+                                    data-testid={`night-summary-geocomment-${a.uid}`}>
+                                    <div className="text-sky-300 font-semibold text-[10px] mb-0.5">
+                                        Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                                    </div>
+                                    <div className="whitespace-pre-wrap">{a.geoloc_comment}</div>
                                 </div>
                             ))}
                         </div>

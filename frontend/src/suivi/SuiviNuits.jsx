@@ -414,8 +414,15 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
     };
 
     const confirmValidate = async () => {
+        // Blocage 1 : écart > 5% sur pose EEG / rails ES → justification obligatoire
         if (justifProducts.length > 0 && !justif.trim()) {
             toast.error("Justification obligatoire : écart de plus de 5% sur EEG / rails ES");
+            return;
+        }
+        // Blocage 2 : produits posés non géolocalisés → commentaire géoloc obligatoire
+        // (distinct du blocage pose : deux causes différentes → deux commentaires distincts)
+        if (gapProducts.length > 0 && !geoComment.trim()) {
+            toast.error("Commentaire de géolocalisation obligatoire — produits posés non géolocalisés");
             return;
         }
         setSaving(true);
@@ -423,6 +430,9 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
         // (l'allée est validée mais les produits non saisis restent à 0 posé — visible dans le rapport)
         const fields = { status: "validee" };
         if (justif.trim()) fields.justification = justif.trim();
+        if (geoComment.trim() && geoComment !== (a.geoloc_comment || "")) {
+            fields.geoloc_comment = geoComment.trim();
+        }
         fields.extra_products = extras
             .filter((x) => x.designation.trim() && Number(x.qty) > 0)
             .map((x) => ({ designation: x.designation.trim(), qty: Number(x.qty) }));
@@ -758,7 +768,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             <div className="rounded-xl bg-red-950/40 border border-red-900/60 p-3 space-y-2" data-testid={`validate-justif-${a.uid}`}>
                                 <div className="text-[11px] text-red-300 font-semibold flex items-start gap-1.5">
                                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                                    <span>Écart de plus de 5% entre prévu et posé — justification obligatoire :</span>
+                                    <span>Écart POSE de plus de 5% entre prévu et posé — justification obligatoire :</span>
                                 </div>
                                 {justifProducts.map((p) => {
                                     const raw = vals[p.designation]?.reel;
@@ -771,9 +781,27 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                                     );
                                 })}
                                 <textarea value={justif} onChange={(e) => setJustif(e.target.value)} rows={2}
-                                    placeholder="Pourquoi cet écart ? (obligatoire)"
+                                    placeholder="Pourquoi cet écart de POSE ? (obligatoire)"
                                     data-testid={`validate-justif-input-${a.uid}`}
                                     className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none resize-none" />
+                            </div>
+                        )}
+
+                        {gapProducts.length > 0 && (
+                            <div className="rounded-xl bg-sky-950/40 border border-sky-900/60 p-3 space-y-2" data-testid={`validate-geoloc-${a.uid}`}>
+                                <div className="text-[11px] text-sky-300 font-semibold flex items-start gap-1.5">
+                                    <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>Écart GÉOLOC — produits posés non géolocalisés — commentaire obligatoire :</span>
+                                </div>
+                                {gapProducts.map((p) => (
+                                    <div key={p.designation} className="text-[11px] text-slate-300">
+                                        • {p.designation} : <span className="text-sky-300 font-bold">{fmt(p.gap)}</span> posé(s) non géolocalisé(s)
+                                    </div>
+                                ))}
+                                <textarea value={geoComment} onChange={(e) => setGeoComment(e.target.value)} rows={2}
+                                    placeholder="Pourquoi cet écart de GÉOLOC ? (zone sans signal, scan à refaire...) — obligatoire"
+                                    data-testid={`validate-geoloc-input-${a.uid}`}
+                                    className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-sky-900/70 text-xs placeholder:text-slate-600 focus:border-sky-500 outline-none resize-none" />
                             </div>
                         )}
 
