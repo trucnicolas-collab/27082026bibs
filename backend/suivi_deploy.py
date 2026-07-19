@@ -1399,6 +1399,60 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             row += 1
         row += 1
 
+        # ---- Storyboard photos (inline dans le Résumé, groupé par allée) ----
+        entries_map = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
+        photo_groups = []
+        for x in items:
+            phs = (entries_map.get(x["uid"], {}) or {}).get("photos") or []
+            if phs:
+                photo_groups.append((x, phs))
+        if photo_groups:
+            total_photos = sum(len(p) for _, p in photo_groups)
+            ws.merge_range(row, 0, row, 11,
+                           f"📸  STORYBOARD PHOTOS ({total_photos} photo(s) sur {len(photo_groups)} allée(s))",
+                           f_info_title)
+            ws.set_row(row, 22)
+            row += 1
+            try:
+                from PIL import Image as PILImage
+                for allee_data, photos in photo_groups:
+                    header = f"Allée {allee_data['allee']} · {allee_data['secteur']}"
+                    if allee_data.get("rayon"):
+                        header += f" · {allee_data['rayon']}"
+                    header += f"  ({len(photos)} photo{'s' if len(photos) > 1 else ''})"
+                    ws.merge_range(row, 0, row, 11, header, f_kpi_l)
+                    row += 1
+                    # Grille 4 colonnes × N lignes, chaque photo occupe 3 colonnes de large
+                    col_starts = [0, 3, 6, 9]
+                    photo_h_max = 0
+                    grid_start_row = row
+                    for i, p in enumerate(photos[:16]):  # max 16 photos par allée
+                        try:
+                            data, _ct = _get_object(p["path"])
+                            im = PILImage.open(io.BytesIO(data))
+                            w, h = im.size
+                            # Cible ~200px de large max (colonnes de largeur 12 = ~85px, on prend 3 cols = ~255px)
+                            scale = min(1.0, 200.0 / float(w))
+                            ci = i % 4
+                            if ci == 0 and i > 0:
+                                row = grid_start_row + photo_h_max
+                                photo_h_max = 0
+                                grid_start_row = row
+                            ws.insert_image(grid_start_row, col_starts[ci], f"{p['id']}.jpg",
+                                            {"image_data": io.BytesIO(data),
+                                             "x_scale": scale, "y_scale": scale,
+                                             "x_offset": 4, "y_offset": 4})
+                            rows_needed = int((h * scale) / 20) + 2
+                            photo_h_max = max(photo_h_max, rows_needed)
+                        except Exception as pe:
+                            logger.warning(f"Photo embed failed ({p.get('id')}): {pe}")
+                            continue
+                    # Avancer après la dernière ligne de la grille
+                    row = grid_start_row + photo_h_max + 1
+            except Exception as e:
+                logger.warning(f"Photos storyboard section failed: {e}")
+                row += 1
+
         # ═══════════════════════════════════════════════════════════════
         # FEUILLE 2 — DÉTAIL PAR ALLÉE (le tableau complet historique)
         # ═══════════════════════════════════════════════════════════════
@@ -1557,38 +1611,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 row += 1
             row += 1
 
-        # Photos des allées de la nuit
-        entries = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
-        night_photos = []
-        for x in items:
-            for p in (entries.get(x["uid"], {}).get("photos") or []):
-                night_photos.append((x["allee"], p))
-        if night_photos:
-            try:
-                from PIL import Image as PILImage
-                ws.write(row, 0, "Photos", f_title)
-                row += 1
-                col_positions = [0, 4, 8]
-                r0, max_rows = row, 0
-                for i, (allee_label, p) in enumerate(night_photos[:30]):
-                    try:
-                        data, _ct = _get_object(p["path"])
-                        im = PILImage.open(io.BytesIO(data))
-                        w, h = im.size
-                        scale = min(1.0, 230.0 / float(w))
-                        ci = i % 3
-                        if ci == 0 and i > 0:
-                            r0 += max_rows
-                            max_rows = 0
-                        ws.write(r0, col_positions[ci], f"Allée {allee_label}", f_sub)
-                        ws.insert_image(r0 + 1, col_positions[ci], f"{p['id']}.jpg",
-                                        {"image_data": io.BytesIO(data), "x_scale": scale, "y_scale": scale})
-                        max_rows = max(max_rows, int((h * scale) / 20) + 3)
-                    except Exception as pe:
-                        logger.warning(f"Photo embed failed ({p.get('id')}): {pe}")
-                        continue
-            except Exception as e:
-                logger.warning(f"Photos section failed: {e}")
+        # Photos : voir feuille « Résumé N{n} » (storyboard groupé par allée)
 
         # Feuille 2 : détail par produit
         ws2 = wb.add_worksheet("Détail produits")

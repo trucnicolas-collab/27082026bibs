@@ -1,5 +1,23 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v28 iter5 — Storyboard photos inline dans le rapport)
+
+### Demande utilisateur
+Ajouter les photos directement dans la feuille Résumé (inline) pour éviter d'ouvrir une feuille séparée — vrai storyboard visuel de la nuit.
+
+### Fix appliqué (`backend/suivi_deploy.py::_rapport_response`)
+- Nouvelle section **« 📸 STORYBOARD PHOTOS »** en bas de la feuille Résumé (bandeau bleu Carrefour) : compte total + nombre d'allées concernées.
+- Photos groupées par allée avec titre `Allée X · Secteur · Rayon (N photos)`.
+- Grille 4 photos par ligne, max 16 photos par allée, image scale 200 px de large.
+- Try/except autour de chaque photo pour éviter qu'une image corrompue casse l'export.
+- Suppression de la section « Photos » redondante dans la feuille « Détail allées » (renvoie au Résumé).
+
+### Validation
+- Export généré OK (200/OK, 5 feuilles).
+- Tests régression 18/18 OK.
+
+
+
 ## Changelog 13/02/2026 (v28 iter4 — Export Excel rapport de nuit refondu)
 
 ### Demande utilisateur
