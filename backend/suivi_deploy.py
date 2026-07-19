@@ -613,6 +613,39 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 g["pose"] += pose
                 if not_valid_cam:
                     g["restant_a_poser"] += max(0.0, q - pose)
+        # (v28 iter2) Fusion des Zones Saisonnières dans les SA (noir) correspondants
+        # pour l'affichage stock — les poseurs reçoivent une seule livraison de
+        # SA 1.5 noir et SA 2.1 noir, sans distinction ZS. On garde la traçabilité
+        # dans le matériel par nuit / écran allée, mais on agrège au niveau stock.
+        # Détection intelligente du nom cible (variantes possibles : « SA 1.5 noir »,
+        # « SA 1.5 (noir) », etc.) — on cherche la 1ère désignation qui match.
+        def _find_noir_target(pref: str) -> str | None:
+            pref_l = pref.lower()
+            for dg in prod_agg.keys():
+                dgl = dg.lower()
+                if dgl.startswith(pref_l) and "noir" in dgl and "saisonn" not in dgl:
+                    return dg
+            return None
+
+        for zs_desig, prefix in (("SA 1.5 (Zone saisonnier)", "sa 1.5"),
+                                 ("SA 2.1 (Zone saisonnier)", "sa 2.1")):
+            if zs_desig not in prod_agg:
+                continue
+            target_desig = _find_noir_target(prefix)
+            zs = prod_agg.pop(zs_desig)
+            if target_desig and target_desig in prod_agg:
+                tgt = prod_agg[target_desig]
+                tgt["prevu"] += zs["prevu"]
+                tgt["pose"] += zs["pose"]
+                tgt["restant_a_poser"] += zs["restant_a_poser"]
+            else:
+                # Aucune cible « (noir) » dans le fichier → on garde la ZS mais
+                # sous un libellé neutre pour ne pas afficher « Zone saisonnier »
+                # dans le stock.
+                fallback = "SA 1.5 (noir)" if prefix == "sa 1.5" else "SA 2.1 (noir)"
+                zs["designation"] = fallback
+                prod_agg[fallback] = zs
+
         stock, alerts = [], []
         for desig in sorted(prod_agg.keys(), key=lambda s: s.lower()):
             g = prod_agg[desig]
