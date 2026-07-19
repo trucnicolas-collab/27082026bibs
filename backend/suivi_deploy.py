@@ -613,38 +613,92 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 g["pose"] += pose
                 if not_valid_cam:
                     g["restant_a_poser"] += max(0.0, q - pose)
-        # (v28 iter2) Fusion des Zones Saisonnières dans les SA (noir) correspondants
-        # pour l'affichage stock — les poseurs reçoivent une seule livraison de
-        # SA 1.5 noir et SA 2.1 noir, sans distinction ZS. On garde la traçabilité
-        # dans le matériel par nuit / écran allée, mais on agrège au niveau stock.
-        # Détection intelligente du nom cible (variantes possibles : « SA 1.5 noir »,
-        # « SA 1.5 (noir) », etc.) — on cherche la 1ère désignation qui match.
-        def _find_noir_target(pref: str) -> str | None:
-            pref_l = pref.lower()
-            for dg in prod_agg.keys():
-                dgl = dg.lower()
-                if dgl.startswith(pref_l) and "noir" in dgl and "saisonn" not in dgl:
-                    return dg
+        # (v28 iter2) Fusion des Zones Saisonnières + Flèches + Signalétique
+        # dans les SA/ES (noir/blanc) correspondants — POUR L'AFFICHAGE STOCK
+        # UNIQUEMENT. Les autres écrans (matériel/allée) gardent les désignations
+        # séparées pour la traçabilité. Les poseurs reçoivent UNE seule livraison
+        # de SA 1.5 noir, SA 2.1 noir, ES 1.5 noir, ES 1.5 blanc.
+        _RAILS_BONUS_COLORS = [
+            ("1187 mm (noir)", "noir"), ("1187 mm (blanc)", "blanc"),
+            ("1240 mm (noir)", "noir"), ("1320 mm (blanc)", "blanc"),
+            ("1320 mm (noir)", "noir"), ("535 mm (noir)", "noir"),
+            ("650 mm (noir)", "noir"), ("990 mm (blanc)", "blanc"),
+            ("990 mm (noir)", "noir"),
+        ]
+
+        def _signaletique_color(dg: str) -> str | None:
+            dl = (dg or "").lower()
+            for pat, col in _RAILS_BONUS_COLORS:
+                if pat in dl:
+                    return col
             return None
 
+        def _is_fleche_line(dg: str, typ: str) -> bool:
+            import unicodedata
+            for s in (dg, typ):
+                norm = unicodedata.normalize("NFD", str(s or "")).encode("ascii", "ignore").decode("ascii").lower()
+                if "fleche" in norm:
+                    return True
+            return False
+
+        def _find_target(prefix: str, color: str | None = None) -> str | None:
+            """Cherche une désignation cible dans prod_agg matchant un préfixe
+            et une couleur optionnelle. Ex: prefix='sa 1.5', color='noir'
+            → 'SA 1.5 (noir)' ou 'SA 1.5 noir'."""
+            pref_l = prefix.lower()
+            for dg in prod_agg.keys():
+                dgl = dg.lower()
+                if not dgl.startswith(pref_l):
+                    continue
+                if "saisonn" in dgl:
+                    continue  # évite de rediriger vers la ZS synthétique
+                if color and color not in dgl:
+                    continue
+                return dg
+            return None
+
+        def _merge_into(source_desig: str, target_desig: str):
+            src = prod_agg.pop(source_desig, None)
+            if not src:
+                return
+            if target_desig in prod_agg:
+                tgt = prod_agg[target_desig]
+                tgt["prevu"] += src["prevu"]
+                tgt["pose"] += src["pose"]
+                tgt["restant_a_poser"] += src["restant_a_poser"]
+            else:
+                src["designation"] = target_desig
+                prod_agg[target_desig] = src
+
+        # 1) Zones Saisonnières → SA (noir)
         for zs_desig, prefix in (("SA 1.5 (Zone saisonnier)", "sa 1.5"),
                                  ("SA 2.1 (Zone saisonnier)", "sa 2.1")):
             if zs_desig not in prod_agg:
                 continue
-            target_desig = _find_noir_target(prefix)
-            zs = prod_agg.pop(zs_desig)
-            if target_desig and target_desig in prod_agg:
-                tgt = prod_agg[target_desig]
-                tgt["prevu"] += zs["prevu"]
-                tgt["pose"] += zs["pose"]
-                tgt["restant_a_poser"] += zs["restant_a_poser"]
-            else:
-                # Aucune cible « (noir) » dans le fichier → on garde la ZS mais
-                # sous un libellé neutre pour ne pas afficher « Zone saisonnier »
-                # dans le stock.
-                fallback = "SA 1.5 (noir)" if prefix == "sa 1.5" else "SA 2.1 (noir)"
-                zs["designation"] = fallback
-                prod_agg[fallback] = zs
+            target = _find_target(prefix, color="noir") or f"{prefix.upper().replace('SA', 'SA')} (noir)"
+            _merge_into(zs_desig, target)
+
+        # 2) Flèches → ES 1.5 (noir) [détection sur désignation OU type]
+        fleche_desigs = [
+            dg for dg, g in prod_agg.items()
+            if _is_fleche_line(dg, g.get("type", ""))
+        ]
+        target_es15_noir = _find_target("es 1.5", color="noir") or "ES 1.5 (noir)"
+        for dg in fleche_desigs:
+            _merge_into(dg, target_es15_noir)
+
+        # 3) Signalétique (rails 1187/1320/990/650/535/1240 mm) → ES 1.5 (couleur)
+        signal_by_color = {"noir": [], "blanc": []}
+        for dg in list(prod_agg.keys()):
+            col = _signaletique_color(dg)
+            if col:
+                signal_by_color[col].append(dg)
+        for col, desigs in signal_by_color.items():
+            if not desigs:
+                continue
+            target = _find_target("es 1.5", color=col) or f"ES 1.5 ({col})"
+            for dg in desigs:
+                _merge_into(dg, target)
 
         stock, alerts = [], []
         for desig in sorted(prod_agg.keys(), key=lambda s: s.lower()):

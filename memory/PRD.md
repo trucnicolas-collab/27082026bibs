@@ -1,5 +1,28 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v28 iter2 — Fusion agrégée dans le stock du Suivi)
+
+### Demande utilisateur
+Simplifier l'affichage stock du Suivi (les poseurs reçoivent UNE seule livraison par ES/SA, sans distinguer ZS/Flèche/Signalétique). **Aucun changement dans l'outil Phasage.**
+
+### Fix appliqué (`backend/suivi_deploy.py` uniquement)
+Après la construction de `prod_agg`, fusion agrégée dans le stock :
+1. **Zones Saisonnières** : `SA 1.5 (Zone saisonnier)` (1200) → fusionné dans `SA 1.5 (noir)`. `SA 2.1 (Zone saisonnier)` (4800) → fusionné dans `SA 2.1 (noir)`.
+2. **Flèches** : toute désignation ou type contenant « flèche » → fusionné dans `ES 1.5 (noir)`.
+3. **Signalétique** : rails 1187/1240/1320/990/650/535 mm → fusionnés dans `ES 1.5 (noir)` ou `ES 1.5 (blanc)` selon la couleur.
+
+Les autres écrans (matériel par nuit, écran détail allée, exports Excel de nuit) **conservent** les désignations propres pour la traçabilité terrain.
+
+### Rollback
+Modifications de mes précédents patches sur `server.py` (Excel Récap Carrefour, PPTX) annulées via `git checkout backend/server.py`.
+
+### Validation
+- `test_iter31_stock_fusion.py` : 5/5 tests unitaires OK (ZS, flèches, signalétique couleurs, fallback, préservation autres produits).
+- Régression : 18/18 tests iter28/29/30/31 OK.
+- Test bout-en-bout curl : aucune Zone Saisonnière visible dans le stock, quantités fusionnées correctement.
+
+
+
 ## Changelog 13/02/2026 (v28 iter1 — Distinction POSE vs GÉOLOCALISATION dans Suivi)
 
 ### Contexte
