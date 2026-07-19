@@ -114,6 +114,7 @@ function NightRow({ night, actions, onOpen }) {
 
 // ---- Niveau 2 : allées de la nuit ----
 function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
+    const readOnly = !!actions.readOnly;
     const n = night.nuit;
     // Bouton retour natif Android → remonte d'un cran
     useMobileBack(onBack, true);
@@ -268,15 +269,17 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
             })}
 
             {/* Ajouter une allée (rapatriement d'une nuit ultérieure — pour les avances) */}
-            <button onClick={() => setAddPanel(true)}
-                disabled={laterAllees.length === 0}
-                data-testid={`night-add-allee-${n}`}
-                className="w-full h-11 rounded-xl border border-dashed border-blue-700/60 text-blue-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-blue-950/30 hover:border-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                <Plus className="w-4 h-4" />
-                {laterAllees.length > 0
-                    ? `Ajouter une allée (en avance) — ${laterAllees.length} disponible${laterAllees.length > 1 ? "s" : ""}`
-                    : "Aucune allée à rapatrier (dernière nuit ou toutes déjà planifiées ici)"}
-            </button>
+            {!readOnly && (
+                <button onClick={() => setAddPanel(true)}
+                    disabled={laterAllees.length === 0}
+                    data-testid={`night-add-allee-${n}`}
+                    className="w-full h-11 rounded-xl border border-dashed border-blue-700/60 text-blue-400 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-blue-950/30 hover:border-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                    <Plus className="w-4 h-4" />
+                    {laterAllees.length > 0
+                        ? `Ajouter une allée (en avance) — ${laterAllees.length} disponible${laterAllees.length > 1 ? "s" : ""}`
+                        : "Aucune allée à rapatrier (dernière nuit ou toutes déjà planifiées ici)"}
+                </button>
+            )}
 
             <div className="rounded-xl bg-slate-800/40 p-3" data-testid={`night-incidents-${n}`}>
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2 flex items-center gap-1.5">
@@ -285,22 +288,29 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
                 {incidents.map((i) => (
                     <div key={i.id} className="flex items-start gap-2 text-xs text-slate-300 py-1">
                         <span className="flex-1">• {i.text}</span>
-                        <button onClick={() => actions.delIncident(i.id)} data-testid={`incident-del-${i.id}`}
-                            className="text-slate-600 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                        {!readOnly && (
+                            <button onClick={() => actions.delIncident(i.id)} data-testid={`incident-del-${i.id}`}
+                                className="text-slate-600 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                        )}
                     </div>
                 ))}
-                <div className="flex gap-2 mt-1.5">
-                    <input value={incidentText} onChange={(e) => setIncidentText(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter" && incidentText.trim()) { actions.addIncident(n, incidentText); setIncidentText(""); } }}
-                        placeholder="Signaler un incident (rupture, casse, accès...)"
-                        data-testid={`incident-input-${n}`}
-                        className="flex-1 h-8 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-blue-600 outline-none" />
-                    <button onClick={() => { if (incidentText.trim()) { actions.addIncident(n, incidentText); setIncidentText(""); } }}
-                        data-testid={`incident-add-${n}`}
-                        className="h-8 px-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs flex items-center gap-1 transition-colors">
-                        <MessageSquarePlus className="w-3.5 h-3.5" /> Ajouter
-                    </button>
-                </div>
+                {incidents.length === 0 && readOnly && (
+                    <div className="text-[11px] text-slate-500 italic">Aucun incident signalé</div>
+                )}
+                {!readOnly && (
+                    <div className="flex gap-2 mt-1.5">
+                        <input value={incidentText} onChange={(e) => setIncidentText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter" && incidentText.trim()) { actions.addIncident(n, incidentText); setIncidentText(""); } }}
+                            placeholder="Signaler un incident (rupture, casse, accès...)"
+                            data-testid={`incident-input-${n}`}
+                            className="flex-1 h-8 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-blue-600 outline-none" />
+                        <button onClick={() => { if (incidentText.trim()) { actions.addIncident(n, incidentText); setIncidentText(""); } }}
+                            data-testid={`incident-add-${n}`}
+                            className="h-8 px-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs flex items-center gap-1 transition-colors">
+                            <MessageSquarePlus className="w-3.5 h-3.5" /> Ajouter
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Modale de rapatriement d'allée */}
@@ -350,6 +360,7 @@ function NightScreen({ night, state, actions, onBack, onOpenAllee }) {
 
 // ---- Niveau 3 : allée PLEIN ÉCRAN, saisie par produit ----
 function AlleeScreen({ allee: a, state, actions, onBack }) {
+    const readOnly = !!actions.readOnly;
     // Bouton retour natif Android → remonte à la liste des allées
     useMobileBack(onBack, true);
     const goBack = () => window.history.back();
@@ -474,13 +485,19 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                         <MoveRight className="w-3 h-3" /> plan N{a.nuit_plan}
                     </span>
                 )}
-                <select value={a.nuit_eff} onChange={moveNight} data-testid={`allee-move-${a.uid}`}
-                    title="Déplacer sur une autre nuit"
-                    className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-blue-600 outline-none cursor-pointer">
-                    {Array.from({ length: maxNight }, (_, i) => i + 1).map((x) => (
-                        <option key={x} value={x}>{"N" + x}</option>
-                    ))}
-                </select>
+                {readOnly ? (
+                    <span className="h-7 rounded-lg bg-slate-900 border border-slate-800 text-[11px] px-2 flex items-center text-slate-400">
+                        {"N" + a.nuit_eff}
+                    </span>
+                ) : (
+                    <select value={a.nuit_eff} onChange={moveNight} data-testid={`allee-move-${a.uid}`}
+                        title="Déplacer sur une autre nuit"
+                        className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-blue-600 outline-none cursor-pointer">
+                        {Array.from({ length: maxNight }, (_, i) => i + 1).map((x) => (
+                            <option key={x} value={x}>{"N" + x}</option>
+                        ))}
+                    </select>
+                )}
             </div>
             <div className={`rounded-2xl border p-4 ${a.secteur === "Zone saisonnier" ? "bg-amber-950/20 border-amber-800/60" : "bg-slate-900 border-slate-800"}`}>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -508,7 +525,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     </div>
                 )}
                 {(a.products || []).map((p) => {
-                    const locked = a.status === "validee";
+                    const locked = a.status === "validee" || readOnly;
                     return (
                     <div key={p.designation}
                         className={`px-3 py-2.5 border-b border-slate-800/60 last:border-0 space-y-1.5 ${p.gap ? "bg-red-950/20" : ""}`}
@@ -582,12 +599,12 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                         </span>
                     </div>
                     <input value={geoComment} onChange={(e) => setGeoComment(e.target.value)}
-                        readOnly={a.status === "validee"}
+                        readOnly={a.status === "validee" || readOnly}
                         onBlur={() => { if (geoComment !== (a.geoloc_comment || "")) actions.patchAllee(a.uid, { geoloc_comment: geoComment }); }}
                         placeholder="Pourquoi les produits ne sont pas géolocalisés ? (zone sans signal, scan à refaire...)"
                         data-testid={`allee-geo-comment-${a.uid}`}
                         className={`w-full h-9 px-2.5 rounded-lg border text-xs placeholder:text-slate-600 outline-none
-                            ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
+                            ${(a.status === "validee" || readOnly) ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
                                                      : "bg-slate-900 border-red-900/70 focus:border-red-500"}`} />
                 </div>
             )}
@@ -601,19 +618,28 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             <img src={actions.photoUrl(p.id)} alt="" loading="lazy"
                                 onClick={() => setZoom(p.id)}
                                 className="w-16 h-16 object-cover rounded-lg border border-slate-700 cursor-zoom-in" />
-                            <button onClick={() => actions.delPhoto(p.id)} data-testid={`photo-del-${p.id}`}
-                                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <X className="w-3 h-3" />
-                            </button>
+                            {!readOnly && (
+                                <button onClick={() => actions.delPhoto(p.id)} data-testid={`photo-del-${p.id}`}
+                                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <X className="w-3 h-3" />
+                                </button>
+                            )}
                         </div>
                     ))}
-                    <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                        data-testid={`allee-add-photo-${a.uid}`}
-                        className="w-16 h-16 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-blue-400 hover:border-blue-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
-                        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                        <span className="text-[9px]">Photo</span>
-                    </button>
-                    <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhotoPick} />
+                    {!readOnly && (
+                        <>
+                            <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                                data-testid={`allee-add-photo-${a.uid}`}
+                                className="w-16 h-16 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-blue-400 hover:border-blue-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
+                                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                                <span className="text-[9px]">Photo</span>
+                            </button>
+                            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhotoPick} />
+                        </>
+                    )}
+                    {readOnly && (a.photos || []).length === 0 && (
+                        <span className="text-[11px] text-slate-600 italic">Aucune photo</span>
+                    )}
                 </div>
             </div>
 
@@ -649,14 +675,15 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     <MessageSquarePlus className="w-3 h-3" /> Commentaire POSE
                 </div>
                 <input value={comment} onChange={(e) => setComment(e.target.value)}
-                    readOnly={a.status === "validee"}
+                    readOnly={a.status === "validee" || readOnly}
                     onBlur={() => { if (comment !== (a.comment || "")) actions.patchAllee(a.uid, { comment }); }}
                     placeholder="Manque de produit, casse, difficultés d'accès..."
                     data-testid={`allee-comment-${a.uid}`}
                     className={`w-full h-10 px-3 rounded-xl border text-xs placeholder:text-slate-600 outline-none
-                        ${a.status === "validee" ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
+                        ${(a.status === "validee" || readOnly) ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed"
                                                  : "bg-slate-900 border-slate-800 focus:border-blue-600"}`} />
             </div>
+            {!readOnly && (
             <div className="flex items-center gap-2">
                 {a.status !== "validee" ? (
                     <button onClick={() => setPanel(true)} disabled={saving} data-testid={`allee-validate-${a.uid}`}
@@ -681,6 +708,8 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     </button>
                 )}
             </div>
+            )}
+            {!readOnly && (
             <div className="pb-4 space-y-2">
                 {a.status !== "a_finaliser" && a.status !== "non_faite" ? (
                     a.status !== "validee" && (
@@ -712,6 +741,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     </div>
                 )}
             </div>
+            )}
 
             {/* Panneau de validation : justification >5% + produits supplémentaires */}
             {panel && (

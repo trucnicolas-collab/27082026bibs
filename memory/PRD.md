@@ -1,5 +1,39 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 19/02/2026 (v29 iter33 — Mode Lecture Seule client)
+
+### Demande utilisateur
+« J'aimerais donner un lien aux clients (le même pour tous) où ils peuvent naviguer sans faire de changement — pas juste ajouter un mot à l'URL, il faut que ce soit sécurisé. »
+Décision : option A — un seul lien global permettant de choisir n'importe quel magasin publié.
+
+### Fix appliqué
+**Backend (`suivi_deploy.py`)**
+- Nouveau router `viewer = APIRouter(prefix="/suivi-view")` **strictement GET-only** (aucune route d'écriture n'existe = sécurité par construction).
+- Endpoints GET : `/stores`, `/{upload_id}`, `/{upload_id}/materiel[/{nuit}]`, `/{upload_id}/photo/{photo_id}`, `/{upload_id}/rapport-nuit/{nuit}` — tous requièrent `?token=…` validé via `secrets.compare_digest`.
+- Token global stocké dans `db.settings` (`key: "suivi_viewer_token"`), généré à la volée à la première demande.
+- Endpoints admin : `GET /api/suivi/viewer-link` (récupère/crée) + `POST /api/suivi/viewer-link/rotate` (régénère, invalide les anciens liens — admin/superadmin uniquement).
+- Placés AVANT `/{upload_id}` pour éviter collision de routage FastAPI.
+
+**Frontend**
+- Nouveau composant `frontend/src/suivi/ViewerApp.jsx` (mode Lecture Seule, header violet, bandeau « Mode lecture seule — Client », picker de magasins publiés).
+- Route `/suivi/view?token=…` gérée dans `App.js` — indépendante de `/suivi` (chef) et `/suivi/terrain` (équipe).
+- `api.js` : `makeActions` accepte `{ readOnly, tokenParam }` — en mode viewer, toutes les fonctions d'écriture sont neutralisées (toast « Mode lecture seule — aucune modification possible ») et les GET reçoivent `?token=…`.
+- `SuiviStock`, `SuiviCam`, `SuiviNuits` (NightScreen + AlleeScreen) modifiés pour respecter `actions.readOnly` : inputs verrouillés (fond sombre + cursor-not-allowed), boutons Valider/Bloquer/Reset/Photo/Incident/Rapatriement/`Ajouter allée` masqués, sélecteur de nuit remplacé par un badge.
+- `SuiviDashboard.PublishCard` : ajout d'une carte violette **« Partage client — Lecture seule »** avec URL + bouton Copier + bouton Régénérer.
+
+### Sécurité
+- Défense en profondeur : (1) le backend n'expose PAS de route d'écriture sur `/suivi-view` (PATCH/POST/DELETE → 404), (2) le token est vérifié à chaque appel, (3) le frontend neutralise toute action d'écriture, (4) la régénération invalide immédiatement tous les liens partagés.
+- URL exemple : `https://<host>/suivi/view?token=hjNwqsC4X2BwHZBVeQfm_L45M-T2r_rf`
+
+### Validation
+- **18/18 tests pytest OK** dans `backend/tests/test_iter33_viewer_readonly.py` :
+  - Token requires auth, idempotent, rotation invalidates old
+  - All GET endpoints work with valid token, 401 with bad/missing token
+  - **7 write routes tested** (PATCH allee, allee-cam, stock ; POST incident, publish, replan ; DELETE reset) → tous en 404/405 (pas d'écriture possible)
+- Validation visuelle Playwright : header violet OK, dashboard sans Publier/Effacer/Replan, écran nuit sans Ajouter/Incident, écran allée sans boutons Valider/Bloquer/Photo, inputs en readonly.
+- Régressions : 0 (les 6 échecs pré-existants sur `test_suivi_deploy.py` sont indépendants — dataset schema drift).
+
+
 ## Changelog 13/02/2026 (v28 iter6 — Refonte Suivi Caméras + masquage batterie/software + labels dashboard)
 
 ### Demandes utilisateur

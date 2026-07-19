@@ -7,6 +7,7 @@ replanification automatique, accès équipe terrain sans compte (token).
 import io
 import math
 import os
+import secrets
 import uuid
 import logging
 from datetime import datetime, timezone, date
@@ -14,7 +15,7 @@ from typing import Optional, List
 
 import requests as _requests
 import xlsxwriter
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
 
@@ -2366,6 +2367,56 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                                          valid_designations=valid or None)
 
     # ================================================== ROUTES AUTHENTIFIÉES ====
+    # ============================================= LIEN LECTURE SEULE (CLIENT) ====
+    # Un TOKEN GLOBAL unique (stocké en base collection `settings`) donne accès
+    # à un lien /suivi/view?token=... qui expose uniquement les endpoints GET
+    # de ce fichier. Aucune route d'écriture n'existe côté /suivi-view →
+    # sécurité par CONSTRUCTION (impossible de patcher, publier, effacer, etc).
+    async def _get_viewer_token(create: bool = True) -> str:
+        rec = await db.settings.find_one({"key": "suivi_viewer_token"})
+        if rec and rec.get("value"):
+            return rec["value"]
+        if not create:
+            return ""
+        token = secrets.token_urlsafe(24)
+        await db.settings.update_one(
+            {"key": "suivi_viewer_token"},
+            {"$set": {"value": token, "created_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+        return token
+
+    async def _verify_viewer_token(token: str):
+        real = await _get_viewer_token(create=False)
+        if not real or not secrets.compare_digest(token or "", real):
+            raise HTTPException(status_code=401, detail="Lien de partage invalide")
+
+    # NB : ces routes littérales sont enregistrées AVANT `/{upload_id}` sinon
+    # FastAPI matcherait "viewer-link" comme un upload_id.
+    @router.get("/viewer-link")
+    async def get_viewer_link(current_user: dict = Depends(get_current_user)):
+        """Retourne le token global de partage lecture-seule (crée si absent).
+        Accès : tout utilisateur connecté du back-office."""
+        token = await _get_viewer_token(create=True)
+        return {"token": token}
+
+    @router.post("/viewer-link/rotate")
+    async def rotate_viewer_link(current_user: dict = Depends(get_current_user)):
+        """Régénère le token (invalide tous les anciens liens partagés).
+        Réservé aux admins et superadmins."""
+        if current_user.get("role") not in ("admin", "superadmin"):
+            raise HTTPException(status_code=403,
+                                detail="Seul un administrateur peut régénérer le lien de partage")
+        token = secrets.token_urlsafe(24)
+        await db.settings.update_one(
+            {"key": "suivi_viewer_token"},
+            {"$set": {"value": token,
+                      "rotated_at": datetime.now(timezone.utc).isoformat(),
+                      "rotated_by": current_user.get("email") or ""}},
+            upsert=True,
+        )
+        return {"token": token}
+
     @router.get("/{upload_id}")
     async def get_suivi(upload_id: str, current_user: dict = Depends(get_current_user)):
         d = await _load(upload_id, current_user)
@@ -2560,6 +2611,68 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             "preview": preview,
         }
 
+    # ============================================= ROUTES LECTURE SEULE (CLIENTS) ====
+    viewer = APIRouter(prefix="/suivi-view")
+
+    async def _resolve_viewer(upload_id: str, token: str):
+        await _verify_viewer_token(token)
+        doc = await db.suivi_docs.find_one({"upload_id": upload_id, "published": True})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Magasin non publié")
+        doc.pop("_id", None)
+        d = await load_dataset(upload_id)
+        if d is None:
+            raise HTTPException(status_code=404, detail="Dataset introuvable")
+        return d, doc
+
+    @viewer.get("/stores")
+    async def viewer_stores(token: str = Query(...)):
+        await _verify_viewer_token(token)
+        docs = await db.suivi_docs.find({"published": True},
+                                        {"_id": 0, "upload_id": 1, "published_by": 1}).to_list(length=500)
+        out = []
+        for doc in docs:
+            meta = await db.datasets.find_one(
+                {"upload_id": doc["upload_id"]},
+                {"_id": 0, "filename": 1, "label": 1, "store_name": 1, "store_code": 1, "uploaded_at": 1})
+            if not meta:
+                continue
+            out.append({
+                "upload_id": doc["upload_id"],
+                "store_name": meta.get("store_name") or "",
+                "store_code": meta.get("store_code") or "",
+                "label": meta.get("label") or "",
+                "filename": meta.get("filename") or "",
+                "published_by": doc.get("published_by") or "",
+            })
+        out.sort(key=lambda s: (s["store_name"] or s["label"] or s["filename"]).lower())
+        return {"stores": out}
+
+    @viewer.get("/{upload_id}")
+    async def viewer_state(upload_id: str, token: str = Query(...)):
+        d, doc = await _resolve_viewer(upload_id, token)
+        return _build_state(d, doc, doc["upload_id"], is_terrain=True)
+
+    @viewer.get("/{upload_id}/materiel")
+    async def viewer_materiel(upload_id: str, mode: str = "eeg", token: str = Query(...)):
+        d, doc = await _resolve_viewer(upload_id, token)
+        return _materiel_overview(d, doc, mode=mode)
+
+    @viewer.get("/{upload_id}/materiel/{nuit}")
+    async def viewer_materiel_nuit(upload_id: str, nuit: int, mode: str = "eeg", token: str = Query(...)):
+        d, doc = await _resolve_viewer(upload_id, token)
+        return _materiel_nuit(d, doc, nuit, mode=mode)
+
+    @viewer.get("/{upload_id}/photo/{photo_id}")
+    async def viewer_photo(upload_id: str, photo_id: str, token: str = Query(...)):
+        d, doc = await _resolve_viewer(upload_id, token)
+        return _photo_response(doc, photo_id)
+
+    @viewer.get("/{upload_id}/rapport-nuit/{nuit}")
+    async def viewer_rapport(upload_id: str, nuit: int, token: str = Query(...)):
+        d, doc = await _resolve_viewer(upload_id, token)
+        return _rapport_response(d, doc, doc["upload_id"], nuit)
+
     # ============================================= ROUTES TERRAIN (SANS COMPTE) ====
     @terrain.get("/stores")
     async def terrain_stores():
@@ -2651,5 +2764,6 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
     parent = APIRouter()
     parent.include_router(router)
+    parent.include_router(viewer)
     parent.include_router(terrain)
     return parent

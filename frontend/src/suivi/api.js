@@ -3,9 +3,18 @@ import { toast } from "sonner";
 
 // Fabrique les actions API du suivi. `base` = .../api/suivi/{uploadId}
 // ou .../api/suivi-terrain/{token} (mêmes routes ensuite).
-export function makeActions(base, refresh) {
+//
+// Mode `viewer` (lecture seule client) : toutes les fonctions d'écriture
+// sont neutralisées côté frontend (défense en profondeur — le backend
+// n'expose de toute façon aucune route d'écriture sur /api/suivi-view).
+// `tokenParam` : "?token=xxx" ajouté aux URLs GET quand on est en mode viewer.
+export function makeActions(base, refresh, { readOnly = false, tokenParam = "" } = {}) {
+    const withTk = (u) => tokenParam ? `${u}${u.includes("?") ? "&" : "?"}${tokenParam}` : u;
+    const denyRO = () => { toast.info("Mode lecture seule — aucune modification possible"); return false; };
     return {
+        readOnly,
         patchAllee: async (uid, fields) => {
+            if (readOnly) return denyRO();
             try {
                 await axios.patch(`${base}/allee`, { uid, ...fields });
                 await refresh();
@@ -16,6 +25,7 @@ export function makeActions(base, refresh) {
             }
         },
         patchCamAllee: async (uid, fields) => {
+            if (readOnly) return denyRO();
             try {
                 await axios.patch(`${base}/allee-cam`, { uid, ...fields });
                 await refresh();
@@ -26,20 +36,22 @@ export function makeActions(base, refresh) {
             }
         },
         getMateriel: async (mode) => {
-            try { return (await axios.get(`${base}/materiel`, { params: mode ? { mode } : undefined })).data; }
+            try { return (await axios.get(withTk(`${base}/materiel`), { params: mode ? { mode } : undefined })).data; }
             catch { toast.error("Chargement du matériel impossible"); return { nights: [], unassigned: { nb_allees: 0, products: [] } }; }
         },
         getMaterielNuit: async (n, mode) => {
-            try { return (await axios.get(`${base}/materiel/${n}`, { params: mode ? { mode } : undefined })).data; }
+            try { return (await axios.get(withTk(`${base}/materiel/${n}`), { params: mode ? { mode } : undefined })).data; }
             catch { toast.error("Chargement impossible"); return { nuit: n, allees: [] }; }
         },
         patchStock: async (designation, recu) => {
+            if (readOnly) return denyRO();
             try {
                 await axios.patch(`${base}/stock`, { designation, recu });
                 await refresh();
             } catch { toast.error("Erreur d'enregistrement du stock"); }
         },
         addIncident: async (nuit, text) => {
+            if (readOnly) return denyRO();
             try {
                 await axios.post(`${base}/incident`, { nuit, text });
                 await refresh();
@@ -47,6 +59,7 @@ export function makeActions(base, refresh) {
             } catch { toast.error("Erreur"); }
         },
         delIncident: async (id) => {
+            if (readOnly) return denyRO();
             try {
                 await axios.delete(`${base}/incident/${id}`);
                 await refresh();
@@ -54,7 +67,7 @@ export function makeActions(base, refresh) {
         },
         downloadReport: async (nuit) => {
             try {
-                const res = await fetch(`${base}/rapport-nuit/${nuit}`, { credentials: "include" });
+                const res = await fetch(withTk(`${base}/rapport-nuit/${nuit}`), { credentials: "include" });
                 if (!res.ok) throw new Error();
                 const blob = await res.blob();
                 const a = document.createElement("a");
@@ -65,6 +78,7 @@ export function makeActions(base, refresh) {
             } catch { toast.error("Impossible de générer le rapport"); }
         },
         uploadPhoto: async (uid, blob) => {
+            if (readOnly) return denyRO();
             try {
                 const fd = new FormData();
                 fd.append("uid", uid);
@@ -78,14 +92,16 @@ export function makeActions(base, refresh) {
                 return false;
             }
         },
-        photoUrl: (pid) => `${base}/photo/${pid}`,
+        photoUrl: (pid) => withTk(`${base}/photo/${pid}`),
         delPhoto: async (pid) => {
+            if (readOnly) return denyRO();
             try {
                 await axios.delete(`${base}/photo/${pid}`);
                 await refresh();
             } catch { toast.error("Suppression impossible"); }
         },
         replan: async (apply) => {
+            if (readOnly) return denyRO();
             try {
                 const res = await axios.post(`${base}/replan`, { apply });
                 if (apply) {
@@ -99,6 +115,7 @@ export function makeActions(base, refresh) {
             }
         },
         publish: async (published) => {
+            if (readOnly) return denyRO();
             try {
                 const res = await axios.post(`${base}/publish`, { published });
                 await refresh();
@@ -106,6 +123,7 @@ export function makeActions(base, refresh) {
             } catch { toast.error("Erreur"); return null; }
         },
         resetSuivi: async () => {
+            if (readOnly) return denyRO();
             try {
                 await axios.delete(`${base}/reset`);
                 await refresh();

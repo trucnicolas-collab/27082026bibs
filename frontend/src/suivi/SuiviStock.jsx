@@ -66,8 +66,10 @@ export default function SuiviStock({ state, actions, phaseKind = null }) {
 }
 
 function StockRow({ s, actions }) {
+    const readOnly = !!actions.readOnly;
     const [recu, setRecu] = useState(s.recu === null ? "" : String(s.recu));
     const save = async () => {
+        if (readOnly) return;
         const num = recu === "" ? null : Number(recu);
         if (recu !== "" && (isNaN(num) || num < 0)) return;
         if (num === s.recu) return;
@@ -97,7 +99,7 @@ function StockRow({ s, actions }) {
                 <div className="rounded-lg bg-slate-800/60 p-1.5">
                     <div className="text-[9px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-center gap-1">
                         Reçu {s.recu_theorique && <span className="text-amber-500" title="Théorique (= prévu), saisissez le réel">*</span>}
-                        {!s.recu_theorique && (
+                        {!s.recu_theorique && !readOnly && (
                             <button onClick={() => { setRecu(""); actions.patchStock(s.designation, null); }}
                                 title="Revenir au théorique" className="text-slate-600 hover:text-slate-300">
                                 <Undo2 className="w-3 h-3" />
@@ -105,10 +107,12 @@ function StockRow({ s, actions }) {
                         )}
                     </div>
                     <input type="number" min="0" inputMode="numeric" value={recu}
+                        readOnly={readOnly}
                         onChange={(e) => setRecu(e.target.value)} onBlur={save}
                         placeholder={String(s.prevu)}
                         data-testid={`stock-recu-${s.designation}`}
-                        className="w-full mt-0.5 h-7 px-1 rounded bg-slate-900 border border-slate-700 text-xs sm:text-sm font-bold text-center focus:border-blue-500 outline-none placeholder:text-slate-600" />
+                        className={`w-full mt-0.5 h-7 px-1 rounded border text-xs sm:text-sm font-bold text-center outline-none placeholder:text-slate-600
+                            ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : "bg-slate-900 border-slate-700 focus:border-blue-500"}`} />
                 </div>
                 <Cell label="Posé" value={fmt(s.pose)} accent="text-blue-400" />
                 <Cell label="Reste stock" value={fmt(s.restant_stock)} accent={s.restant_stock < 0 ? "text-red-400" : ""} />

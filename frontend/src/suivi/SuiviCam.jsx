@@ -73,6 +73,7 @@ function CamNight({ night, cam, actions, isOpen, onToggle }) {
 }
 
 function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
+    const readOnly = !!actions.readOnly;
     const [comment, setComment] = useState(a.comment || "");
     const [geoComment, setGeoComment] = useState(a.geoloc_comment || "");
     const [saving, setSaving] = useState(false);
@@ -144,12 +145,18 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                         <MoveRight className="w-3 h-3" /> plan N{cam.start_at_nuit + a.nuit_plan - 1}
                     </span>
                 )}
-                <select value={a.nuit_eff} onChange={moveNight} data-testid={`cam-move-${a.uid}`}
-                    className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-sky-500 outline-none cursor-pointer">
-                    {Array.from({ length: maxNight }, (_, i) => i + 1).map((x) => (
-                        <option key={x} value={x}>{"N" + (cam.start_at_nuit + x - 1)}</option>
-                    ))}
-                </select>
+                {readOnly ? (
+                    <span className="h-7 rounded-lg bg-slate-900 border border-slate-800 text-[11px] px-2 flex items-center text-slate-400">
+                        {"N" + (cam.start_at_nuit + a.nuit_eff - 1)}
+                    </span>
+                ) : (
+                    <select value={a.nuit_eff} onChange={moveNight} data-testid={`cam-move-${a.uid}`}
+                        className="h-7 rounded-lg bg-slate-900 border border-slate-700 text-[11px] px-1.5 text-slate-300 focus:border-sky-500 outline-none cursor-pointer">
+                        {Array.from({ length: maxNight }, (_, i) => i + 1).map((x) => (
+                            <option key={x} value={x}>{"N" + (cam.start_at_nuit + x - 1)}</option>
+                        ))}
+                    </select>
+                )}
             </div>
 
             {/* Éléments caméras */}
@@ -187,16 +194,18 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                             </span>
                             <span className="text-[11px] text-slate-400 text-right tabular-nums">{fmt(p.plan)}</span>
                             <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.reel}
+                                readOnly={readOnly}
                                 onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], reel: e.target.value } }))}
                                 onBlur={() => saveProductField(p.designation, "reel", vals.reel, p.reel)}
                                 data-testid={`cam-prod-reel-${a.uid}-${p.designation}`}
-                                className="w-full h-6 px-1 rounded bg-slate-800 border border-slate-700 text-[11px] text-center focus:border-sky-500 outline-none placeholder:text-slate-600" />
+                                className={`w-full h-6 px-1 rounded border text-[11px] text-center outline-none placeholder:text-slate-600 ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : "bg-slate-800 border-slate-700 focus:border-sky-500"}`} />
                             {p.is_geo ? (
                                 <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.geo}
+                                    readOnly={readOnly}
                                     onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], geo: e.target.value } }))}
                                     onBlur={() => saveProductField(p.designation, "geo", vals.geo, p.geo)}
                                     data-testid={`cam-prod-geo-${a.uid}-${p.designation}`}
-                                    className={`w-full h-6 px-1 rounded bg-slate-800 border text-[11px] text-center outline-none placeholder:text-slate-600 ${gapP ? "border-red-700 text-red-300 focus:border-red-500" : "border-slate-700 focus:border-sky-500"}`} />
+                                    className={`w-full h-6 px-1 rounded border text-[11px] text-center outline-none placeholder:text-slate-600 ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : gapP ? "bg-slate-800 border-red-700 text-red-300 focus:border-red-500" : "bg-slate-800 border-slate-700 focus:border-sky-500"}`} />
                             ) : (
                                 <span className="text-[10px] text-slate-600 text-center">—</span>
                             )}
@@ -215,18 +224,19 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                 <div className="mt-2 rounded-lg bg-red-950/40 border border-red-900/60 p-2" data-testid={`cam-geo-explain-${a.uid}`}>
                     <div className="text-[11px] text-red-300 font-semibold flex items-center gap-1.5 mb-1">
                         <AlertTriangle className="w-3.5 h-3.5" />
-                        {fmt(gap)} caméra(s) posée(s) non géolocalisée(s){!geoComment && " — explication demandée"}
+                        {fmt(gap)} caméra(s) posée(s) non géolocalisée(s){!geoComment && !readOnly && " — explication demandée"}
                     </div>
                     <input value={geoComment} onChange={(e) => setGeoComment(e.target.value)}
+                        readOnly={readOnly}
                         onBlur={() => { if (geoComment !== (a.geoloc_comment || "")) actions.patchCamAllee(a.uid, { geoloc_comment: geoComment }); }}
                         placeholder="Pourquoi ? (ex: pas de signal, config à finir...)"
                         data-testid={`cam-geo-comment-${a.uid}`}
-                        className="w-full h-8 px-2.5 rounded-lg bg-slate-900 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none" />
+                        className={`w-full h-8 px-2.5 rounded-lg border text-xs placeholder:text-slate-600 outline-none ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : "bg-slate-900 border-red-900/70 focus:border-red-500"}`} />
                 </div>
             )}
 
             <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                {a.status !== "validee" ? (
+                {!readOnly && (a.status !== "validee" ? (
                     <button onClick={() => setStatus("validee")} disabled={saving} data-testid={`cam-validate-${a.uid}`}
                         className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
                         {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Valider
@@ -236,8 +246,8 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                         className="h-8 px-3 rounded-lg border border-slate-600 text-slate-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-slate-700 transition-colors">
                         <RotateCcw className="w-3.5 h-3.5" /> Rouvrir
                     </button>
-                )}
-                {a.status !== "bloquee" ? (
+                ))}
+                {!readOnly && (a.status !== "bloquee" ? (
                     <button onClick={() => setStatus("bloquee")} disabled={saving} data-testid={`cam-block-${a.uid}`}
                         className="h-8 px-3 rounded-lg border border-red-800 text-red-400 text-xs font-semibold flex items-center gap-1.5 hover:bg-red-950/50 transition-colors">
                         <Ban className="w-3.5 h-3.5" /> Bloquer
@@ -247,12 +257,18 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                         className="h-8 px-3 rounded-lg border border-slate-600 text-slate-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-slate-700 transition-colors">
                         <RotateCcw className="w-3.5 h-3.5" /> Débloquer
                     </button>
+                ))}
+                {readOnly && (
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${a.status === "validee" ? "bg-blue-600 text-white" : a.status === "bloquee" ? "bg-red-600 text-white" : "bg-slate-700 text-slate-200"}`}>
+                        {a.status === "validee" ? "Validée" : a.status === "bloquee" ? "Bloquée" : "À faire"}
+                    </span>
                 )}
                 <input value={comment} onChange={(e) => setComment(e.target.value)}
+                    readOnly={readOnly}
                     onBlur={() => { if (comment !== (a.comment || "")) actions.patchCamAllee(a.uid, { comment }); }}
-                    placeholder="Commentaire"
+                    placeholder={readOnly && !comment ? "—" : "Commentaire"}
                     data-testid={`cam-comment-${a.uid}`}
-                    className="flex-1 min-w-[140px] h-8 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-sky-500 outline-none" />
+                    className={`flex-1 min-w-[140px] h-8 px-2.5 rounded-lg border text-xs placeholder:text-slate-600 outline-none ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : "bg-slate-900 border-slate-700 focus:border-sky-500"}`} />
             </div>
         </div>
     );
