@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="4" failures="1" skipped="0" tests="35" time="2.250" timestamp="2026-07-19T22:53:01.555416+00:00" hostname="agent-env-2ae9b630-39fb-4a7b-9528-7b9b3afb12fe"><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_compute_node_sa_install_zone_returns_split" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_node_sa_total_zone_returns_sum" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_zone_saisonniere_sa_mag_is_zero" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_zone_saisonniere_populates_sa_inst_15_and_21" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_zone_saisonniere_2zs_sums_sa_inst" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_zone_saisonniere_eeg_es_sa_total_is_2000_per_zone" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_nights_beyond_nb_nuits_are_present" time="0.000" /><testcase classname="tests.test_iter28_zone_saisonniere_sa_mag" name="test_zs_sizes_from_summary" time="0.000" /><testcase classname="tests.test_iter29_e2e_suivi_seasonal_zones" name="test_suivi_state_contains_zs_with_correct_split" time="0.001"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/test_iter29_e2e_suivi_seasonal_zones.py:24: in client
+    r = s.post(f"{BASE_URL}/api/auth/login",
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:712: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:635: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:541: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:439: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:514: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.test_iter29_e2e_suivi_seasonal_zones" name="test_materiel_nuit_eeg_contains_zs_synthetic_products" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/test_iter29_e2e_suivi_seasonal_zones.py:24: in client
+    r = s.post(f"{BASE_URL}/api/auth/login",
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:712: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:635: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:541: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:439: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:514: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.test_iter29_e2e_suivi_seasonal_zones" name="test_zs_not_filtered_when_sa_install_disabled" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/test_iter29_e2e_suivi_seasonal_zones.py:24: in client
+    r = s.post(f"{BASE_URL}/api/auth/login",
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:712: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:635: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:541: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:439: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:514: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.test_iter29_e2e_suivi_seasonal_zones" name="test_stats_eeg_prevues_includes_zs" time="0.000"><error message="failed on setup with &quot;requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?&quot;">tests/test_iter29_e2e_suivi_seasonal_zones.py:24: in client
+    r = s.post(f"{BASE_URL}/api/auth/login",
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:712: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:635: in request
+    prep = self.prepare_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:541: in prepare_request
+    p.prepare(
+/root/.venv/lib/python3.11/site-packages/requests/models.py:439: in prepare
+    self.prepare_url(url, params)
+/root/.venv/lib/python3.11/site-packages/requests/models.py:514: in prepare_url
+    raise MissingSchema(
+E   requests.exceptions.MissingSchema: Invalid URL '/api/auth/login': No scheme supplied. Perhaps you meant https:///api/auth/login?</error></testcase><testcase classname="tests.test_iter29_suivi_seasonal_zones" name="test_apply_seasonal_zones_injects_synthetic_products" time="0.000" /><testcase classname="tests.test_iter29_suivi_seasonal_zones" name="test_compute_node_sa_install_zone_returns_full_split" time="0.000" /><testcase classname="tests.test_iter29_suivi_seasonal_zones" name="test_zones_saisonnieres_added_to_es_rows_are_detectable" time="0.000" /><testcase classname="tests.test_iter30_phasage_recap_totals" name="test_recap_total_matches_sum_of_rows_with_seasonal_zones" time="0.000" /><testcase classname="tests.test_iter30_phasage_recap_totals" name="test_recap_total_no_seasonal_zones" time="0.000" /><testcase classname="tests.test_iter31_geo_split" name="test_suivi_dataset_geo_keys" time="0.535" /><testcase classname="tests.test_iter31_geo_split" name="test_materiel_nuit_sa15_is_geo" time="0.060" /><testcase classname="tests.test_iter31_geo_split" name="test_materiel_nuit_es15_not_geo" time="0.047" /><testcase classname="tests.test_iter31_geo_split" name="test_all_nights_family_classification" time="0.495" /><testcase classname="tests.test_iter31_geo_split" name="test_allee_level_ecarts_have_family_and_is_geo" time="0.081" /><testcase classname="tests.test_iter31_geo_split" name="test_rapport_nuit_excel_generation" time="0.089"><failure message="AssertionError: assert 'Nuit 1' in ['Résumé N1', 'Détail allées', 'Détail produits', 'Écart phasage vs réel', 'Synthèse déploiement']&#10; +  where ['Résumé N1', 'Détail allées', 'Détail produits', 'Écart phasage vs réel', 'Synthèse déploiement'] = &lt;openpyxl.workbook.workbook.Workbook object at 0xf82b62aec310&gt;.sheetnames">tests/test_iter31_geo_split.py:106: in test_rapport_nuit_excel_generation
+    assert "Nuit 1" in wb.sheetnames
+E   AssertionError: assert 'Nuit 1' in ['Résumé N1', 'Détail allées', 'Détail produits', 'Écart phasage vs réel', 'Synthèse déploiement']
+E    +  where ['Résumé N1', 'Détail allées', 'Détail produits', 'Écart phasage vs réel', 'Synthèse déploiement'] = &lt;openpyxl.workbook.workbook.Workbook object at 0xf82b62aec310&gt;.sheetnames</failure></testcase><testcase classname="tests.test_iter31_geo_split" name="test_backend_regression_suivi_endpoint" time="0.046" /><testcase classname="tests.test_iter31_stock_fusion" name="test_zs_fusion_into_noir" time="0.000" /><testcase classname="tests.test_iter31_stock_fusion" name="test_fleche_fusion_into_es15_noir" time="0.000" /><testcase classname="tests.test_iter31_stock_fusion" name="test_signaletique_fusion_by_color" time="0.000" /><testcase classname="tests.test_iter31_stock_fusion" name="test_no_target_creates_fallback" time="0.000" /><testcase classname="tests.test_iter31_stock_fusion" name="test_other_products_unchanged" time="0.000" /><testcase classname="tests.test_iter32_suivi_cam_products" name="test_is_hidden_in_suivi" time="0.000" /><testcase classname="tests.test_iter32_suivi_cam_products" name="test_aggregate_cameras_only" time="0.000" /><testcase classname="tests.test_iter32_suivi_cam_products" name="test_aggregate_fixations_only" time="0.000" /><testcase classname="tests.test_iter32_suivi_cam_products" name="test_aggregate_mixed_full" time="0.000" /><testcase classname="tests.test_iter32_suivi_cam_products" name="test_aggregate_geo_never_on_fixations" time="0.000" /><testcase classname="tests.test_iter32_suivi_cam_products" name="test_aggregate_no_saisie" time="0.000" /></testsuite></testsuites>

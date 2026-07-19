@@ -73,25 +73,42 @@ function CamNight({ night, cam, actions, isOpen, onToggle }) {
 }
 
 function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
-    const [reel, setReel] = useState(a.reel ?? "");
-    const [geo, setGeo] = useState(a.geo ?? "");
-    const [fix, setFix] = useState(a.fix_reel ?? "");
     const [comment, setComment] = useState(a.comment || "");
     const [geoComment, setGeoComment] = useState(a.geoloc_comment || "");
     const [saving, setSaving] = useState(false);
+    // (v28 iter6) État local des saisies par produit — remplacé par grille dynamique
+    const [prodVals, setProdVals] = useState({});
+    React.useEffect(() => {
+        const init = {};
+        (a.products || []).forEach(p => {
+            init[p.designation] = {
+                reel: p.reel !== null && p.reel !== undefined ? String(p.reel) : "",
+                geo: p.geo !== null && p.geo !== undefined ? String(p.geo) : "",
+            };
+        });
+        setProdVals(init);
+    }, [a.uid, a.products]);
+
     const gap = a.geo_gap || 0;
 
-    const saveNum = async (field, raw, current) => {
+    const saveProductField = async (designation, field, raw, current) => {
         const num = raw === "" ? null : Number(raw);
         if (raw !== "" && (isNaN(num) || num < 0)) { toast.error("Valeur invalide"); return; }
         if (num === (current ?? null)) return;
-        await actions.patchCamAllee(a.uid, { [field]: num });
+        await actions.patchCamAllee(a.uid, { products: [{ designation, [field]: num }] });
     };
 
     const setStatus = async (status) => {
         setSaving(true);
         const fields = { status };
-        if (status === "validee" && reel === "" && a.reel === null) fields.cameras_reel = a.plan || 0;
+        // Si on valide et rien n'a été saisi, on remplit tous les produits au plan
+        if (status === "validee" && (a.products || []).every(p => p.reel === null || p.reel === undefined)) {
+            fields.products = (a.products || []).map(p => ({
+                designation: p.designation,
+                reel: p.plan || 0,
+                ...(p.is_geo ? { geo: p.plan || 0 } : {}),
+            }));
+        }
         const ok = await actions.patchCamAllee(a.uid, fields);
         if (ok && status === "validee") toast.success(`Allée ${a.allee} (caméras) validée`);
         setSaving(false);
@@ -148,61 +165,50 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                 {(a.elements || []).length === 0 && <span className="text-[11px] text-slate-600">aucun</span>}
             </div>
 
-            {/* posé / géolocalisé */}
-            <div className="grid grid-cols-2 gap-2 mt-2">
-                <div className="rounded-lg bg-slate-900/70 p-2">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-between">
-                        Caméras posées
-                        {a.delta !== null && a.delta !== undefined && (
-                            <span className={`font-bold ${a.delta === 0 ? "text-blue-400" : a.delta < 0 ? "text-red-400" : "text-amber-400"}`}>
-                                {a.delta > 0 ? "+" : ""}{fmt(a.delta)}
+            {/* (v28 iter6) Grille par produit — même granularité que côté EEG */}
+            <div className="mt-2 rounded-lg bg-slate-900/40 border border-slate-800">
+                <div className="grid grid-cols-[1fr_60px_70px_70px_44px] gap-1 px-2 py-1.5 text-[9px] uppercase tracking-wide text-slate-500 font-semibold border-b border-slate-800/60">
+                    <span>Produit</span>
+                    <span className="text-right">Prévu</span>
+                    <span className="text-center">Posé</span>
+                    <span className="text-center">Géoloc</span>
+                    <span className="text-right">Δ</span>
+                </div>
+                {(a.products || []).map((p) => {
+                    const vals = prodVals[p.designation] || { reel: "", geo: "" };
+                    const dReel = (p.reel !== null && p.reel !== undefined) ? (p.reel - p.plan) : null;
+                    const gapP = (p.is_geo && p.reel !== null && p.reel !== undefined
+                                  && p.geo !== null && p.geo !== undefined && p.geo < p.reel) ? (p.reel - p.geo) : 0;
+                    return (
+                        <div key={p.designation} className="grid grid-cols-[1fr_60px_70px_70px_44px] gap-1 px-2 py-1 items-center border-b border-slate-800/30 last:border-b-0"
+                            data-testid={`cam-prod-${a.uid}-${p.designation}`}>
+                            <span className="text-[11px] text-slate-200 truncate flex items-center gap-1" title={p.designation}>
+                                {p.is_camera ? "📷" : "🔧"} {p.designation}
                             </span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                        <span className="text-xs text-slate-400 w-8 text-right" title="Prévu">{fmt(a.plan)}</span>
-                        <span className="text-slate-600 text-xs">→</span>
-                        <input type="number" min="0" inputMode="numeric" placeholder="posé" value={reel}
-                            onChange={(e) => setReel(e.target.value)}
-                            onBlur={() => saveNum("cameras_reel", reel, a.reel)}
-                            data-testid={`cam-input-reel-${a.uid}`}
-                            className="w-full h-7 px-1.5 rounded bg-slate-800 border border-slate-700 text-xs text-center focus:border-sky-500 outline-none placeholder:text-slate-600" />
-                    </div>
-                </div>
-                <div className={`rounded-lg bg-slate-900/70 p-2 ${gap ? "ring-1 ring-red-800" : ""}`}>
-                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center gap-1">
-                        <MapPin className={`w-3 h-3 ${gap ? "text-red-400" : "text-sky-400"}`} /> Géolocalisées
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                        <span className="w-8" />
-                        <span className="text-slate-600 text-xs">→</span>
-                        <input type="number" min="0" inputMode="numeric" placeholder="géo" value={geo}
-                            onChange={(e) => setGeo(e.target.value)}
-                            onBlur={() => saveNum("cameras_geo", geo, a.geo)}
-                            data-testid={`cam-input-geo-${a.uid}`}
-                            className={`w-full h-7 px-1.5 rounded bg-slate-800 border text-xs text-center outline-none placeholder:text-slate-600
-                                ${gap ? "border-red-700 focus:border-red-500 text-red-300" : "border-slate-700 focus:border-sky-500"}`} />
-                    </div>
-                </div>
-                <div className="rounded-lg bg-slate-900/70 p-2">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold flex items-center justify-between">
-                        Fixations posées
-                        {a.fix_delta !== null && a.fix_delta !== undefined && (
-                            <span className={`font-bold ${a.fix_delta === 0 ? "text-blue-400" : a.fix_delta < 0 ? "text-red-400" : "text-amber-400"}`}>
-                                {a.fix_delta > 0 ? "+" : ""}{fmt(a.fix_delta)}
+                            <span className="text-[11px] text-slate-400 text-right tabular-nums">{fmt(p.plan)}</span>
+                            <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.reel}
+                                onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], reel: e.target.value } }))}
+                                onBlur={() => saveProductField(p.designation, "reel", vals.reel, p.reel)}
+                                data-testid={`cam-prod-reel-${a.uid}-${p.designation}`}
+                                className="w-full h-6 px-1 rounded bg-slate-800 border border-slate-700 text-[11px] text-center focus:border-sky-500 outline-none placeholder:text-slate-600" />
+                            {p.is_geo ? (
+                                <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.geo}
+                                    onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], geo: e.target.value } }))}
+                                    onBlur={() => saveProductField(p.designation, "geo", vals.geo, p.geo)}
+                                    data-testid={`cam-prod-geo-${a.uid}-${p.designation}`}
+                                    className={`w-full h-6 px-1 rounded bg-slate-800 border text-[11px] text-center outline-none placeholder:text-slate-600 ${gapP ? "border-red-700 text-red-300 focus:border-red-500" : "border-slate-700 focus:border-sky-500"}`} />
+                            ) : (
+                                <span className="text-[10px] text-slate-600 text-center">—</span>
+                            )}
+                            <span className={`text-[10px] text-right font-bold tabular-nums ${dReel === null ? "text-slate-700" : dReel === 0 ? "text-blue-400" : dReel < 0 ? "text-red-400" : "text-amber-400"}`}>
+                                {dReel === null ? "" : (dReel > 0 ? "+" : "") + fmt(dReel)}
                             </span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                        <span className="text-xs text-slate-400 w-8 text-right" title="Prévu">{a.fix_plan !== null && a.fix_plan !== undefined ? fmt(a.fix_plan) : "—"}</span>
-                        <span className="text-slate-600 text-xs">→</span>
-                        <input type="number" min="0" inputMode="numeric" placeholder="fixations" value={fix}
-                            onChange={(e) => setFix(e.target.value)}
-                            onBlur={() => saveNum("fixations_reel", fix, a.fix_reel)}
-                            data-testid={`cam-input-fix-${a.uid}`}
-                            className="w-full h-7 px-1.5 rounded bg-slate-800 border border-slate-700 text-xs text-center focus:border-sky-500 outline-none placeholder:text-slate-600" />
-                    </div>
-                </div>
+                        </div>
+                    );
+                })}
+                {(a.products || []).length === 0 && (
+                    <div className="px-2 py-2 text-[11px] text-slate-600 italic text-center">Aucun produit caméra sur cette allée</div>
+                )}
             </div>
 
             {gap > 0 && (

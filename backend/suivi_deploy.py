@@ -181,6 +181,12 @@ class AlleeUpdate(BaseModel):
 
 class CamAlleeUpdate(BaseModel):
     uid: str
+    # (v28 iter6) Saisie par produit — même modèle que le côté EEG.
+    # Chaque produit a `reel` (posé), `geo` (géolocalisé, uniquement pour caméras).
+    products: Optional[List[ProductEntry]] = None
+    # Champs LEGACY (deprecated) — encore acceptés pour rétrocompat client mais
+    # convertis automatiquement en `products` côté backend. À supprimer dès que
+    # tous les clients seront migrés.
     cameras_reel: Optional[float] = Field(default=None, ge=0)
     cameras_geo: Optional[float] = Field(default=None, ge=0)
     fixations_reel: Optional[float] = Field(default=None, ge=0)
@@ -803,9 +809,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             nuit_reelle = e.get("nuit_reelle")
             eff = int(nuit_reelle) if nuit_reelle else nuit_plan
             matc = matidx.get(uid) or {"totals": {}, "types": {}}
-            # Liste détaillée des produits côté caméra (caméras + fixations
-            # spécifiques Captana). On les extrait tous depuis raw_records
-            # à partir du référentiel Captana défini dans is_cam_side_product.
+            # (v28 iter6) Liste détaillée des produits cam AVEC saisie par produit.
+            entry_products = {p.get("designation"): p for p in (e.get("products") or []) if p.get("designation")}
             cam_products = []
             fix_plan = 0.0
             for dg in sorted((matc.get("totals") or {}).keys(), key=lambda s: s.lower()):
@@ -817,12 +822,24 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     continue
                 is_camera_device = (tdg.strip().lower() in ("caméra", "camera"))
                 pr = _r(q)
+                # Saisie par produit (reel, geo pour caméras uniquement)
+                pentry = entry_products.get(dg) or {}
+                p_reel = pentry.get("reel")
+                p_geo = pentry.get("geo") if is_camera_device else None
+                p_reel_r = None if p_reel is None else _r(float(p_reel))
+                p_geo_r = None if p_geo is None else _r(float(p_geo))
+                p_geo_gap = (_r(p_reel_r - p_geo_r) if (is_camera_device and p_reel_r is not None
+                             and p_geo_r is not None and p_geo_r < p_reel_r) else 0)
                 cam_products.append({
                     "designation": dg,
                     "type": tdg,
                     "is_camera": is_camera_device,
                     "is_fixation": (not is_camera_device),
                     "plan": pr,
+                    "reel": p_reel_r,
+                    "geo": p_geo_r,
+                    "geo_gap": p_geo_gap,
+                    "is_geo": is_camera_device,
                 })
                 if not is_camera_device:
                     fix_plan += q
@@ -1797,9 +1814,46 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         arr = doc.get("cam_allees") or []
         entry = next((e for e in arr if str(e.get("uid")) == uid), None)
         if entry is None:
-            entry = {"uid": uid}
+            entry = {"uid": uid, "products": []}
             arr.append(entry)
+        # (v28 iter6) Traite `products` séparément (merge par désignation).
+        if "products" in fields:
+            products_in = fields.pop("products") or []
+            existing = list(entry.get("products") or [])
+            by_dg = {p.get("designation"): p for p in existing if p.get("designation")}
+            for p in products_in:
+                dg = p.get("designation")
+                if not dg:
+                    continue
+                cur = by_dg.get(dg) or {"designation": dg}
+                if "reel" in p:
+                    cur["reel"] = p["reel"]
+                if "geo" in p:
+                    cur["geo"] = p["geo"]
+                by_dg[dg] = cur
+            entry["products"] = list(by_dg.values())
         entry.update(fields)
+        # Recompute aggregates for legacy consumers (dashboards, exports)
+        prods = entry.get("products") or []
+        cam_reel = 0.0
+        cam_geo = 0.0
+        fix_reel = 0.0
+        has_cam_reel = has_cam_geo = has_fix_reel = False
+        for p in prods:
+            desig = (p.get("designation") or "").lower()
+            is_cam_dev = desig.startswith("caméra") or desig.startswith("camera")
+            r = p.get("reel")
+            g = p.get("geo")
+            if r is not None:
+                if is_cam_dev:
+                    cam_reel += float(r); has_cam_reel = True
+                else:
+                    fix_reel += float(r); has_fix_reel = True
+            if g is not None and is_cam_dev:
+                cam_geo += float(g); has_cam_geo = True
+        entry["cameras_reel"] = cam_reel if has_cam_reel else None
+        entry["cameras_geo"] = cam_geo if has_cam_geo else None
+        entry["fixations_reel"] = fix_reel if has_fix_reel else None
         entry["updated_at"] = datetime.now(timezone.utc).isoformat()
         entry["updated_by"] = author
         await db.suivi_docs.update_one({"upload_id": upload_id}, {"$set": {"cam_allees": arr}})

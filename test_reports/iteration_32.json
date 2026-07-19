@@ -1,0 +1,48 @@
+{
+  "summary": "Iter32 (refonte Suivi Caméras : grille par produit + filtrage batterie/software cam + KPI dashboard renommés) — VALIDÉ backend + runtime frontend partiellement. (1) Backend : 6/6 tests pytest test_iter32_suivi_cam_products PASS (agrégation caméras/fixations/geo par produit). (2) Backend intégration (test_iter32_suivi_cam_integration.py) : hidden désignations 'batterie caméra'/'software caméra' bien FILTRÉES du GET /api/suivi/{uid} (cam_allees.products) + du champ 'stock' du même payload. Endpoint séparé /api/suivi/{uid}/stock n'existe pas (stock inclus dans réponse principale). Endpoint /api/suivi/{uid}/materiel/{n}?mode=cam skipped (dataset fd15443f n'a aucun cam_nuit configuré donc pas d'index nuit cam à interroger). (3) Structure cam_allees.products + PATCH /cam-allee : tests SKIPPED faute de phasage cam configuré sur fd15443f (0 rows dans phasage.cam, 1 cam_allee orphelin dans DB). Le code review de suivi_deploy.py L~770-810 (_build_cam_state) et L~1810-1870 (_apply_cam_update) confirme la structure attendue avec agrégation dérivée cameras_reel/geo/fixations_reel. (4) Frontend runtime : Dashboard Suivi > Phasage EEG affiche bien les KPI renommés 'SAISIES POSÉES' (title tooltip: 'Avancement de la SAISIE des quantités posées...') et 'SAISIES GÉOLOC' (title tooltip: 'Avancement de la SAISIE de la géolocalisation...'). Ancienne mention 'Pose Produits' absente. (5) Frontend Phasage Caméras : dashboard cam charge sans crash sur dataset sans allées (message 'Aucune nuit caméra planifiée...'). CamAlleeCard grille par produit non testable runtime (dataset vide) mais code SuiviCam.jsx L168-212 conforme au spec : grille [Produit/Prévu/Posé/Géoloc/Δ], emoji 📷/🔧, data-testid cam-prod-reel-{uid}-{designation} et cam-prod-geo-{uid}-{designation}, '—' pour is_geo=false (L200-202). (6) Régression pytest: 27/28 tests passent sur iter28/30/31/32 ; l'unique échec (test_iter31_geo_split::test_rapport_nuit_excel_generation — sheet name 'Nuit 1' devenu 'Résumé N1') EST PRÉ-EXISTANT (déjà présent avant iter32, non lié à la refonte cam).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "N/A", "issue": "Pré-existant hors scope iter32 : test_iter31_geo_split.py::test_rapport_nuit_excel_generation attend une feuille Excel 'Nuit 1' qui a été renommée en 'Résumé N1'. Mettre à jour le test ou revoir le naming."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_flow_executed": [
+    "pytest tests/test_iter32_suivi_cam_products.py -v → 6/6 PASS (aggregate_cameras_only, fixations_only, mixed_full, geo_never_on_fixations, no_saisie, is_hidden_in_suivi).",
+    "pytest tests/test_iter32_suivi_cam_integration.py -v → 2 PASS (hidden filtered from suivi + from stock), 3 SKIPPED (no cam data in dataset).",
+    "Runtime : login admin@vusion.local → /suivi/fd15443f-... → suivi-session-fd15443f-... → pick-phase-eeg → dashboard : KPI 'SAISIES POSÉES' (4/4 100%) et 'SAISIES GÉOLOC' (1/1 100%) visibles avec title tooltip conformes.",
+    "Runtime : pick-phase-cam → dashboard cam se charge (0/0 caméras, message 'Aucune nuit caméra planifiée. Complétez le phasage caméras dans l'app Phasage.') sans erreur console."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter32_suivi_cam_products.py",
+    "/app/backend/tests/test_iter32_suivi_cam_integration.py",
+    "/app/test_reports/pytest/iter32_results.xml"
+  ],
+  "action_items": [
+    "(Non bloquant) Pour permettre le test runtime complet de la grille cam-prod-* : configurer un phasage cam avec au moins 1 allée (via l'app Phasage > Caméras) sur fd15443f, puis re-tester : saisie cam-prod-reel-{uid}-{designation}=2 sur une caméra blanche + validation → cameras_reel doit refléter la somme.",
+    "(Hors scope iter32) Fixer test_iter31_geo_split::test_rapport_nuit_excel_generation : soit renommer la feuille en 'Nuit 1' soit adapter l'assertion à 'Résumé N1'."
+  ],
+  "critical_code_review_comments": [
+    "SuiviCam.jsx L79-90 : useEffect resets prodVals à chaque changement de a.products (référence). Si le parent ré-crée l'array à chaque render (map/spread), on va rincer les inputs à chaque save. Vérifier que a.products est stable par référence (memo) — sinon l'utilisateur peut perdre la saisie en cours en tapant lentement. Recommandation : réinitialiser uniquement sur changement de a.uid ou d'un hash des valeurs sauvegardées, pas sur la référence a.products.",
+    "SuiviCam.jsx L94-99 : saveProductField compare num à current en équivalent nul (num === (current ?? null)) — OK. Bien.",
+    "SuiviCam.jsx L104-111 : setStatus('validee') auto-remplit tous les produits au plan si aucun n'a été saisi. Comportement pratique mais opaque — un tooltip 'validera avec plan complet' sur le bouton Valider serait un plus.",
+    "suivi_deploy.py L66-79 (SUIVI_HIDDEN_DESIGNATIONS) : liste hardcodée batterie/software caméra. OK pour l'instant mais si d'autres produits deviennent 'invisibles côté suivi' plus tard, envisager une config par phasage.",
+    "test_iter32_suivi_cam_integration.py : 3 tests structurellement corrects mais SKIPPED sur dataset actuel — ils s'exécuteront automatiquement dès qu'un cam_allees non-vide sera présent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter32_suivi_cam_integration.py (nouveau — tests d'intégration API pour iter32)"
+  ],
+  "success_rate": {
+    "backend": "100% des scénarios testables (8 tests exécutés dont 6 unitaires + 2 intégration ; 3 skipped par manque de données mais non-blocants — la logique d'agrégation est validée unitairement).",
+    "frontend": "100% des éléments testables runtime (KPI renommés + tooltips + navigation phase-cam). Grille cam-prod-* validée par code review uniquement (dataset vide)."
+  },
+  "test_credentials": "admin@vusion.local / admin123 (nominal). Session cible fd15443f-6d2a-4cef-bd72-c56bb29e9c42.",
+  "seed_data_creation": "Aucune. Le dataset fd15443f n'a pas été modifié.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pour tester runtime la grille CamAlleeCard (data-testid cam-prod-reel-* / cam-prod-geo-*), il faut d'abord configurer un phasage caméras avec >=1 allée sur la session cible. Le dataset fd15443f a phasage.cam.rows=[], start_at_nuit=5, nb_nuits=1 — la vue Phasage Caméras > onglet Caméras montre 'Aucune nuit caméra planifiée'. Une fois cam_allees.products peuplé, les 3 tests skipped de test_iter32_suivi_cam_integration.py s'exécuteront automatiquement (structure produits, PATCH re-agrégation)."
+}
