@@ -1,0 +1,42 @@
+{
+  "summary": "Iter33 (v28 iter3 : filtre Manque géoloc + badges/modal résumé nuit) — VALIDÉ end-to-end sur dataset fd15443f, Phasage EEG, Nuit 1. Tests exécutés en runtime : (1) filtre 'Manque géoloc' visible avec compteur '1' dans EcartRecap ; toggle actif → seule la ligne SA 1.5 noir (is_geo=true, reel=12, geo=7) reste ; fond ambré appliqué ; toggle inactif → toutes les lignes reviennent. (2) Ajout d'un commentaire via allee-comment-2__B__R2 → badge orange 💬 '1' apparaît sur dash-night-1 (dash-night-1-comment-badge). (3) Clic sur la carte Nuit 1 → NightSummaryModal s'ouvre, section 'Commentaires (1)' listant l'allée 2·B·R2 avec son texte. (4) Ajout d'un incident via incident-input-1 → badge rouge 🚩 '1' apparaît (dash-night-1-incident-badge) ; modal affiche 'Incidents (1)' avec author/date/texte. Bouton fermeture (night-summary-close) fonctionne. Aucun badge sur Nuit 2 (sans donnée) comme attendu. Photo/zoom non testé runtime (aucune photo uploadée sur ce dataset au moment du test) — code review confirme le pattern identique (setZoomPhoto/overlay data-testid='night-summary-photo-zoom').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_flow_executed": [
+    "1) Login admin@vusion.local → suivi picker → session fd15443f-6d2a-4cef-bd72-c56bb29e9c42 → pick-phase-eeg.",
+    "2) Dashboard : dash-night-1 (EN COURS, 11/80 EEG), dash-night-2 (À VENIR).",
+    "3) Nuits > night-open-1 > allee-open-2__B__R2 : saisie commentaire 'Commentaire test iteration33' + Tab (save silent).",
+    "4) Retour Tableau de bord : dash-night-1-comment-badge visible avec compteur '1'. Aucun badge sur Nuit 2.",
+    "5) Clic dash-night-1 → modal night-summary-1 : night-summary-comments présent, listant Allée 2 · B · R2 avec le texte.",
+    "6) Fermeture (night-summary-close) OK.",
+    "7) Onglet Matériel > materiel-night-open-1 : EcartRecap affiche 2 produits (ES 1.5 noir, SA 1.5 noir avec badge GÉO). Bouton ecart-filter-geo-missing avec compteur 1.",
+    "8) Toggle ON : seule la ligne SA 1.5 noir (geo=7 < reel=12) reste. Classe amber-950 appliquée sur le bouton.",
+    "9) Toggle OFF : les 2 lignes reviennent. Bouton en état neutre.",
+    "10) Nuits > night-open-1 : ajout incident via incident-input-1 + incident-add-1 → OK.",
+    "11) Retour Dashboard : dash-night-1-incident-badge visible ('1', rouge). La carte affiche désormais 2 badges (incident + commentaire).",
+    "12) Clic dash-night-1 : modal affiche 'Incidents (1)' avec auteur/date/texte ET 'Commentaires (1)' — sections dans l'ordre attendu (incidents avant commentaires)."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "(Optionnel non bloquant) Étoffer un dataset de démo avec au moins une photo uploadée sur une allée pour permettre au prochain agent de tester runtime le zoom (night-summary-photo-zoom). Code review confirme l'implémentation (SuiviDashboard.jsx L437-446 : overlay z-[60] avec stopPropagation via onClick sur la modal parente non fermée)."
+  ],
+  "critical_code_review_comments": [
+    "SuiviDashboard.jsx L177-181 : agrégation des badges (nbComments/nbPhotos/nbIncidents) faite dans le map — pour un nombre élevé de nuits/allées, considérer un useMemo pour éviter le recalcul à chaque render (non critique tant que <100 nuits).",
+    "SuiviDashboard.jsx L247 : `React.useState(null)` pour zoomPhoto est correct mais aurait pu être hoisté avec les autres useState en haut de la fonction NightSummaryModal.",
+    "SuiviMateriel.jsx L165 : nbGeoMissing calculé sur ecarts (avant filter status). C'est cohérent — le compteur affiche l'absolu, pas relatif au filtre statut actif. Comportement conforme à la demande.",
+    "SuiviMateriel.jsx L177-179 : combinaison filter status + geoOnly cumulative — si l'utilisateur clique 'Manque' puis 'Manque géoloc', il ne verra que les lignes manque ET is_geo missing. C'est logique, mais l'UX pourrait bénéficier d'un tooltip 'combiné avec filtre statut'.",
+    "SuiviDashboard.jsx L438-445 : l'overlay zoom photo écoute onClick pour fermer, et le bouton X aussi. Bon.",
+    "Modales imbriquées : le clic sur l'overlay du zoom appelle setZoomPhoto(null) mais l'overlay est un enfant de la modal parente (dont onClick=onClose au niveau L250) — cependant, ferme uniquement le zoom car event.stopPropagation() est présent sur la div interne L252. Le zoom est en position fixed inset-0 z-[60] hors du sub-tree du contenu-modal → le clic n'atteindra pas onClose parent. OK."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skip)", "frontend": "100% des scénarios runtime-testables (badges commentaire/incident, modal sections, filtre géoloc). Zoom photo non runtime-testé faute de photo mais code review OK."},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Ajout runtime durant le test : 1 commentaire sur allée 2__B__R2 de la nuit 1 + 1 incident sur la nuit 1 (à nettoyer manuellement via 'Effacer le suivi' du PublishCard si nécessaire).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42, phasage EEG, Nuit 1 contient maintenant 1 commentaire + 1 incident laissés par ce test. La saisie SA 1.5 noir (plan=15, reel=12, geo=7) rend le filtre 'Manque géoloc' actif avec compteur 1. Testids clés: dash-night-{n}-{comment|photo|incident}-badge, night-summary-{comments|photos|incidents}, night-summary-photo-{photoId}, night-summary-photo-zoom, ecart-filter-geo-missing."
+}

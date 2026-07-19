@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
     Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin, MoveRight,
-    HardHat, Copy, Link2, Trash2,
+    HardHat, Copy, Link2, Trash2, MessageSquare, Camera, Flag,
 } from "lucide-react";
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
@@ -172,42 +172,79 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
             <section>
                 <h3 className="text-xs uppercase tracking-widest text-slate-500 font-semibold mb-2">Nuits</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {(state.nights || []).map((n) => (
-                        <button key={n.nuit} onClick={() => setNightSummary(n)} data-testid={`dash-night-${n.nuit}`}
-                            className={`rounded-xl border p-3 text-left transition-colors hover:border-blue-700
-                                ${n.complete ? "bg-blue-950/40 border-blue-900/60" : n.started ? "bg-slate-900 border-sky-900/60" : "bg-slate-900 border-slate-800"}`}>
-                            <div className="flex items-center justify-between">
-                                <div className="text-sm font-semibold">
-                                    Nuit {n.nuit}
-                                    {n.date && <span className="text-slate-500 font-normal text-xs ml-2">{new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
+                    {(state.nights || []).map((n) => {
+                        // (v28 iter3) Détecte présence commentaires/photos/incidents dans la nuit
+                        const nAllees = (state.allees || []).filter(a => a.nuit_eff === n.nuit);
+                        const nbComments = nAllees.filter(a => (a.comment || "").trim().length > 0).length;
+                        const nbPhotos = nAllees.reduce((s, a) => s + ((a.photos || []).length), 0);
+                        const nbIncidents = (state.incidents || []).filter(i => i.nuit === n.nuit).length;
+                        return (
+                            <button key={n.nuit} onClick={() => setNightSummary(n)} data-testid={`dash-night-${n.nuit}`}
+                                className={`rounded-xl border p-3 text-left transition-colors hover:border-blue-700
+                                    ${n.complete ? "bg-blue-950/40 border-blue-900/60" : n.started ? "bg-slate-900 border-sky-900/60" : "bg-slate-900 border-slate-800"}`}>
+                                <div className="flex items-center justify-between">
+                                    <div className="text-sm font-semibold">
+                                        Nuit {n.nuit}
+                                        {n.date && <span className="text-slate-500 font-normal text-xs ml-2">{new Date(n.date + "T00:00:00").toLocaleDateString("fr-FR")}</span>}
+                                    </div>
+                                    {n.complete ? <CheckCircle2 className="w-4 h-4 text-blue-400" />
+                                        : n.started ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold">EN COURS</span>
+                                            : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">À VENIR</span>}
                                 </div>
-                                {n.complete ? <CheckCircle2 className="w-4 h-4 text-blue-400" />
-                                    : n.started ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300 font-semibold">EN COURS</span>
-                                        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">À VENIR</span>}
-                            </div>
-                            <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                                {n.nb_validees}/{n.nb_allees} allées · {fmt(n.eeg_reel)} / {fmt(n.eeg_plan)} EEG
-                                {n.delta_eeg !== null && n.delta_eeg !== undefined && (
-                                    <span className={n.delta_eeg > 0 ? "text-blue-400" : n.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}>
-                                        {n.delta_eeg > 0 ? "+" : ""}{fmt(n.delta_eeg)}
-                                    </span>
+                                <div className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+                                    {n.nb_validees}/{n.nb_allees} allées · {fmt(n.eeg_reel)} / {fmt(n.eeg_plan)} EEG
+                                    {n.delta_eeg !== null && n.delta_eeg !== undefined && (
+                                        <span className={n.delta_eeg > 0 ? "text-blue-400" : n.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}>
+                                            {n.delta_eeg > 0 ? "+" : ""}{fmt(n.delta_eeg)}
+                                        </span>
+                                    )}
+                                </div>
+                                {(nbComments > 0 || nbPhotos > 0 || nbIncidents > 0) && (
+                                    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap" data-testid={`dash-night-${n.nuit}-badges`}>
+                                        {nbIncidents > 0 && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-950/60 text-red-300 font-semibold flex items-center gap-1"
+                                                title={`${nbIncidents} incident(s) déclaré(s) sur cette nuit`}
+                                                data-testid={`dash-night-${n.nuit}-incident-badge`}>
+                                                <Flag className="w-2.5 h-2.5" />{nbIncidents}
+                                            </span>
+                                        )}
+                                        {nbComments > 0 && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 font-semibold flex items-center gap-1"
+                                                title={`${nbComments} allée(s) avec commentaire`}
+                                                data-testid={`dash-night-${n.nuit}-comment-badge`}>
+                                                <MessageSquare className="w-2.5 h-2.5" />{nbComments}
+                                            </span>
+                                        )}
+                                        {nbPhotos > 0 && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-300 font-semibold flex items-center gap-1"
+                                                title={`${nbPhotos} photo(s) sur cette nuit`}
+                                                data-testid={`dash-night-${n.nuit}-photo-badge`}>
+                                                <Camera className="w-2.5 h-2.5" />{nbPhotos}
+                                            </span>
+                                        )}
+                                    </div>
                                 )}
-                            </div>
-                        </button>
-                    ))}
+                            </button>
+                        );
+                    })}
                 </div>
             </section>
 
             {nightSummary && (
-                <NightSummaryModal night={nightSummary} state={state} onClose={() => setNightSummary(null)} goTab={goTab} />
+                <NightSummaryModal night={nightSummary} state={state} onClose={() => setNightSummary(null)} goTab={goTab} actions={actions} />
             )}
         </div>
     );
 }
 
-function NightSummaryModal({ night, state, onClose, goTab }) {
+function NightSummaryModal({ night, state, onClose, goTab, actions }) {
     const allees = (state.allees || []).filter((a) => a.nuit_eff === night.nuit);
     const eegRestant = Math.max(0, (night.eeg_plan || 0) - (night.eeg_reel || 0));
+    // (v28 iter3) Agrégats commentaires/photos/incidents pour cette nuit
+    const alleesAvecComment = allees.filter(a => (a.comment || "").trim().length > 0);
+    const alleesAvecPhoto = allees.filter(a => (a.photos || []).length > 0);
+    const nightIncidents = (state.incidents || []).filter(i => i.nuit === night.nuit);
+    const [zoomPhoto, setZoomPhoto] = React.useState(null);
     return (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-3"
             data-testid={`night-summary-${night.nuit}`} onClick={onClose}>
@@ -299,8 +336,71 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                     </div>
                 )}
                 {/* Liste des allées */}
-                <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1">
-                    <div className="text-[10px] uppercase text-slate-500 font-semibold mb-1">Allées de la nuit</div>
+                <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-3">
+                    {/* (v28 iter3) Incidents de la nuit */}
+                    {nightIncidents.length > 0 && (
+                        <div className="space-y-1" data-testid="night-summary-incidents">
+                            <div className="text-[10px] uppercase text-slate-500 font-semibold flex items-center gap-1">
+                                <Flag className="w-2.5 h-2.5 text-red-400" /> Incidents ({nightIncidents.length})
+                            </div>
+                            {nightIncidents.map((inc) => (
+                                <div key={inc.id} className="rounded-lg bg-red-950/30 border border-red-900/40 p-2 text-[11px] text-red-100"
+                                    data-testid={`night-summary-incident-${inc.id}`}>
+                                    <div className="text-red-300 font-semibold text-[10px] mb-0.5">
+                                        {inc.author || "—"} · {inc.created_at ? new Date(inc.created_at).toLocaleString("fr-FR") : ""}
+                                    </div>
+                                    <div className="whitespace-pre-wrap">{inc.text}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* (v28 iter3) Commentaires par allée */}
+                    {alleesAvecComment.length > 0 && (
+                        <div className="space-y-1" data-testid="night-summary-comments">
+                            <div className="text-[10px] uppercase text-slate-500 font-semibold flex items-center gap-1">
+                                <MessageSquare className="w-2.5 h-2.5 text-amber-400" /> Commentaires ({alleesAvecComment.length})
+                            </div>
+                            {alleesAvecComment.map((a) => (
+                                <div key={a.uid} className="rounded-lg bg-amber-950/30 border border-amber-900/40 p-2 text-[11px] text-amber-100"
+                                    data-testid={`night-summary-comment-${a.uid}`}>
+                                    <div className="text-amber-300 font-semibold text-[10px] mb-0.5">
+                                        Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                                    </div>
+                                    <div className="whitespace-pre-wrap">{a.comment}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* (v28 iter3) Photos par allée */}
+                    {alleesAvecPhoto.length > 0 && (
+                        <div className="space-y-1" data-testid="night-summary-photos">
+                            <div className="text-[10px] uppercase text-slate-500 font-semibold flex items-center gap-1">
+                                <Camera className="w-2.5 h-2.5 text-sky-400" /> Photos ({alleesAvecPhoto.reduce((s, a) => s + a.photos.length, 0)})
+                            </div>
+                            {alleesAvecPhoto.map((a) => (
+                                <div key={a.uid} className="rounded-lg bg-slate-800/40 p-2" data-testid={`night-summary-photos-${a.uid}`}>
+                                    <div className="text-slate-400 text-[10px] font-semibold mb-1">
+                                        Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                        {a.photos.map((p) => (
+                                            <button key={p.id} onClick={() => setZoomPhoto(p.id)}
+                                                data-testid={`night-summary-photo-${p.id}`}
+                                                className="aspect-square rounded overflow-hidden bg-slate-900 border border-slate-700 hover:border-sky-500 transition-colors">
+                                                <img src={actions?.photoUrl(p.id)} alt=""
+                                                    loading="lazy"
+                                                    className="w-full h-full object-cover" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="text-[10px] uppercase text-slate-500 font-semibold mb-1 pt-1">Allées de la nuit</div>
                     {allees.length === 0 && <div className="text-xs text-slate-500 italic">Aucune allée assignée.</div>}
                     {allees.map((a) => {
                         const status = a.status || "a_faire";
@@ -314,6 +414,8 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                             status === "bloquee" ? "bg-red-500" :
                             status === "a_finaliser" ? "bg-red-400" :
                             "bg-slate-600";
+                        const hasComment = (a.comment || "").trim().length > 0;
+                        const hasPhotos = (a.photos || []).length > 0;
                         return (
                             <div key={a.uid}
                                 className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${color}`}
@@ -323,6 +425,8 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                                 <span className="text-[11px] flex-1 min-w-0 truncate text-slate-300">
                                     {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
                                 </span>
+                                {hasComment && <MessageSquare className="w-3 h-3 text-amber-400 flex-shrink-0" />}
+                                {hasPhotos && <Camera className="w-3 h-3 text-sky-400 flex-shrink-0" />}
                                 <span className="text-[10px] font-semibold tabular-nums">
                                     {a.nb_saisis}/{a.nb_produits}
                                 </span>
@@ -330,6 +434,16 @@ function NightSummaryModal({ night, state, onClose, goTab }) {
                         );
                     })}
                 </div>
+                {zoomPhoto && (
+                    <div className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4"
+                        data-testid="night-summary-photo-zoom" onClick={() => setZoomPhoto(null)}>
+                        <img src={actions?.photoUrl(zoomPhoto)} alt="" className="max-w-full max-h-full rounded-xl" />
+                        <button onClick={() => setZoomPhoto(null)}
+                            className="absolute top-3 right-3 p-2 rounded-lg bg-black/50 hover:bg-black/80 text-white">
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+                )}
                 <button onClick={() => { onClose(); goTab && goTab("nuits"); }} data-testid="night-summary-open"
                     className="w-full h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                     Ouvrir la nuit <ArrowRight className="w-4 h-4" />

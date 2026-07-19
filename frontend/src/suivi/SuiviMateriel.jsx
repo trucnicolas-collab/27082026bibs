@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ChevronDown, ChevronRight, Loader2, Boxes, Moon, ArrowLeft, TrendingUp, TrendingDown, CheckCircle2, Scale } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Boxes, Moon, ArrowLeft, TrendingUp, TrendingDown, CheckCircle2, Scale, MapPin } from "lucide-react";
 
 const fmt = (v) => Number(v || 0).toLocaleString("fr-FR");
 
@@ -158,8 +158,11 @@ function ProductTable({ products, small = false }) {
 function EcartRecap({ night, accent = "emerald" }) {
     const [showAll, setShowAll] = useState(false);
     const [filter, setFilter] = useState("all"); // all | bonus | manque | conforme
+    const [geoOnly, setGeoOnly] = useState(false); // (v28 iter3) toggle « manque de géoloc »
     const ecarts = night.ecarts || [];
     const stats = night.ecart_stats || {};
+    // Compte les lignes avec manque de géoloc (is_geo=true et geo < reel)
+    const nbGeoMissing = ecarts.filter(e => e.is_geo && (e.geo ?? 0) < (e.reel ?? 0)).length;
     if (!ecarts.length) {
         return (
             <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-center" data-testid="ecart-recap-empty">
@@ -170,7 +173,10 @@ function EcartRecap({ night, accent = "emerald" }) {
             </section>
         );
     }
-    const filtered = filter === "all" ? ecarts : ecarts.filter((e) => e.status === filter);
+    let filtered = filter === "all" ? ecarts : ecarts.filter((e) => e.status === filter);
+    if (geoOnly) {
+        filtered = filtered.filter((e) => e.is_geo && (e.geo ?? 0) < (e.reel ?? 0));
+    }
     const shown = showAll ? filtered : filtered.slice(0, 8);
     const statusColor = (s) => s === "bonus" ? "text-sky-400" : s === "manque" ? "text-red-400" : "text-blue-400";
     const statusIcon = (s) => s === "bonus" ? TrendingUp : s === "manque" ? TrendingDown : CheckCircle2;
@@ -204,6 +210,16 @@ function EcartRecap({ night, accent = "emerald" }) {
                 {filterBtn("conforme", "Conforme", stats.nb_conforme || 0, "text-blue-400")}
                 {filterBtn("bonus", "Bonus", stats.nb_bonus || 0, "text-sky-400")}
                 {filterBtn("manque", "Manque", stats.nb_manque || 0, "text-red-400")}
+                {nbGeoMissing > 0 && (
+                    <button onClick={() => { setGeoOnly((v) => !v); setShowAll(false); }}
+                        data-testid="ecart-filter-geo-missing"
+                        className={`ml-auto px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition-colors border ${geoOnly
+                            ? "bg-amber-950/60 border-amber-800 text-amber-300"
+                            : "bg-slate-900/40 border-slate-800 text-slate-500 hover:text-amber-400"}`}
+                        title="Filtre : afficher uniquement les produits posés mais partiellement (ou pas) géolocalisés">
+                        <MapPin className="w-3 h-3" /> Manque géoloc <span className="tabular-nums">{nbGeoMissing}</span>
+                    </button>
+                )}
             </div>
             <div className="divide-y divide-slate-800/60" data-testid="ecart-rows">
                 {shown.map((e) => {
