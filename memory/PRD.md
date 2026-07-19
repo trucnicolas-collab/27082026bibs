@@ -1,5 +1,27 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v28 iter1 — Distinction POSE vs GÉOLOCALISATION dans Suivi)
+
+### Contexte
+L'utilisateur veut que la POSE (Rails ES, EEG SA 1.5, EEG SA 2.1, Caméras) soit clairement distinguée de la GÉOLOCALISATION dans tous les dashboards et exports. Règle métier : on peut poser sans géolocaliser mais pas l'inverse. Les autres familles (ES 1.5, ES 2.1, SA freezer, SA 4.2, flèches) ne sont PAS géolocalisées. Option retenue : **B** — conserver les 2 champs numériques Posé/Géoloc existants, focus sur les dashboards + exports.
+
+### Fix appliqué
+- **`backend/suivi_deploy.py` L40** : `GEO_KEYS = ["rails_es", "sa_15", "sa_21_std"]` (retiré `sa_21_freezer`).
+- **`_materiel_nuit`** : calcule maintenant `totals_geo` par désignation en parallèle des `totals_reel`. Chaque item d'écart (nuit et allée) remonte `geo`, `family`, `is_geo`.
+- **`SuiviMateriel.jsx` EcartRecap** : ligne d'écart avec badge orange **`GÉO`** pour les produits `is_geo=true`, affichage `Prévu / Posé / Géoloc (%)` en ligne, alerte ambre si géoloc < posé.
+- **Export Excel rapport-nuit** : bloc Caméras a maintenant 9 colonnes (Allée / Secteur / Prévu / Posées / Géoloc / **Fixations prévues** / Fixations posées / Statut / Commentaire).
+- **`SuiviCam.jsx`** : les fixations caméra prévues (`fix_plan`) sont déjà affichées à côté des posées (`fix_reel`). Aucun changement UI nécessaire.
+
+### Validation
+- Backend : 20/20 tests pytest OK, régression iter28/29/30 → 13/13 tests OK.
+- Frontend : badge GÉO + colonne Géoloc affichés correctement, zéro erreur JS.
+- Test bout-en-bout curl : SA 1.5 noir (plan=15, reel=12, geo=7) → `family=sa_15`, `is_geo=true`, `geo=7` remontés correctement.
+
+### Reset des saisies
+Pas nécessaire pour l'option B : la structure de données `{reel, geo}` existait déjà et n'a pas changé. Les saisies historiques restent valides. Le champ `geo` sur d'anciens produits `sa_21_freezer` est simplement ignoré à l'affichage (plus flaggé `is_geo`).
+
+
+
 ## Changelog 13/02/2026 (v27 iter7 — Cohérence visuelle Phasage)
 
 ### Bugs remontés (PDF « Erreur tableau.pdf »)
