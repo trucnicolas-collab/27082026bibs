@@ -70,6 +70,17 @@ CAPTANA_DESIGNATIONS = {
 }
 
 
+# (v28 iter6) Produits masqués dans TOUT le module Suivi (matériel, stock,
+# écrans allée, exports). Ces items ne se posent pas physiquement — ils sont
+# commandés/livrés séparément et n'ont pas leur place dans le suivi terrain.
+SUIVI_HIDDEN_DESIGNATIONS = {"batterie caméra", "software caméra"}
+
+
+def is_hidden_in_suivi(desig: str) -> bool:
+    """True si le produit doit être masqué de tous les écrans/exports du Suivi."""
+    return (desig or "").strip().lower() in SUIVI_HIDDEN_DESIGNATIONS
+
+
 def is_cam_side_product(desig: str, typ: str) -> bool:
     """True si le produit relève du PHASAGE CAMÉRA (caméra elle-même ou
     fixation spécifique caméra) et doit être exclu du suivi EEG."""
@@ -1825,6 +1836,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             desig = str(r.get(desig_col) or "").strip() if desig_col else ""
             if not desig or desig.lower() == "nan":
                 desig = "(sans désignation)"
+            # (v28 iter6) Masquer batterie/software caméra dans tout le Suivi.
+            if is_hidden_in_suivi(desig):
+                continue
             try:
                 qty = float(r.get(qty_col) or 0) if qty_col else 0.0
             except (ValueError, TypeError):

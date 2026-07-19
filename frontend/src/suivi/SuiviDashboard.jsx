@@ -43,25 +43,29 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                 </div>
                 {/* Double jauge Pose vs Géoloc (indicateurs distincts) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-pose-progress">
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-pose-progress"
+                        title="Avancement de la SAISIE des quantités posées : nombre de produits saisis / nombre total de produits à saisir sur toutes les allées de toutes les nuits.">
                         <div className="flex items-center justify-between text-[11px] mb-1">
-                            <span className="uppercase tracking-widest text-slate-500 font-semibold">Pose produits</span>
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold">Saisies posées</span>
                             <span className="text-slate-300 font-semibold tabular-nums">{st.pose_saisis || 0} / {st.pose_total || 0} <span className="text-slate-500 ml-1">({(st.pose_pct || 0).toLocaleString("fr-FR")}%)</span></span>
                         </div>
                         <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500"
                                 style={{ width: `${Math.min(100, st.pose_pct || 0)}%` }} />
                         </div>
+                        <div className="text-[10px] text-slate-500 mt-1">Produits avec quantité posée renseignée</div>
                     </div>
-                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-geo-progress">
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-geo-progress"
+                        title="Avancement de la SAISIE de la géolocalisation : produits géolocalisables (Rails ES / SA 1.5 / SA 2.1) avec quantité géoloc renseignée.">
                         <div className="flex items-center justify-between text-[11px] mb-1">
-                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Géolocalisation</span>
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Saisies géoloc</span>
                             <span className="text-slate-300 font-semibold tabular-nums">{st.geo_saisis || 0} / {st.geo_total || 0} <span className="text-slate-500 ml-1">({(st.geo_pct || 0).toLocaleString("fr-FR")}%)</span></span>
                         </div>
                         <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500"
                                 style={{ width: `${Math.min(100, st.geo_pct || 0)}%` }} />
                         </div>
+                        <div className="text-[10px] text-slate-500 mt-1">Rails ES / SA 1.5 / SA 2.1 géolocalisés</div>
                     </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
