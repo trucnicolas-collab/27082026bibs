@@ -60,17 +60,17 @@ function ChefApp() {
         } catch { setSessions([]); }
     }, []);
 
-    const fetchState = useCallback(async (id) => {
+    const fetchState = useCallback(async (id, { silent = false } = {}) => {
         if (!id) return;
-        setLoading(true);
+        if (!silent) setLoading(true);
         try {
             const res = await axios.get(`${API}/suivi/${id}`);
             setState(res.data);
         } catch (e) {
             toast.error("Impossible de charger le suivi de ce magasin");
             setUploadId(null);
-            try { localStorage.removeItem(LS_KEY); } catch { }
-        } finally { setLoading(false); }
+            try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+        } finally { if (!silent) setLoading(false); }
     }, []);
 
     useEffect(() => { if (user && user !== false) fetchSessions(); }, [user, fetchSessions]);
@@ -80,24 +80,27 @@ function ChefApp() {
         setUploadId(id);
         setState(null);
         setPhaseKind(null);
-        try { localStorage.setItem(LS_KEY, id); localStorage.removeItem(LS_PHASE); } catch { }
+        try { localStorage.setItem(LS_KEY, id); localStorage.removeItem(LS_PHASE); } catch { /* ignore */ }
     };
     const closeSession = () => {
         setUploadId(null); setState(null); setTab("dashboard"); setPhaseKind(null);
-        try { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_PHASE); } catch { }
+        try { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_PHASE); } catch { /* ignore */ }
     };
     const pickPhase = (kind) => {
         setPhaseKind(kind);
         setTab("dashboard");
-        try { localStorage.setItem(LS_PHASE, kind); } catch { }
+        try { localStorage.setItem(LS_PHASE, kind); } catch { /* ignore */ }
     };
     const backToPhasePicker = () => {
         setPhaseKind(null);
-        try { localStorage.removeItem(LS_PHASE); } catch { }
+        try { localStorage.removeItem(LS_PHASE); } catch { /* ignore */ }
     };
 
+    // (iter32) Refresh silencieux après chaque patch — évite le remount complet
+    // de <SuiviNuits>/<SuiviStock>/<AlleeScreen> qui perdait la sélection de
+    // nuit + le scroll à chaque saisie de champ.
     const actions = useMemo(
-        () => makeActions(`${API}/suivi/${uploadId}`, () => fetchState(uploadId)),
+        () => makeActions(`${API}/suivi/${uploadId}`, () => fetchState(uploadId, { silent: true })),
         [uploadId, fetchState]
     );
 

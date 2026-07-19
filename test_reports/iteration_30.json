@@ -1,0 +1,36 @@
+{
+  "summary": "Iter32 (Fix UX Suivi : refresh silencieux) — VALIDÉ. Le patch fetchState({silent:true}) empêche le remount de SuiviApp lors des saisies. Test end-to-end sur dataset fd15443f, Phasage EEG, Nuit 1, allée 2·B·R2 : saisie '10' dans le champ 'Posé' + Tab → aucun loader global affiché pendant 2s, écran allée toujours monté (data-testid='allee-screen-2__B__R2' préservé), valeur '10' persistée. 5 saisies consécutives dans le même champ : 0 anomalie, 0 démontage, 0 loader global. Régression initiale : à l'ouverture d'un magasin, le loader global apparaît toujours (fetchState non-silent au mount préservé). Test Stock non exécutable — le dataset fd15443f n'a aucun input stock rendu (0 inputs number dans l'onglet).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_flow_executed": [
+    "1) Login admin@vusion.local/admin123 → OK, session picker visible.",
+    "2) Ouverture dataset fd15443f → phase picker → Phasage EEG.",
+    "3) Onglet Nuits → 2 nuits listées, Nuit 1 ouvre le night-screen-1 avec 1 allée (2·B·R2).",
+    "4) Click sur allée → écran allee-screen-2__B__R2 (1 produit avec input product-reel-*).",
+    "5) TEST 1 — saisie '10' + Tab : polled 10x/200ms pendant 2s : AUCUN 'div.flex.items-center.justify-center.py-32' (loader global) apparu. Écran allée toujours présent. Valeur '10' lue depuis l'input.",
+    "6) TEST 2 — 5 saisies consécutives (11,12,13,14,15) : 0 anomalie, écran jamais démonté, aucun loader global.",
+    "7) TEST 3 — Stock : dataset fd15443f n'a pas d'input stock (0 inputs number dans SuiviStock) → non testable en runtime. Code review de patchStock (api.js l.36-41) confirme qu'il appelle refresh() qui est désormais silent (SuiviApp.jsx l.103).",
+    "8) Régression initial loader : après reload de /suivi, le loader global de mount est bien visible (fetchState sans silent → setLoading(true) → OK)."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "(Optionnel) Fournir un dataset avec un phasage caméra + stock renseigné pour valider les mêmes gardes sur SuiviStock et SuiviCam en runtime. Non bloquant : le mécanisme est le même refresh() silencieux."
+  ],
+  "critical_code_review_comments": [
+    "SuiviApp.jsx l.63-74 : la garde `if (!silent) setLoading(true)` + `finally { if (!silent) setLoading(false) }` est correcte et symétrique.",
+    "SuiviApp.jsx l.102-105 : `actions` mémoïsé avec dépendance [uploadId, fetchState] — ok, ne se recrée pas à chaque render.",
+    "api.js : tous les mutateurs (patchAllee, patchCamAllee, patchStock, addIncident, delIncident, publish, resetSuivi, uploadPhoto, delPhoto, replan) appellent uniquement refresh() (silencieux). Bien homogène.",
+    "Note UX : lors du Tab depuis le dernier champ 'Posé', si l'utilisateur fait Shift+Tab pour revenir, aucun problème observé — pas de perte de focus."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skip)", "frontend": "100% sur les scénarios exécutables (allée EEG). Stock non-runtime-testable faute d'inputs dans le dataset."},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune. Dataset fd15443f-6d2a-4cef-bd72-c56bb29e9c42 utilisé.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le fix silent-refresh est validé sur l'écran détail allée EEG. Pour tester SuiviStock/SuiviCam en runtime, il faudra un dataset avec stock renseigné (le fd15443f n'affiche aucun input stock) et un dataset avec phasage caméra. Le sélecteur global loader utilisé : 'div.flex.items-center.justify-center.py-32'."
+}
