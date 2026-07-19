@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
     Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin, MoveRight,
-    HardHat, Copy, Link2, Trash2, MessageSquare, Camera, Flag, Eye, RotateCcw,
+    HardHat, Copy, Link2, Trash2, MessageSquare, Camera, Flag,
 } from "lucide-react";
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
@@ -460,25 +460,8 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
 function PublishCard({ publication, actions }) {
     const [busy, setBusy] = useState(false);
     const [confirmReset, setConfirmReset] = useState(false);
-    const [viewerToken, setViewerToken] = useState(null);
-    const [rotating, setRotating] = useState(false);
-    const [confirmRotate, setConfirmRotate] = useState(false);
     const published = publication?.published;
     const link = `${window.location.origin}/suivi/terrain`;
-    const viewerLink = viewerToken ? `${window.location.origin}/suivi/view?token=${viewerToken}` : "";
-
-    React.useEffect(() => {
-        // Charge le token global de partage lecture-seule
-        const load = async () => {
-            try {
-                const axios = (await import("axios")).default;
-                const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-                const res = await axios.get(`${API}/suivi/viewer-link`);
-                setViewerToken(res.data?.token || "");
-            } catch { setViewerToken(""); }
-        };
-        load();
-    }, []);
 
     const toggle = async () => {
         setBusy(true);
@@ -494,25 +477,6 @@ function PublishCard({ publication, actions }) {
             toast.success("Lien de l'espace terrain copié (le même pour tous les magasins)");
         } catch { toast.error("Copie impossible"); }
     };
-    const copyViewer = async () => {
-        try {
-            await navigator.clipboard.writeText(viewerLink);
-            toast.success("Lien de partage client copié — envoyez-le à vos clients");
-        } catch { toast.error("Copie impossible"); }
-    };
-    const rotateViewer = async () => {
-        setRotating(true);
-        try {
-            const axios = (await import("axios")).default;
-            const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-            const res = await axios.post(`${API}/suivi/viewer-link/rotate`);
-            setViewerToken(res.data.token);
-            setConfirmRotate(false);
-            toast.success("Nouveau lien généré — les anciens liens ne fonctionnent plus");
-        } catch (e) {
-            toast.error(e?.response?.data?.detail || "Régénération impossible");
-        } finally { setRotating(false); }
-    };
     const doReset = async () => {
         setBusy(true);
         await actions.resetSuivi();
@@ -521,7 +485,6 @@ function PublishCard({ publication, actions }) {
     };
 
     return (
-        <>
         <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4" data-testid="publish-card">
             <div className="flex items-center gap-3 flex-wrap">
                 <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
@@ -572,52 +535,6 @@ function PublishCard({ publication, actions }) {
                 )}
             </div>
         </section>
-
-        {/* Partage Lecture Seule pour les clients */}
-        <section className="rounded-2xl bg-purple-950/20 border border-purple-900/50 p-4" data-testid="viewer-link-card">
-            <div className="flex items-center gap-3 flex-wrap">
-                <div className="w-9 h-9 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-                    <Eye className="w-5 h-5 text-purple-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold flex items-center gap-2">
-                        Partage client — Lecture seule
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/60 text-purple-300 font-bold">SÉCURISÉ</span>
-                    </div>
-                    <div className="text-xs text-slate-400">
-                        Un lien <b className="text-slate-300">unique et permanent</b> pour permettre à vos clients de consulter le suivi
-                        sans pouvoir modifier quoi que ce soit. Ils voient uniquement les magasins <b className="text-slate-300">publiés</b>.
-                    </div>
-                </div>
-            </div>
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
-                <code className="flex-1 min-w-[180px] truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-purple-300"
-                    data-testid="viewer-link-url">
-                    {viewerToken === null ? "Chargement..." : viewerToken ? viewerLink : "Non disponible"}
-                </code>
-                <button onClick={copyViewer} disabled={!viewerToken} data-testid="viewer-link-copy"
-                    className="h-8 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40">
-                    <Copy className="w-3.5 h-3.5" /> Copier
-                </button>
-                {!confirmRotate ? (
-                    <button onClick={() => setConfirmRotate(true)} data-testid="viewer-link-rotate-btn"
-                        title="Génère un nouveau lien — les anciens liens partagés cessent de fonctionner (réservé à l'admin)"
-                        className="h-8 px-3 rounded-lg border border-purple-900 text-purple-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-purple-950/50 transition-colors">
-                        <RotateCcw className="w-3.5 h-3.5" /> Régénérer
-                    </button>
-                ) : (
-                    <span className="flex items-center gap-1.5">
-                        <button onClick={rotateViewer} disabled={rotating} data-testid="viewer-link-rotate-confirm"
-                            className="h-8 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
-                            {rotating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Confirmer
-                        </button>
-                        <button onClick={() => setConfirmRotate(false)} data-testid="viewer-link-rotate-cancel"
-                            className="h-8 px-2.5 rounded-lg border border-slate-700 text-slate-400 text-xs hover:bg-slate-800 transition-colors">Annuler</button>
-                    </span>
-                )}
-            </div>
-        </section>
-        </>
     );
 }
 
