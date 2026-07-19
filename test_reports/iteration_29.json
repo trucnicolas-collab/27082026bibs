@@ -1,0 +1,33 @@
+{
+  "summary": "Iter31 (POSE vs GÉOLOCALISATION) — Backend et Frontend validés. GEO_KEYS correctement restreint à [rails_es, sa_15, sa_21_std]. L'endpoint /api/suivi/{upload_id}/materiel/{nuit}?mode=eeg renvoie bien family/is_geo/geo pour chaque item d'écart. Le badge orange 'GÉO' apparaît sur SA 1.5 noir (avec 'Géoloc 7 (58%)') et n'apparaît PAS sur ES 1.5 noir. Suivi caméras et export Excel vérifiés par code review. Toutes les régressions iter28/29/30 (13 tests) passent.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_flow_executed": [
+    "1) Login admin@vusion.local/admin123 → 200, session cookie établi.",
+    "2) GET /api/suivi/fd15443f-6d2a-4cef-bd72-c56bb29e9c42 → 200, geo_keys = [rails_es, sa_15, sa_21_std] (sa_21_freezer bien retiré).",
+    "3) GET /api/suivi/{ds}/materiel/1?mode=eeg → SA 1.5 noir { family:'sa_15', is_geo:true, plan:15, reel:12, geo:7 } ; ES 1.5 noir { family:'es_15', is_geo:false, geo:null }. Toutes les nuits 1-10 scannées : is_geo=true ⇔ family ∈ GEO_KEYS.",
+    "4) Ecarts au niveau allée portent également family/is_geo/geo (drill-down cohérent).",
+    "5) GET /rapport-nuit/1 → xlsx valide (9.3ko), feuilles ['Nuit 1','Détail produits','Écart phasage vs réel','Synthèse déploiement'] présentes. Bloc caméras absent car cette nuit n'a pas de cam allees. Code Excel (ligne 1192) confirme les 9 colonnes attendues : Allée/Secteur/Prévu/Posées/Géoloc/Fixations prévues/Fixations posées/Statut/Commentaire.",
+    "6) UI /suivi → picker sessions → session fd15443f → 'Phasage EEG' → onglet 'Matériel' → nuit 1 : ligne SA 1.5 noir affiche badge orange 'GÉO' + 'Prévu 15 · Posé 12 · Géoloc 7 (58%)' avec data-testid=ecart-row-geo-SA 1.5 noir présent. Ligne ES 1.5 noir : pas de badge GÉO, pas de mention Géoloc, juste 'Prévu 80 · Posé 72'.",
+    "7) SuiviCam.jsx (revue de code) : 3 blocs distincts présents — 'Caméras posées' (l.155), 'Géolocalisées' (l.174 avec input cameras_geo), 'Fixations posées' (l.189) avec a.fix_plan à gauche de la flèche (l.197).",
+    "8) Régression pytest : 20/20 PASSED (7 iter31 + 8 iter28 + 3 iter29 + 2 iter30)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_geo_split.py",
+    "/app/test_reports/pytest/iter31.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Aucune dataset avec cam allees n'est disponible pour valider l'affichage Excel 9-colonnes du bloc 'Caméras de la nuit' de bout en bout ; validation faite via inspection de code (ligne 1192 de suivi_deploy.py). Recommander test manuel avec un magasin ayant du phasage caméras si nécessaire.",
+    "suivi_deploy.py est très volumineux (2224 lignes) — envisager un découpage en modules (export Excel, calculs matériel, endpoints) pour maintenabilité."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_geo_split.py (nouveau — 7 tests)"
+  ],
+  "success_rate": {"backend": "100% (20/20 pytest)", "frontend": "100% (badge GÉO + colonne Géoloc affichés correctement)"},
+  "test_credentials": "admin@vusion.local / admin123",
+  "seed_data_creation": "Aucune. Utilisation du dataset existant fd15443f-6d2a-4cef-bd72-c56bb29e9c42 (sample_full.xlsx, 11 lignes) contenant la saisie SA 1.5 noir plan=15/reel=12/geo=7 en nuit 1.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter31 validé end-to-end. Le dataset fd15443f est bien présent (filename sample_full.xlsx, dernier de la liste /api/datasets). Aucun dataset n'a de phasage caméras chargé → le bloc Excel 'Caméras de la nuit' n'est pas testable en runtime. Nouveau fichier de tests : test_iter31_geo_split.py."
+}

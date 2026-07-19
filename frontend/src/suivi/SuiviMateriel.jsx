@@ -210,13 +210,37 @@ function EcartRecap({ night, accent = "emerald" }) {
                     const Icon = statusIcon(e.status);
                     const color = statusColor(e.status);
                     const pct = e.plan > 0 ? Math.round((e.delta / e.plan) * 100) : 0;
+                    // (v28) Colonne Géoloc distincte pour les familles concernées
+                    // (rails_es, sa_15, sa_21_std côté EEG ; caméras côté cam).
+                    const hasGeo = e.is_geo === true;
+                    const geoVal = e.geo === null || e.geo === undefined ? null : e.geo;
+                    const geoGap = hasGeo && geoVal !== null && e.reel > 0 ? Math.round(100 * geoVal / e.reel) : null;
                     return (
                         <div key={e.designation} className="flex items-center gap-3 px-4 py-2" data-testid={`ecart-row-${e.designation}`}>
                             <Icon className={`w-4 h-4 flex-shrink-0 ${color}`} />
                             <div className="flex-1 min-w-0">
-                                <div className="text-xs text-slate-200 truncate" title={e.designation}>{e.designation}</div>
-                                <div className="text-[10px] text-slate-500">
-                                    Plan {fmt(e.plan)} · Réel <span className={color}>{fmt(e.reel)}</span>
+                                <div className="text-xs text-slate-200 truncate flex items-center gap-1.5" title={e.designation}>
+                                    {e.designation}
+                                    {hasGeo && (
+                                        <span className="text-[9px] px-1 py-0.5 rounded bg-sky-950 text-sky-400 font-bold flex-shrink-0"
+                                            title="Géolocalisation requise (Rails ES / SA 1.5 / SA 2.1 / caméras)">
+                                            GÉO
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-[10px] text-slate-500 flex items-center gap-2 flex-wrap">
+                                    <span>Prévu <span className="text-slate-300 font-semibold">{fmt(e.plan)}</span></span>
+                                    <span>· Posé <span className={color}>{fmt(e.reel)}</span></span>
+                                    {hasGeo && (
+                                        <span data-testid={`ecart-row-geo-${e.designation}`}>
+                                            · Géoloc <span className={geoGap === null ? "text-slate-600" : geoGap >= 100 ? "text-sky-400 font-semibold" : "text-amber-400 font-semibold"}>
+                                                {geoVal === null ? "—" : fmt(geoVal)}
+                                            </span>
+                                            {geoGap !== null && geoGap < 100 && (
+                                                <span className="text-[9px] text-amber-500 ml-1">({geoGap}%)</span>
+                                            )}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                             <div className={`text-xs font-bold tabular-nums ${color} flex-shrink-0`}>

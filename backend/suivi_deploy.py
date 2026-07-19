@@ -34,7 +34,11 @@ FAMILY_KEYS = [k for k, _ in FAMILIES]
 FAMILY_LABELS = dict(FAMILIES)
 EEG_KEYS = ["es_15", "es_21", "sa_15", "sa_21_std", "sa_21_freezer", "sa_42"]
 # Familles à géolocaliser (posé VS géolocalisé) — hors SA 4.2 / saisonnier / caisses
-GEO_KEYS = ["rails_es", "sa_15", "sa_21_std", "sa_21_freezer"]
+# Familles à géolocaliser (v28, 13/02/2026) côté EEG : Rails ES + EEG SA 1.5
+# + EEG SA 2.1 uniquement. On peut poser sans géolocaliser (case à cocher côté
+# UI), mais pas l'inverse. Note : sa_21_freezer et sa_42 n'ont PAS de géoloc.
+# Les caméras et fixations sont gérées séparément dans le module CAM.
+GEO_KEYS = ["rails_es", "sa_15", "sa_21_std"]
 JUSTIF_FAMILIES = set(EEG_KEYS) | {"rails_es"}
 JUSTIF_THRESHOLD = 0.05  # 5% d'écart prévu/réel → justification
 MAX_EEG_PER_NIGHT = 4900.0
@@ -1185,7 +1189,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         if cam_items:
             ws.write(row, 0, "Caméras de la nuit", f_title)
             row += 1
-            for c0, h in enumerate(["Allée", "Secteur", "Prévu", "Posées", "Géoloc", "Fixations posées", "Statut", "Commentaire"]):
+            for c0, h in enumerate(["Allée", "Secteur", "Prévu", "Posées", "Géoloc", "Fixations prévues", "Fixations posées", "Statut", "Commentaire"]):
                 ws.write(row, c0, h, f_h)
             row += 1
             for x in cam_items:
@@ -1194,10 +1198,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 ws.write(row, 2, x["plan"], f_c)
                 ws.write(row, 3, x["reel"] if x["reel"] is not None else "", f_c)
                 ws.write(row, 4, x["geo"] if x["geo"] is not None else "", f_geo_bad if x["geo_gap"] else f_c)
-                ws.write(row, 5, x["fix_reel"] if x.get("fix_reel") is not None else "", f_c)
-                ws.write(row, 6, status_lbl.get(x["status"], x["status"]),
+                ws.write(row, 5, x.get("fix_plan") if x.get("fix_plan") is not None else "", f_c)
+                ws.write(row, 6, x["fix_reel"] if x.get("fix_reel") is not None else "", f_c)
+                ws.write(row, 7, status_lbl.get(x["status"], x["status"]),
                          f_ok if x["status"] == "validee" else (f_neg if x["status"] == "bloquee" else f_c))
-                ws.write(row, 7, x["comment"], f_cl)
+                ws.write(row, 8, x["comment"], f_cl)
                 row += 1
             row += 1
 
@@ -1666,9 +1671,10 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             except (ValueError, TypeError):
                 return (1, str(t[0]))
 
-        # Agrégats plan/réel par désignation sur toute la nuit
+        # Agrégats plan/réel/géoloc par désignation sur toute la nuit (v28)
         totals_plan = {}
         totals_reel = {}
+        totals_geo = {}
         totals_type = {}
         # Statuts d'allée pour affichage (nb validées / à faire / bloquée)
         nb_val, nb_block, nb_todo = 0, 0, 0
@@ -1681,8 +1687,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 continue
             elements = [{"element": k, "products": _products_list(v)}
                         for k, v in sorted(node["elements"].items(), key=_elem_sort)]
-            # Récupération du réel selon le mode
+            # Récupération du réel/géoloc selon le mode (v28)
             reel_by_desig = {}
+            geo_by_desig = {}
             if mode == "cam":
                 ce = cam_entries.get(uid) or {}
                 # Le réel caméra est aggregé (cameras_reel + fixations_reel) — on le
@@ -1696,6 +1703,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                         plan_fix_tot += float(q or 0)
                 r_cam = float(ce.get("cameras_reel") or 0)
                 r_fix = float(ce.get("fixations_reel") or 0)
+                g_cam = float(ce.get("cameras_geo") or 0)   # (v28) géoloc caméras
                 for dg, q in (node["totals"] or {}).items():
                     typ = (node["types"] or {}).get(dg) or ""
                     q = float(q or 0)
@@ -1704,9 +1712,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     if (typ or "").strip().lower() in ("caméra", "camera"):
                         if plan_cam_tot > 0:
                             reel_by_desig[dg] = r_cam * (q / plan_cam_tot)
+                            geo_by_desig[dg] = g_cam * (q / plan_cam_tot)
                     else:
                         if plan_fix_tot > 0:
                             reel_by_desig[dg] = r_fix * (q / plan_fix_tot)
+                            # Fixations Captana : pas de géoloc (v28)
                 status_a = (ce or {}).get("status") or "a_faire"
             else:
                 ee = eeg_entries.get(uid) or {}
@@ -1714,6 +1724,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     dg = str(p.get("designation") or "")
                     if p.get("reel") is not None and dg in (node["totals"] or {}):
                         reel_by_desig[dg] = float(p.get("reel") or 0)
+                    if p.get("geo") is not None and dg in (node["totals"] or {}):
+                        geo_by_desig[dg] = float(p.get("geo") or 0)
                 status_a = (ee or {}).get("status") or "a_faire"
             if status_a == "validee":
                 nb_val += 1
@@ -1727,6 +1739,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 totals_type[dg] = (node["types"] or {}).get(dg) or totals_type.get(dg, "")
                 if dg in reel_by_desig:
                     totals_reel[dg] = totals_reel.get(dg, 0.0) + reel_by_desig[dg]
+                if dg in geo_by_desig:
+                    totals_geo[dg] = totals_geo.get(dg, 0.0) + geo_by_desig[dg]
             # Construction de l'écart au niveau allée (utile pour drill-down)
             allee_ecarts = []
             for dg in sorted(node["totals"].keys(), key=lambda s: s.lower()):
@@ -1744,8 +1758,17 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     st = "manque"
                 else:
                     st = "conforme"
+                typ = (node["types"] or {}).get(dg) or ""
+                fam = classify_family(typ, dg) or ""
+                # (v28) La géoloc est requise pour rails_es / sa_15 / sa_21_std (EEG)
+                # et pour les caméras (mode cam). Elle est distincte du "posé".
+                is_geo = (fam in GEO_KEYS) if mode == "eeg" else \
+                         ((typ or "").strip().lower() in ("caméra", "camera"))
+                pgeo = geo_by_desig.get(dg) if is_geo else None
                 allee_ecarts.append({
                     "designation": dg, "plan": _r(pplan), "reel": _r(preel),
+                    "geo": _r(pgeo) if pgeo is not None else None,
+                    "family": fam, "is_geo": is_geo,
                     "delta": _r(delta), "status": st,
                 })
             allees.append({"uid": uid, "allee": node["allee"], "secteur": node["secteur"],
@@ -1777,9 +1800,17 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 st = "manque"
             else:
                 st = "conforme"
+            typ = totals_type.get(dg, "")
+            fam = classify_family(typ, dg) or ""
+            # (v28) Même logique is_geo qu'au niveau allée
+            is_geo = (fam in GEO_KEYS) if mode == "eeg" else \
+                     ((typ or "").strip().lower() in ("caméra", "camera"))
+            pgeo = totals_geo.get(dg) if is_geo else None
             ecarts_nuit.append({
-                "designation": dg, "type": totals_type.get(dg, ""),
+                "designation": dg, "type": typ,
                 "plan": _r(pplan), "reel": _r(preel),
+                "geo": _r(pgeo) if pgeo is not None else None,
+                "family": fam, "is_geo": is_geo,
                 "delta": _r(delta), "status": st,
             })
         nb_bonus = sum(1 for e in ecarts_nuit if e["status"] == "bonus")
