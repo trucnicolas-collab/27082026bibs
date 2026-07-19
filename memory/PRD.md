@@ -1,5 +1,32 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v28 iter4 — Export Excel rapport de nuit refondu)
+
+### Demande utilisateur
+« Export Excel précis et ludique qui montre tout ce qui a été fait dans la nuit. »
+
+### Fix appliqué (`backend/suivi_deploy.py::_rapport_response`)
+Refonte complète de la 1ʳᵉ feuille (« Résumé N{n} ») :
+- **Bandeau titre coloré** : « ⚡ RAPPORT DE NUIT N°X » (fond bleu Carrefour, taille 22, cellules fusionnées).
+- **8 cartes KPI colorées** (2 lignes × 4 cards) : EEG posées, prévues, taux de pose, écart, allées validées, à finaliser, non faites, posés sans géoloc. Couleur dynamique selon perf (vert ≥95%, bleu ≥75%, orange ≥50%, rouge sinon).
+- **Verdict ludique** en gros (16pt) avec emoji contextuel : ⚡🎉 bravo / ✅ conforme / ⚠️ léger retard / 🚨 retard important.
+- **Sections thématiques** avec bandeaux colorés :
+  - 📊 Contexte campagne (rythme réel/prévu, cumul, avance/retard)
+  - ⚠️ Alertes stock (fond rouge)
+  - 🚨 Incidents (avec auteur + horodatage)
+  - 💬 Commentaires d'allée (fond orange)
+  - 📌 Écarts >5% justifiés
+  - 📋 Détail visuel des allées de la nuit (statut avec emoji ⏳✅🚫⚠️, lignes zébrées)
+
+Les 4 autres feuilles ("Détail allées", "Détail produits", "Écart phasage vs réel", "Synthèse déploiement") conservent leurs données brutes complètes pour analyse.
+
+### Validation
+- Export généré : 5 feuilles, 11.6 KB, aucune erreur.
+- Contenu vérifié via openpyxl : titres, KPIs, verdict, incidents, commentaires, écarts, détails allées tous présents.
+- 18/18 tests régression OK.
+
+
+
 ## Changelog 13/02/2026 (v28 iter3 — Filtre géoloc + badges/modal résumé nuit)
 
 ### Demandes utilisateur

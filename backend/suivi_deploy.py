@@ -1059,98 +1059,352 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
         buf = io.BytesIO()
         wb = xlsxwriter.Workbook(buf, {"in_memory": True})
-        ws = wb.add_worksheet(f"Nuit {nuit}")
-        f_title = wb.add_format({"bold": True, "font_size": 14, "font_color": "#005BAB"})
-        f_sub = wb.add_format({"font_size": 10, "font_color": "#666666"})
-        f_h = wb.add_format({"bold": True, "bg_color": "#005BAB", "font_color": "white",
+
+        # ═══════════════════════════════════════════════════════════════
+        # PALETTE COULEURS — bleu Carrefour comme couleur principale
+        # ═══════════════════════════════════════════════════════════════
+        C_BLUE = "#005BAB"        # Carrefour blue
+        C_BLUE_LIGHT = "#DBEAFE"
+        C_BLUE_ULTRA = "#EFF6FF"
+        C_SUCCESS = "#059669"      # vert émeraude
+        C_SUCCESS_BG = "#D1FAE5"
+        C_WARNING = "#D97706"      # orange
+        C_WARNING_BG = "#FEF3C7"
+        C_DANGER = "#DC2626"       # rouge
+        C_DANGER_BG = "#FEE2E2"
+        C_NEUTRAL = "#6B7280"      # gris
+        C_ZEBRA = "#F9FAFB"
+
+        # Formats de base
+        f_title = wb.add_format({"bold": True, "font_size": 22, "font_color": "white",
+                                 "bg_color": C_BLUE, "align": "center", "valign": "vcenter"})
+        f_subtitle = wb.add_format({"font_size": 12, "font_color": "white",
+                                    "bg_color": C_BLUE, "align": "center", "valign": "vcenter"})
+        f_sub = wb.add_format({"font_size": 10, "font_color": C_NEUTRAL, "italic": True})
+        f_section = wb.add_format({"bold": True, "font_size": 14, "font_color": C_BLUE,
+                                   "bottom": 2, "bottom_color": C_BLUE})
+        f_h = wb.add_format({"bold": True, "bg_color": C_BLUE, "font_color": "white",
                              "border": 1, "align": "center", "valign": "vcenter", "text_wrap": True})
-        f_c = wb.add_format({"border": 1, "align": "center"})
-        f_cl = wb.add_format({"border": 1})
-        f_ok = wb.add_format({"border": 1, "align": "center", "bg_color": "#DBEAFE"})
-        f_neg = wb.add_format({"border": 1, "align": "center", "bg_color": "#FEE2E2", "font_color": "#B91C1C"})
-        f_pos = wb.add_format({"border": 1, "align": "center", "bg_color": "#FEF3C7", "font_color": "#92400E"})
-        f_geo_bad = wb.add_format({"border": 1, "align": "center", "bg_color": "#FEE2E2", "font_color": "#B91C1C", "bold": True})
-        f_tot = wb.add_format({"bold": True, "border": 1, "align": "center", "bg_color": "#E5E7EB"})
-        f_kpi_l = wb.add_format({"bold": True})
+        f_c = wb.add_format({"border": 1, "align": "center", "valign": "vcenter"})
+        f_cl = wb.add_format({"border": 1, "valign": "vcenter"})
+        f_c_zebra = wb.add_format({"border": 1, "align": "center", "valign": "vcenter", "bg_color": C_ZEBRA})
+        f_cl_zebra = wb.add_format({"border": 1, "valign": "vcenter", "bg_color": C_ZEBRA})
+        f_ok = wb.add_format({"border": 1, "align": "center", "bg_color": C_BLUE_LIGHT, "bold": True, "font_color": C_BLUE})
+        f_neg = wb.add_format({"border": 1, "align": "center", "bg_color": C_DANGER_BG, "font_color": C_DANGER, "bold": True})
+        f_pos = wb.add_format({"border": 1, "align": "center", "bg_color": C_WARNING_BG, "font_color": C_WARNING, "bold": True})
+        f_geo_bad = wb.add_format({"border": 1, "align": "center", "bg_color": C_DANGER_BG, "font_color": C_DANGER, "bold": True})
+        f_tot = wb.add_format({"bold": True, "border": 2, "align": "center", "bg_color": "#E0E7FF", "font_color": C_BLUE})
+        f_kpi_l = wb.add_format({"bold": True, "font_size": 11})
+        # KPI cards colorées
+        f_kpi_card_label = wb.add_format({"font_size": 10, "font_color": "white", "bg_color": C_BLUE,
+                                          "align": "center", "valign": "vcenter", "text_wrap": True,
+                                          "top": 2, "left": 2, "right": 2, "top_color": C_BLUE, "left_color": C_BLUE, "right_color": C_BLUE})
+        f_kpi_card_val = wb.add_format({"font_size": 20, "bold": True, "font_color": C_BLUE,
+                                        "align": "center", "valign": "vcenter", "bg_color": "white",
+                                        "bottom": 2, "left": 2, "right": 2, "bottom_color": C_BLUE, "left_color": C_BLUE, "right_color": C_BLUE})
+        f_kpi_success_val = wb.add_format({"font_size": 20, "bold": True, "font_color": C_SUCCESS,
+                                           "align": "center", "valign": "vcenter", "bg_color": C_SUCCESS_BG,
+                                           "bottom": 2, "left": 2, "right": 2, "bottom_color": C_SUCCESS, "left_color": C_SUCCESS, "right_color": C_SUCCESS})
+        f_kpi_success_lbl = wb.add_format({"font_size": 10, "font_color": "white", "bg_color": C_SUCCESS,
+                                           "align": "center", "valign": "vcenter", "text_wrap": True,
+                                           "top": 2, "left": 2, "right": 2, "top_color": C_SUCCESS, "left_color": C_SUCCESS, "right_color": C_SUCCESS})
+        f_kpi_warn_val = wb.add_format({"font_size": 20, "bold": True, "font_color": C_WARNING,
+                                        "align": "center", "valign": "vcenter", "bg_color": C_WARNING_BG,
+                                        "bottom": 2, "left": 2, "right": 2, "bottom_color": C_WARNING, "left_color": C_WARNING, "right_color": C_WARNING})
+        f_kpi_warn_lbl = wb.add_format({"font_size": 10, "font_color": "white", "bg_color": C_WARNING,
+                                        "align": "center", "valign": "vcenter", "text_wrap": True,
+                                        "top": 2, "left": 2, "right": 2, "top_color": C_WARNING, "left_color": C_WARNING, "right_color": C_WARNING})
+        f_kpi_danger_val = wb.add_format({"font_size": 20, "bold": True, "font_color": C_DANGER,
+                                          "align": "center", "valign": "vcenter", "bg_color": C_DANGER_BG,
+                                          "bottom": 2, "left": 2, "right": 2, "bottom_color": C_DANGER, "left_color": C_DANGER, "right_color": C_DANGER})
+        f_kpi_danger_lbl = wb.add_format({"font_size": 10, "font_color": "white", "bg_color": C_DANGER,
+                                          "align": "center", "valign": "vcenter", "text_wrap": True,
+                                          "top": 2, "left": 2, "right": 2, "top_color": C_DANGER, "left_color": C_DANGER, "right_color": C_DANGER})
+        # Verdict
+        f_verdict = wb.add_format({"font_size": 16, "bold": True, "align": "center", "valign": "vcenter",
+                                   "text_wrap": True, "border": 2})
+        # Sections colorées
+        f_alert_title = wb.add_format({"bold": True, "font_size": 13, "font_color": "white",
+                                       "bg_color": C_DANGER, "align": "left", "valign": "vcenter",
+                                       "left": 2, "right": 2, "top": 2, "bottom": 2, "left_color": C_DANGER,
+                                       "right_color": C_DANGER, "top_color": C_DANGER, "bottom_color": C_DANGER})
+        f_comment_title = wb.add_format({"bold": True, "font_size": 13, "font_color": "white",
+                                         "bg_color": C_WARNING, "align": "left", "valign": "vcenter",
+                                         "left": 2, "right": 2, "top": 2, "bottom": 2, "left_color": C_WARNING,
+                                         "right_color": C_WARNING, "top_color": C_WARNING, "bottom_color": C_WARNING})
+        f_info_title = wb.add_format({"bold": True, "font_size": 13, "font_color": "white",
+                                      "bg_color": C_BLUE, "align": "left", "valign": "vcenter",
+                                      "left": 2, "right": 2, "top": 2, "bottom": 2, "left_color": C_BLUE,
+                                      "right_color": C_BLUE, "top_color": C_BLUE, "bottom_color": C_BLUE})
+
+        # ═══════════════════════════════════════════════════════════════
+        # FEUILLE 1 — RÉSUMÉ VISUEL
+        # ═══════════════════════════════════════════════════════════════
+        ws = wb.add_worksheet(f"Résumé N{nuit}")
+        ws.set_column(0, 11, 12)
+        ws.set_row(0, 32)
+        ws.set_row(1, 22)
 
         store = state["store_name"] or state["filename"]
-        ws.write(0, 0, f"Rapport de pose — Nuit {nuit}", f_title)
-        ws.write(1, 0, f"{store}" + (f" · {state['store_code']}" if state["store_code"] else "")
-                 + (f" · {night.get('date')}" if night.get("date") else ""), f_sub)
-        ws.write(2, 0, f"Généré le {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')} UTC", f_sub)
+        ws.merge_range(0, 0, 0, 11, f"⚡ RAPPORT DE NUIT N°{nuit}", f_title)
+        subtitle_txt = f"{store}"
+        if state["store_code"]:
+            subtitle_txt += f"  ·  Code {state['store_code']}"
+        if night.get("date"):
+            try:
+                dt = datetime.strptime(night["date"], "%Y-%m-%d")
+                subtitle_txt += f"  ·  {dt.strftime('%A %d %B %Y')}"
+            except Exception:
+                subtitle_txt += f"  ·  {night['date']}"
+        ws.merge_range(1, 0, 1, 11, subtitle_txt, f_subtitle)
+        ws.write(2, 0, f"Généré le {datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M')} UTC", f_sub)
 
+        # ---- Cartes KPI (grille 4×2) ----
         row = 4
         st = state["stats"]
         delta_n = night.get("delta_eeg")
         geo_gap_total = _r(sum(sum(x["geo_gap"].values()) for x in items if x["geo_gap"]))
-        kpis = [
-            ("EEG prévues cette nuit", night.get("eeg_plan", 0)),
-            ("EEG posées cette nuit", night.get("eeg_reel", 0)),
-            ("Écart cette nuit", delta_n if delta_n is not None else "—"),
-            ("Allées validées", f"{night.get('nb_validees', 0)} / {night.get('nb_allees', 0)}"),
-            ("Allées à finaliser une autre nuit", night.get("nb_a_finaliser", 0)),
-            ("Posés non géolocalisés (rails/SA)", geo_gap_total),
-            ("Rythme moyen réel (EEG/nuit)", st["rythme_reel"] or "—"),
-            ("Rythme prévu (EEG/nuit)", st["rythme_prevu"]),
-            ("Écart cumulé (nuits terminées)", st["cumul_delta_eeg"]),
-            ("Avance/retard estimé (nuits)", st["avance_nuits"] if st["avance_nuits"] is not None else "—"),
-        ]
-        for label, val in kpis:
-            ws.write(row, 0, label, f_kpi_l)
-            ws.write(row, 2, val)
-            row += 1
-        # Compteur "non faites"
+        eeg_plan = int(night.get("eeg_plan") or 0)
+        eeg_reel = int(night.get("eeg_reel") or 0)
+        pct_pose = round(100 * eeg_reel / eeg_plan, 1) if eeg_plan > 0 else 0
+        nb_val = night.get("nb_validees", 0)
+        nb_all = night.get("nb_allees", 0)
+        pct_val = round(100 * nb_val / nb_all, 1) if nb_all > 0 else 0
+
+        # Choix des couleurs KPI en fonction des perfs
+        def _card_style(pct):
+            if pct >= 95:
+                return (f_kpi_success_lbl, f_kpi_success_val)
+            if pct >= 75:
+                return (f_kpi_card_label, f_kpi_card_val)
+            if pct >= 50:
+                return (f_kpi_warn_lbl, f_kpi_warn_val)
+            return (f_kpi_danger_lbl, f_kpi_danger_val)
+
+        def _draw_kpi(r, col_start, col_end, label, value, style=(f_kpi_card_label, f_kpi_card_val)):
+            lbl_fmt, val_fmt = style
+            ws.set_row(r, 26)
+            ws.set_row(r + 1, 42)
+            ws.merge_range(r, col_start, r, col_end, label, lbl_fmt)
+            ws.merge_range(r + 1, col_start, r + 1, col_end, value, val_fmt)
+
+        # Ligne 1 : EEG posé, EEG prévu, Pose %, Écart
+        _draw_kpi(row, 0, 2, "🎯 EEG POSÉES", f"{eeg_reel:,}".replace(",", " "),
+                  _card_style(pct_pose))
+        _draw_kpi(row, 3, 5, "📊 EEG PRÉVUES", f"{eeg_plan:,}".replace(",", " "))
+        _draw_kpi(row, 6, 8, "⚡ TAUX DE POSE", f"{pct_pose}%",
+                  _card_style(pct_pose))
+        delta_str = f"{'+' if isinstance(delta_n, (int, float)) and delta_n > 0 else ''}{int(delta_n)}" if isinstance(delta_n, (int, float)) else "—"
+        delta_style = (f_kpi_success_lbl, f_kpi_success_val) if isinstance(delta_n, (int, float)) and delta_n >= 0 else \
+                      (f_kpi_danger_lbl, f_kpi_danger_val) if isinstance(delta_n, (int, float)) else \
+                      (f_kpi_card_label, f_kpi_card_val)
+        _draw_kpi(row, 9, 11, "📈 ÉCART VS PRÉVU", delta_str, delta_style)
+
+        row += 3
+        # Ligne 2 : Allées validées, à finaliser, non faites, géoloc manquante
+        nb_a_fin = night.get("nb_a_finaliser", 0)
         nb_non_faites = sum(1 for x in items if x["status"] == "non_faite")
-        if nb_non_faites:
-            ws.write(row, 0, "Allées non faites", f_kpi_l)
-            ws.write(row, 2, nb_non_faites)
-            row += 1
+        _draw_kpi(row, 0, 2, "✅ ALLÉES VALIDÉES", f"{nb_val}/{nb_all}",
+                  _card_style(pct_val))
+        _draw_kpi(row, 3, 5, "⏳ À FINALISER", str(nb_a_fin),
+                  (f_kpi_warn_lbl, f_kpi_warn_val) if nb_a_fin > 0 else (f_kpi_success_lbl, f_kpi_success_val))
+        _draw_kpi(row, 6, 8, "🚫 NON FAITES", str(nb_non_faites),
+                  (f_kpi_danger_lbl, f_kpi_danger_val) if nb_non_faites > 0 else (f_kpi_success_lbl, f_kpi_success_val))
+        _draw_kpi(row, 9, 11, "📍 POSÉS SANS GÉOLOC", str(int(geo_gap_total)),
+                  (f_kpi_warn_lbl, f_kpi_warn_val) if geo_gap_total > 0 else (f_kpi_success_lbl, f_kpi_success_val))
+        row += 3
 
-        # ---- Allées "non faites" en attente (rattrapage non défini) ----
-        pending = [x for x in items if x["status"] == "non_faite" and not x.get("nuit_rattrapage")]
-        if pending:
-            row += 1
-            f_pending_title = wb.add_format({"bold": True, "font_size": 12, "font_color": "#B91C1C"})
-            ws.write(row, 0, f"⏳ Allées « non faites » EN ATTENTE (rattrapage à définir) — {len(pending)}", f_pending_title)
-            row += 1
-            for c, h in enumerate(["Allée", "Secteur", "Rayon", "Raison"]):
-                ws.write(row, c, h, f_h)
-            row += 1
-            for x in pending:
-                ws.write(row, 0, x["allee"], f_c)
-                ws.write(row, 1, x["secteur"], f_cl)
-                ws.write(row, 2, x["rayon"] or "", f_cl)
-                ws.write(row, 3, x["comment"] or "—", f_cl)
-                row += 1
-            row += 1
-
-        # ---- Alerte stock : produits en risque de manque ----
-        stock_alerts = [s for s in (state.get("stock") or []) if s.get("alert")]
-        if stock_alerts:
-            row += 1
-            f_alert_title = wb.add_format({"bold": True, "font_size": 12, "font_color": "#B91C1C"})
-            ws.write(row, 0, f"⚠ Risque de manque de stock ({len(stock_alerts)} produit(s))", f_alert_title)
-            row += 1
-            for c, h in enumerate(["Produit", "Prévu", "Reçu", "Posé", "Restant stock", "Restant à poser", "Manque"]):
-                ws.write(row, c, h, f_h)
-            row += 1
-            for s in stock_alerts:
-                ws.write(row, 0, s["designation"], f_cl)
-                ws.write(row, 1, s["prevu"], f_c)
-                ws.write(row, 2, s["recu"] if s.get("recu") is not None else "—", f_c)
-                ws.write(row, 3, s["pose"], f_c)
-                ws.write(row, 4, s["restant_stock"], f_c)
-                ws.write(row, 5, s["restant_a_poser"], f_c)
-                ws.write(row, 6, s["manque"], f_geo_bad)
-                row += 1
-            row += 1
+        # ---- Verdict ludique de la nuit ----
         if isinstance(delta_n, (int, float)):
-            verdict = ("⚡ Plus rapide que prévu" if delta_n > 0 else
-                       ("🐢 Plus lent que prévu" if delta_n < 0 else "✔ Conforme au prévisionnel"))
-            ws.write(row, 0, "Verdict", f_kpi_l)
-            ws.write(row, 2, verdict)
+            if delta_n > 500:
+                verdict_txt = f"⚡🎉  BRAVO ! Nuit +{int(delta_n)} EEG au-dessus du prévisionnel"
+                verdict_bg, verdict_fg = C_SUCCESS_BG, C_SUCCESS
+            elif delta_n >= 0:
+                verdict_txt = f"✅  Nuit conforme (+{int(delta_n)} EEG)"
+                verdict_bg, verdict_fg = C_BLUE_LIGHT, C_BLUE
+            elif delta_n > -500:
+                verdict_txt = f"⚠️  Léger retard ({int(delta_n)} EEG)"
+                verdict_bg, verdict_fg = C_WARNING_BG, C_WARNING
+            else:
+                verdict_txt = f"🚨  Retard important ({int(delta_n)} EEG) — à rattraper d'urgence"
+                verdict_bg, verdict_fg = C_DANGER_BG, C_DANGER
+        else:
+            verdict_txt = "⏳  Nuit en cours"
+            verdict_bg, verdict_fg = "#F3F4F6", C_NEUTRAL
+        f_verdict_dyn = wb.add_format({"font_size": 16, "bold": True, "align": "center", "valign": "vcenter",
+                                       "text_wrap": True, "bg_color": verdict_bg, "font_color": verdict_fg,
+                                       "border": 2, "border_color": verdict_fg})
+        ws.set_row(row, 40)
+        ws.merge_range(row, 0, row, 11, verdict_txt, f_verdict_dyn)
+        row += 2
+
+        # ---- Info bandeau rythme/cumul ----
+        ws.merge_range(row, 0, row, 11, "📊  Contexte de la campagne", f_info_title)
+        ws.set_row(row, 22)
+        row += 1
+        info_lines = [
+            ("Rythme moyen réel (EEG/nuit)", st.get("rythme_reel") or "—"),
+            ("Rythme prévu (EEG/nuit)", st.get("rythme_prevu")),
+            ("Écart cumulé (nuits terminées)", st.get("cumul_delta_eeg")),
+            ("Avance/retard estimé (nuits)", st.get("avance_nuits") if st.get("avance_nuits") is not None else "—"),
+        ]
+        for label, val in info_lines:
+            ws.write(row, 0, "  " + label, f_kpi_l)
+            ws.merge_range(row, 4, row, 5, val, f_c)
             row += 1
         row += 1
+
+        # ---- Alertes stock ----
+        stock_alerts = [s for s in (state.get("stock") or []) if s.get("alert")]
+        if stock_alerts:
+            ws.merge_range(row, 0, row, 11, f"⚠️  RISQUE MANQUE DE STOCK ({len(stock_alerts)} produit(s))", f_alert_title)
+            ws.set_row(row, 22)
+            row += 1
+            for c, h in enumerate(["Produit", "Prévu", "Reçu", "Posé", "Restant stock", "Restant à poser", "Manque"]):
+                if c == 0:
+                    ws.merge_range(row, 0, row, 5, h, f_h)
+                elif c == 1:
+                    ws.write(row, 6, h, f_h)
+                elif c == 2:
+                    ws.write(row, 7, h, f_h)
+                elif c == 3:
+                    ws.write(row, 8, h, f_h)
+                elif c == 4:
+                    ws.write(row, 9, h, f_h)
+                elif c == 5:
+                    ws.write(row, 10, h, f_h)
+                elif c == 6:
+                    ws.write(row, 11, h, f_h)
+            row += 1
+            for i, s in enumerate(stock_alerts):
+                fmtl = f_cl_zebra if i % 2 else f_cl
+                fmtc = f_c_zebra if i % 2 else f_c
+                ws.merge_range(row, 0, row, 5, s["designation"], fmtl)
+                ws.write(row, 6, s["prevu"], fmtc)
+                ws.write(row, 7, s["recu"] if s.get("recu") is not None else "—", fmtc)
+                ws.write(row, 8, s["pose"], fmtc)
+                ws.write(row, 9, s["restant_stock"], fmtc)
+                ws.write(row, 10, s["restant_a_poser"], fmtc)
+                ws.write(row, 11, s["manque"], f_geo_bad)
+                row += 1
+            row += 1
+
+        # ---- Incidents ----
+        incs = [i for i in state["incidents"] if i.get("nuit") == nuit]
+        if incs:
+            ws.merge_range(row, 0, row, 11, f"🚨  INCIDENTS ({len(incs)})", f_alert_title)
+            ws.set_row(row, 22)
+            row += 1
+            for i in incs:
+                text = f"• {i.get('text')}"
+                author = i.get("author") or ""
+                created = ""
+                if i.get("created_at"):
+                    try:
+                        created = datetime.fromisoformat(str(i["created_at"]).replace("Z", "+00:00")).strftime("%d/%m %H:%M")
+                    except Exception:
+                        pass
+                subline = f"— {author} · {created}" if author or created else ""
+                ws.merge_range(row, 0, row, 8, text, f_cl)
+                ws.merge_range(row, 9, row, 11, subline, f_sub)
+                row += 1
+            row += 1
+
+        # ---- Commentaires par allée ----
+        alees_comm = [x for x in items if (x.get("comment") or "").strip()]
+        if alees_comm:
+            ws.merge_range(row, 0, row, 11, f"💬  COMMENTAIRES D'ALLÉE ({len(alees_comm)})", f_comment_title)
+            ws.set_row(row, 22)
+            row += 1
+            for x in alees_comm:
+                header = f"Allée {x['allee']} · {x['secteur']}{(' · ' + x['rayon']) if x['rayon'] else ''}"
+                ws.merge_range(row, 0, row, 3, header, f_kpi_l)
+                ws.merge_range(row, 4, row, 11, x["comment"], f_cl)
+                row += 1
+            row += 1
+
+        # ---- Justifications d'écart > 5% (dans le résumé pour transparence) ----
+        justif_rows = [x for x in items if x.get("justif_products")]
+        if justif_rows:
+            ws.merge_range(row, 0, row, 11, "📌  ÉCARTS > 5% JUSTIFIÉS", f_comment_title)
+            ws.set_row(row, 22)
+            row += 1
+            for c, h in enumerate(["Allée", "Produit", "Prévu", "Posé", "%", "Justification"]):
+                if c == 0:
+                    ws.write(row, 0, h, f_h)
+                elif c == 1:
+                    ws.merge_range(row, 1, row, 4, h, f_h)
+                elif c == 2:
+                    ws.write(row, 5, h, f_h)
+                elif c == 3:
+                    ws.write(row, 6, h, f_h)
+                elif c == 4:
+                    ws.write(row, 7, h, f_h)
+                elif c == 5:
+                    ws.merge_range(row, 8, row, 11, h, f_h)
+            row += 1
+            i = 0
+            for x in justif_rows:
+                for jp in x["justif_products"]:
+                    fmtc = f_c_zebra if i % 2 else f_c
+                    fmtl = f_cl_zebra if i % 2 else f_cl
+                    ws.write(row, 0, x["allee"], fmtc)
+                    ws.merge_range(row, 1, row, 4, jp["designation"], fmtl)
+                    ws.write(row, 5, jp["plan"], fmtc)
+                    ws.write(row, 6, jp["reel"], fmtc)
+                    ws.write(row, 7, jp["ecart_pct"], f_neg)
+                    ws.merge_range(row, 8, row, 11, x.get("justification") or "⚠ manquante", fmtl)
+                    row += 1
+                    i += 1
+            row += 1
+
+        # ---- Statut détaillé des allées (mini-liste couleur) ----
+        ws.merge_range(row, 0, row, 11, f"📋  DÉTAIL DES {len(items)} ALLÉES DE LA NUIT", f_info_title)
+        ws.set_row(row, 22)
+        row += 1
+        for c, h in enumerate(["Allée", "Secteur / Rayon", "Statut", "Pose", "Géoloc", "EEG posés"]):
+            if c == 0:
+                ws.write(row, 0, h, f_h)
+            elif c == 1:
+                ws.merge_range(row, 1, row, 5, h, f_h)
+            elif c == 2:
+                ws.merge_range(row, 6, row, 7, h, f_h)
+            elif c == 3:
+                ws.write(row, 8, h, f_h)
+            elif c == 4:
+                ws.write(row, 9, h, f_h)
+            elif c == 5:
+                ws.merge_range(row, 10, row, 11, h, f_h)
+        row += 1
+        status_lbl = {"a_faire": "⏳ À faire", "validee": "✅ Validée", "bloquee": "🚫 Bloquée",
+                      "a_finaliser": "⚠️ À finaliser", "non_faite": "🚫 Non faite"}
+        for i, x in enumerate(items):
+            fmtc = f_c_zebra if i % 2 else f_c
+            fmtl = f_cl_zebra if i % 2 else f_cl
+            st_key = x["status"]
+            st_fmt = f_ok if st_key == "validee" else (f_neg if st_key in ("bloquee", "a_finaliser", "non_faite") else fmtc)
+            ws.write(row, 0, x["allee"], fmtc)
+            ws.merge_range(row, 1, row, 5,
+                           f"{x['secteur']}" + (f" · {x['rayon']}" if x['rayon'] else ""), fmtl)
+            ws.merge_range(row, 6, row, 7, status_lbl.get(st_key, st_key), st_fmt)
+            pose_str = f"{x.get('pose_saisis') or 0}/{x.get('pose_total') or 0}"
+            ws.write(row, 8, pose_str, fmtc if x.get("pose_complete") else f_geo_bad)
+            if (x.get("geo_total") or 0) > 0:
+                geo_str = f"{x.get('geo_saisis') or 0}/{x.get('geo_total') or 0}"
+                ws.write(row, 9, geo_str, fmtc if x.get("geo_complete") else f_geo_bad)
+            else:
+                ws.write(row, 9, "—", fmtc)
+            eeg_a = sum(x["reel"].get(k) or 0 for k in ("es_15", "es_21", "rails_es", "sa_15", "sa_21_std"))
+            ws.merge_range(row, 10, row, 11, int(eeg_a), fmtc)
+            row += 1
+        row += 1
+
+        # ═══════════════════════════════════════════════════════════════
+        # FEUILLE 2 — DÉTAIL PAR ALLÉE (le tableau complet historique)
+        # ═══════════════════════════════════════════════════════════════
+        ws = wb.add_worksheet("Détail allées")
+        ws.write(0, 0, f"Détail complet des allées — Nuit {nuit}", f_section)
+        row = 2
 
         # Tableau des allées (prévu / réel / géo / Δ) + colonnes distinctes Pose vs Géoloc
         headers = ["Allée", "Secteur", "Rayon", "Pose", "Géoloc", "Déplacée ?"]
