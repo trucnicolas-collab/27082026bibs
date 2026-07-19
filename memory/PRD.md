@@ -1,5 +1,28 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v28 iter6 — Refonte Suivi Caméras + masquage batterie/software + labels dashboard)
+
+### Demandes utilisateur
+1. Retirer partout « batterie caméra » et « software caméra » du Suivi.
+2. Rendre la saisie caméra **symétrique EEG** : grille par produit (Caméras blanches/noires + fixations Captana) avec Posé/Géoloc individuel — permet alertes stock par produit.
+3. Clarifier les KPIs dashboard « POSE PRODUITS » / « GÉOLOCALISATION » (labels flous).
+
+### Fix appliqué
+- **`suivi_deploy.py`** : constante `SUIVI_HIDDEN_DESIGNATIONS = {"batterie caméra", "software caméra"}` + helper `is_hidden_in_suivi()`. Filtre appliqué dans `_materiel_par_allee` → propage à tous les écrans (stock, matériel par nuit, écrans allée, exports).
+- **`CamAlleeUpdate`** enrichi avec `products: List[ProductEntry]` (mêmes champs que EEG). Champs scalaires `cameras_reel/cameras_geo/fixations_reel` conservés en RÉTROCOMPAT lecture mais désormais **dérivés** de `products` (via `_apply_cam_update`).
+- **`_build_cam_state`** : chaque produit cam remonte maintenant `plan`, `reel`, `geo`, `geo_gap`, `is_camera`, `is_fixation`, `is_geo` — mêmes flags que côté EEG.
+- **Frontend `SuiviCam.jsx CamAlleeCard`** : grille compacte par produit (5 colonnes : Produit / Prévu / Posé / Géoloc / Δ), 📷 pour caméras, 🔧 pour fixations, colonne Géoloc = « — » pour fixations. Bouton `patchCamAllee` envoie désormais `{products: [{designation, reel/geo}]}`.
+- **Dashboard**: KPIs renommés `Saisies posées` / `Saisies géoloc` + tooltip explicatif + petite légende « Rails ES / SA 1.5 / SA 2.1 géolocalisés ».
+
+### Migration
+Comme convenu (iter1 option b) : les anciennes saisies scalaires sont **ignorées**. Les poseurs re-saisissent par produit dès la mise en prod.
+
+### Validation
+- 14/14 tests pytest OK (dont 6 nouveaux `test_iter32_suivi_cam_products.py`).
+- Testing agent iter32 : 100% backend + frontend (grille validée par code review, dataset test sans caméras).
+
+
+
 ## Changelog 13/02/2026 (v28 iter5 — Storyboard photos inline dans le rapport)
 
 ### Demande utilisateur
