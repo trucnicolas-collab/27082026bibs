@@ -1,5 +1,24 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog 13/02/2026 (v28 iter3 — Filtre géoloc + badges/modal résumé nuit)
+
+### Demandes utilisateur
+1. Filtre rapide « Voir uniquement les manques de géoloc » dans le Dashboard matériel.
+2. Dans le Dashboard principal, savoir si une nuit a des commentaires/photos/incidents.
+3. Cliquer sur une nuit doit ouvrir les commentaires et photos.
+
+### Fix appliqué (`frontend/src/suivi/` uniquement)
+- **SuiviMateriel.jsx EcartRecap** : nouveau toggle « Manque géoloc » (data-testid `ecart-filter-geo-missing`) affiché seulement si `nbGeoMissing > 0`. Il filtre les lignes `is_geo=true` avec `geo < reel`. Fond ambré quand actif.
+- **SuiviDashboard.jsx cartes de nuit** : 3 badges optionnels (flag rouge = incidents, message ambré = commentaires, camera bleu = photos) avec compteur. Data-testids : `dash-night-{n}-comment-badge`, `-photo-badge`, `-incident-badge`.
+- **NightSummaryModal** : 3 nouvelles sections avant la liste d'allées — Incidents (rouge), Commentaires par allée (ambré), Photos (grille miniatures cliquables → overlay zoom plein écran). Petites icônes 💬/📷 aussi sur chaque ligne d'allée dans la modal si concernée.
+- Import de `MessageSquare`, `Camera`, `Flag` (lucide-react) dans SuiviDashboard, `MapPin` dans SuiviMateriel.
+
+### Validation
+- Frontend testing_agent iter31 : 100 % OK runtime (filtre géoloc, badges, modal sections). Zoom photo validé par code review.
+- Aucun changement backend, aucune régression.
+
+
+
 ## Changelog 13/02/2026 (v28 iter2 — Fusion agrégée dans le stock du Suivi)
 
 ### Demande utilisateur
