@@ -65,13 +65,16 @@ def _apply_bonus(prod_agg):
             return dg
         return None
 
-    # Section 4 : bonus rails → ES 1.5 (couleur)
+    # Section 4 : bonus rails → ES 1.5 (couleur) — aligné phasage
     bonus_by_color = {
         "noir": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
         "blanc": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
     }
     for dg, g in prod_agg.items():
-        if g.get("family") != "rails_es":
+        typ_g = (g.get("type") or "").strip().lower()
+        fam_g = g.get("family")
+        # Aligné phasage : rail = (type=="rail") OU family=="rails_es"
+        if typ_g != "rail" and fam_g != "rails_es":
             continue
         col = _color(dg)
         if col not in bonus_by_color:
@@ -179,3 +182,35 @@ def test_fleche_fixe_ajoutee_meme_sans_rails():
     # Le posé et le restant à poser ne sont PAS affectés par la flèche fixe
     assert out["ES 1.5 (noir)"]["pose"] == 0
     assert out["ES 1.5 (noir)"]["restant_a_poser"] == 0
+
+
+def test_rail_1187_blanc_counted_by_type_even_if_not_rails_es_family():
+    """(alignement phasage) « 1187 mm (blanc) » est dans RAILS_BONUS_ES15 mais
+    PAS dans RAILS_ES_PATTERNS, donc son family=None. Le phasage l'inclut quand
+    même dans es_15_bonus_blanc via `typ.lower() == 'rail'`. Le stock du Suivi
+    doit faire pareil : filtrage sur type=='rail' OR family=='rails_es'."""
+    agg = _prod_agg([
+        {"designation": "ES 1.5 (blanc)", "prevu": 1000, "family": "es_15"},
+        # type=rail mais pas dans RAILS_ES_PATTERNS → family serait None en prod
+        {"designation": "1187 mm (blanc)", "prevu": 300, "type": "Rail", "family": None},
+    ])
+    out = _apply_bonus(agg)
+    # ES 1.5 (blanc) prévu = 1000 + 300 (rail 1187 blanc bonus) = 1300
+    assert out["ES 1.5 (blanc)"]["prevu"] == 1300
+    # Le rail 1187 blanc reste visible sur sa propre ligne
+    assert out["1187 mm (blanc)"]["prevu"] == 300
+
+
+def test_non_rail_matching_color_pattern_not_counted():
+    """Un produit dont la désignation matche accidentellement un pattern couleur
+    mais qui n'est PAS un rail (type != 'rail' et family != 'rails_es') ne doit
+    PAS être compté dans le bonus."""
+    agg = _prod_agg([
+        {"designation": "ES 1.5 (noir)", "prevu": 1000, "family": "es_15"},
+        # Un produit dont le nom contient "1187 mm (noir)" mais type=Fixation
+        {"designation": "Face arrière 1187 mm (noir)", "prevu": 500,
+         "type": "Fixation", "family": None},
+    ])
+    out = _apply_bonus(agg)
+    # Pas de bonus rail (uniquement flèche fixe +600)
+    assert out["ES 1.5 (noir)"]["prevu"] == 1600

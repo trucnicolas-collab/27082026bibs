@@ -770,21 +770,26 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 _merge_into(dg, target)
 
         # 4) Bonus rails → ES 1.5 (couleur) SANS retirer les rails du stock.
-        # (iter42) Reprend EXACTEMENT la règle du recap commande
-        # (server.build_recap_produits) : 1 rail (noir ou blanc parmi
-        # RAILS_BONUS_ES15) = +1 étiquette ES 1.5 de même couleur.
-        # → chaque rail apparaît DEUX FOIS dans le stock : sur sa propre ligne,
-        # ET son prévu/posé/restant à poser est ajouté à l'ES 1.5 de sa couleur
-        # (car ce sont deux produits physiques à recevoir : le rail lui-même +
-        # l'étiquette ES 1.5 posée dessus).
+        # (iter42) Reprend EXACTEMENT la règle de l'outil de phasage (voir
+        # server.compute_phasage_summary lignes 2718-2736 + PhasageTab.jsx :
+        # `es_15_bonus_noir/blanc`). Source de vérité : tout produit dont le
+        # type est "Rail" ET dont la désignation matche RAILS_BONUS_ES15 ajoute
+        # sa quantité à l'ES 1.5 de sa couleur. Le rail reste visible sur sa
+        # propre ligne — pas de fusion. Ces deux produits physiques distincts
+        # sont livrés séparément : le rail + l'étiquette ES 1.5 posée dessus.
+        # NB : ce périmètre inclut "1187 mm (blanc)" (dans RAILS_BONUS_ES15 mais
+        # PAS dans RAILS_ES_PATTERNS) — comme dans le recap commande.
         rail_bonus_by_color = {
             "noir": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
             "blanc": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
         }
         for dg, g in prod_agg.items():
-            if (g or {}).get("family") != "rails_es":
+            typ_g = ((g or {}).get("type") or "").strip().lower()
+            fam_g = (g or {}).get("family")
+            # Aligné phasage : rail = (type=="rail") OU family=="rails_es"
+            if typ_g != "rail" and fam_g != "rails_es":
                 continue
-            col = _signaletique_color(dg)
+            col = _signaletique_color(dg)  # utilise _RAILS_BONUS_COLORS
             if col not in rail_bonus_by_color:
                 continue
             rail_bonus_by_color[col]["prevu"] += float(g.get("prevu") or 0)
