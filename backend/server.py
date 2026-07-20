@@ -2407,6 +2407,7 @@ RAILS_ES_PATTERNS = [
     "1240 mm (noir)",
     "1320 mm (blanc)",
     "1320 mm (noir)",
+    "535 mm (noir)",
     "650 mm (noir)",
     "990 mm (blanc)",
     "990 mm (noir)",

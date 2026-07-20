@@ -140,9 +140,13 @@ def _r(x):
 
 
 def _plan_for_allee(a: dict) -> dict:
+    # (iter34) Le bonus rails → ES 1.5 est retiré du plan côté Suivi : c'est une
+    # convention de Phasage (« 1 rail = +1 ES 1.5 à planifier ») qui n'a pas de
+    # produit physique à poser côté terrain. L'ajouter au plan gonflait
+    # artificiellement `eeg_plan` (ex : 746 au lieu de 667 pour l'allée 102),
+    # rendant impossible d'atteindre 100% même en posant tous les produits.
     return {
-        "es_15": _r((a.get("es_15") or 0) + (a.get("fleches") or 0)
-                    + (a.get("es_15_bonus_noir") or 0) + (a.get("es_15_bonus_blanc") or 0)),
+        "es_15": _r((a.get("es_15") or 0) + (a.get("fleches") or 0)),
         "es_21": _r(a.get("es_21")),
         "rails_es": _r(a.get("rails_es")),
         "sa_15": _r(a.get("sa_15")),
@@ -517,6 +521,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             pose_total_tot = sum(int(x.get("pose_total") or 0) for x in items)
             geo_saisis_tot = sum(int(x.get("geo_saisis") or 0) for x in items)
             geo_total_tot = sum(int(x.get("geo_total") or 0) for x in items)
+            # (iter34) Géoloc en UNITÉS (rails_es + sa_15 + sa_21_std)
+            geo_eeg_plan_night = sum(sum(float((x.get("plan") or {}).get(k) or 0) for k in GEO_KEYS) for x in items)
+            geo_eeg_reel_night = sum(sum(float((x.get("geo") or {}).get(k) or 0) for k in GEO_KEYS) for x in items)
             nb_pose_complete = sum(1 for x in items if x.get("pose_complete"))
             nb_geo_complete = sum(1 for x in items if x.get("geo_complete"))
             # Allées rapatriées en avance = allées dont la nuit planifiée était postérieure
@@ -538,6 +545,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "pose_total": pose_total_tot,
                 "geo_saisis": geo_saisis_tot,
                 "geo_total": geo_total_tot,
+                # (iter34) Unités géoloc EEG par nuit (utilisé par le dashboard)
+                "geo_eeg_prevues": _r(geo_eeg_plan_night),
+                "geo_eeg_posees": _r(geo_eeg_reel_night),
                 "eeg_plan": _r(plan_eeg), "eeg_reel": _r(reel_eeg),
                 "delta_eeg": _r(reel_eeg - plan_eeg) if started else None,
                 "complete": complete, "started": started,
@@ -905,6 +915,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
         incidents = sorted(doc.get("incidents") or [], key=lambda i: (i.get("nuit") or 0, i.get("created_at") or ""))
 
+        # Totaux unitaires géoloc EEG (rails_es + sa_15 + sa_21_std uniquement)
+        geo_eeg_plan = _r(sum(sum(float((x.get("plan") or {}).get(k) or 0) for k in GEO_KEYS) for x in allees))
+        geo_eeg_reel = _r(sum(sum(float((x.get("geo") or {}).get(k) or 0) for k in GEO_KEYS) for x in allees))
+        # Totaux caméras (unités posées + géolocalisées)
+        cam_total_plan = _r(sum(float(x.get("plan") or 0) for x in cam_allees))
+        cam_total_reel = _r(sum(float(x.get("reel") or 0) for x in cam_allees))
+        cam_total_geo = _r(sum(float(x.get("geo") or 0) for x in cam_allees))
+
         state = {
             "upload_id": upload_id,
             "store_name": d.get("store_name") or "",
@@ -926,16 +944,23 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "allees": cam_allees,
             },
             "stats": {
+                # --- POSE EEG (unités) --- (calcul consistant plan == reel@100%)
                 "eeg_prevues": total_eeg_plan,
                 "eeg_posees": total_eeg_reel,
                 "pct": _r(100.0 * total_eeg_reel / total_eeg_plan) if total_eeg_plan else 0,
-                # Séparation pose / géoloc (agrégat toutes nuits)
-                "pose_saisis": sum(int(x.get("pose_saisis") or 0) for x in allees),
-                "pose_total": sum(int(x.get("pose_total") or 0) for x in allees),
-                "pose_pct": _r(100.0 * sum(int(x.get("pose_saisis") or 0) for x in allees) / max(1, sum(int(x.get("pose_total") or 0) for x in allees))) if any(x.get("pose_total") for x in allees) else 0,
-                "geo_saisis": sum(int(x.get("geo_saisis") or 0) for x in allees),
-                "geo_total": sum(int(x.get("geo_total") or 0) for x in allees),
-                "geo_pct": _r(100.0 * sum(int(x.get("geo_saisis") or 0) for x in allees) / max(1, sum(int(x.get("geo_total") or 0) for x in allees))) if any(x.get("geo_total") for x in allees) else 0,
+                # --- GÉOLOCALISATION EEG (unités) --- (rails_es + sa_15 + sa_21_std)
+                "geo_eeg_prevues": geo_eeg_plan,
+                "geo_eeg_posees": geo_eeg_reel,
+                "geo_eeg_pct": _r(100.0 * geo_eeg_reel / geo_eeg_plan) if geo_eeg_plan else 0,
+                # --- POSE CAMÉRA (unités) ---
+                "cam_prevues": cam_total_plan,
+                "cam_posees": cam_total_reel,
+                "cam_pct": _r(100.0 * cam_total_reel / cam_total_plan) if cam_total_plan else 0,
+                # --- GÉOLOCALISATION CAMÉRA (unités) ---
+                "cam_geo_prevues": cam_total_reel,  # on ne géoloc que ce qui est posé
+                "cam_geo_posees": cam_total_geo,
+                "cam_geo_pct": _r(100.0 * cam_total_geo / cam_total_reel) if cam_total_reel else 0,
+                # --- Divers (allées / retards / …) ---
                 "allees_deplacees": sum(1 for x in allees if x.get("is_deplacee") and x["status"] != "validee"),
                 "allees_total": len(allees),
                 "allees_validees": n_valid,
@@ -1781,7 +1806,15 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         gkpis = [
             ("EEG prévues (total magasin)", st["eeg_prevues"]),
             ("EEG posées (total)", st["eeg_posees"]),
-            ("Avancement (%)", st["pct"]),
+            ("Avancement Pose EEG (%)", st["pct"]),
+            ("Géoloc EEG prévues (unités)", st.get("geo_eeg_prevues", 0)),
+            ("Géoloc EEG effectuées (unités)", st.get("geo_eeg_posees", 0)),
+            ("Avancement Géoloc EEG (%)", st.get("geo_eeg_pct", 0)),
+            ("Caméras prévues (total)", st.get("cam_prevues", 0)),
+            ("Caméras posées (total)", st.get("cam_posees", 0)),
+            ("Avancement Pose Caméra (%)", st.get("cam_pct", 0)),
+            ("Géoloc Caméras effectuées", st.get("cam_geo_posees", 0)),
+            ("Avancement Géoloc Caméra (%)", st.get("cam_geo_pct", 0)),
             ("Allées validées", f"{st['allees_validees']} / {st['allees_total']}"),
             ("Allées bloquées", st["allees_bloquees"]),
             ("Nuits terminées", f"{st['nuits_terminees']} / {state['nb_nuits']}"),

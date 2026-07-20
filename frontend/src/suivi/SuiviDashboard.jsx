@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
     AlertTriangle, TrendingUp, TrendingDown, CheckCircle2, Ban,
     Zap, Turtle, Wand2, Loader2, X, Moon, ArrowRight, MapPin, MoveRight,
-    HardHat, Copy, Link2, Trash2, MessageSquare, Camera, Flag,
+    HardHat, Copy, Link2, Trash2, MessageSquare, Camera, Flag, Cctv,
 } from "lucide-react";
 
 const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("fr-FR"));
@@ -41,31 +41,43 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                     <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-700"
                         style={{ width: `${pct}%` }} />
                 </div>
-                {/* Double jauge Pose vs Géoloc (indicateurs distincts) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-pose-progress"
-                        title="Avancement de la SAISIE des quantités posées : nombre de produits saisis / nombre total de produits à saisir sur toutes les allées de toutes les nuits.">
+                {/* (iter34) Trio d'indicateurs unitaires : Géoloc EEG + Pose CAM + Géoloc CAM */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-geo-eeg-progress"
+                        title="Unités géolocalisées (Rails ES + SA 1.5 + SA 2.1) sur unités à géolocaliser.">
                         <div className="flex items-center justify-between text-[11px] mb-1">
-                            <span className="uppercase tracking-widest text-slate-500 font-semibold">Saisies posées</span>
-                            <span className="text-slate-300 font-semibold tabular-nums">{st.pose_saisis || 0} / {st.pose_total || 0} <span className="text-slate-500 ml-1">({(st.pose_pct || 0).toLocaleString("fr-FR")}%)</span></span>
-                        </div>
-                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500"
-                                style={{ width: `${Math.min(100, st.pose_pct || 0)}%` }} />
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-1">Produits avec quantité posée renseignée</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-geo-progress"
-                        title="Avancement de la SAISIE de la géolocalisation : produits géolocalisables (Rails ES / SA 1.5 / SA 2.1) avec quantité géoloc renseignée.">
-                        <div className="flex items-center justify-between text-[11px] mb-1">
-                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Saisies géoloc</span>
-                            <span className="text-slate-300 font-semibold tabular-nums">{st.geo_saisis || 0} / {st.geo_total || 0} <span className="text-slate-500 ml-1">({(st.geo_pct || 0).toLocaleString("fr-FR")}%)</span></span>
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Géoloc EEG</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{fmt(st.geo_eeg_posees || 0)} / {fmt(st.geo_eeg_prevues || 0)} <span className="text-slate-500 ml-1">({(st.geo_eeg_pct || 0).toLocaleString("fr-FR")}%)</span></span>
                         </div>
                         <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500"
-                                style={{ width: `${Math.min(100, st.geo_pct || 0)}%` }} />
+                                style={{ width: `${Math.min(100, st.geo_eeg_pct || 0)}%` }} />
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-1">Rails ES / SA 1.5 / SA 2.1 géolocalisés</div>
+                        <div className="text-[10px] text-slate-500 mt-1">Rails ES / SA 1.5 / SA 2.1 (unités)</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-cam-pose-progress"
+                        title="Caméras posées sur caméras prévues (toutes nuits confondues).">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><Cctv className="w-3 h-3" /> Pose Caméra</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{fmt(st.cam_posees || 0)} / {fmt(st.cam_prevues || 0)} <span className="text-slate-500 ml-1">({(st.cam_pct || 0).toLocaleString("fr-FR")}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all duration-500"
+                                style={{ width: `${Math.min(100, st.cam_pct || 0)}%` }} />
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">Caméras Captana posées</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-800/50 p-3" data-testid="dash-cam-geo-progress"
+                        title="Caméras géolocalisées sur caméras posées.">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-3 h-3" /> Géoloc Caméra</span>
+                            <span className="text-slate-300 font-semibold tabular-nums">{fmt(st.cam_geo_posees || 0)} / {fmt(st.cam_geo_prevues || 0)} <span className="text-slate-500 ml-1">({(st.cam_geo_pct || 0).toLocaleString("fr-FR")}%)</span></span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-900 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-fuchsia-600 to-fuchsia-400 transition-all duration-500"
+                                style={{ width: `${Math.min(100, st.cam_geo_pct || 0)}%` }} />
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">Caméras posées & géolocalisées</div>
                     </div>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
@@ -311,47 +323,25 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
                         Restant à poser : <b>{fmt(eegRestant)} EEG</b>
                     </div>
                 )}
-                {/* Mini-jauges Pose vs Géoloc spécifiques à cette nuit */}
-                {(night.pose_total > 0 || night.geo_total > 0) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="night-summary-gauges">
-                        {night.pose_total > 0 && (() => {
-                            const pctPose = Math.round(100 * (night.pose_saisis || 0) / (night.pose_total || 1));
-                            const complete = (night.pose_saisis || 0) >= (night.pose_total || 0);
-                            return (
-                                <div className="rounded-lg bg-slate-800/50 p-2">
-                                    <div className="flex items-center justify-between text-[10px] mb-1">
-                                        <span className="uppercase tracking-widest text-slate-500 font-semibold">Pose</span>
-                                        <span className={`tabular-nums font-semibold ${complete ? "text-blue-400" : "text-slate-300"}`}>
-                                            {night.pose_saisis || 0}/{night.pose_total || 0} <span className="text-slate-500">({pctPose}%)</span>
-                                        </span>
-                                    </div>
-                                    <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500"
-                                            style={{ width: `${Math.min(100, pctPose)}%` }} />
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                        {night.geo_total > 0 && (() => {
-                            const pctGeo = Math.round(100 * (night.geo_saisis || 0) / (night.geo_total || 1));
-                            const complete = (night.geo_saisis || 0) >= (night.geo_total || 0);
-                            return (
-                                <div className="rounded-lg bg-slate-800/50 p-2">
-                                    <div className="flex items-center justify-between text-[10px] mb-1">
-                                        <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-2.5 h-2.5" /> Géoloc</span>
-                                        <span className={`tabular-nums font-semibold ${complete ? "text-blue-400" : "text-sky-300"}`}>
-                                            {night.geo_saisis || 0}/{night.geo_total || 0} <span className="text-slate-500">({pctGeo}%)</span>
-                                        </span>
-                                    </div>
-                                    <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500"
-                                            style={{ width: `${Math.min(100, pctGeo)}%` }} />
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                )}
+                {/* (iter34) Mini-jauge géoloc EEG (unités) — Pose déjà couverte par EEG plus haut */}
+                {night.geo_eeg_prevues > 0 && (() => {
+                    const pctGeo = Math.round(100 * (night.geo_eeg_posees || 0) / (night.geo_eeg_prevues || 1));
+                    const complete = (night.geo_eeg_posees || 0) >= (night.geo_eeg_prevues || 0);
+                    return (
+                        <div className="rounded-lg bg-slate-800/50 p-2" data-testid="night-summary-geo-eeg">
+                            <div className="flex items-center justify-between text-[10px] mb-1">
+                                <span className="uppercase tracking-widest text-slate-500 font-semibold flex items-center gap-1"><MapPin className="w-2.5 h-2.5" /> Géoloc EEG (unités)</span>
+                                <span className={`tabular-nums font-semibold ${complete ? "text-blue-400" : "text-sky-300"}`}>
+                                    {fmt(night.geo_eeg_posees || 0)} / {fmt(night.geo_eeg_prevues || 0)} <span className="text-slate-500">({pctGeo}%)</span>
+                                </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-sky-600 to-sky-400 transition-all duration-500"
+                                    style={{ width: `${Math.min(100, pctGeo)}%` }} />
+                            </div>
+                        </div>
+                    );
+                })()}
                 {night.nb_a_finaliser > 0 && (
                     <div className="rounded-lg bg-red-950/40 border border-red-900/60 p-2 text-[11px] text-red-200 flex items-center gap-1.5">
                         <AlertTriangle className="w-3.5 h-3.5" /> {night.nb_a_finaliser} allée(s) à finaliser une autre nuit
