@@ -442,6 +442,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     gap_fam[fam] = _r(gap_fam[fam] + pgap)
                 products.append({
                     "designation": desig, "type": typ, "family": fam,
+                    "reference": (mat.get("refs") or {}).get(desig) or "",  # (iter40) SKU/référence
                     "is_geo": is_geo, "plan": pplan, "reel": preel,
                     "geo": pgeo, "gap": pgap,
                     "delta": (None if preel is None else _r(preel - pplan)),
@@ -597,12 +598,20 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         if not isinstance(stock_received, list):
             stock_received = []
         recu_by_desig = {str(s.get("designation")): s.get("recu") for s in stock_received}
+        # (iter40) On garde la référence produit (SKU) pour l'afficher côté stock
         prod_agg = {}
+        # Construit un index désignation → référence globale (première non-vide trouvée)
+        refs_by_desig = {}
+        for uid_x, node in matidx.items():
+            for dg, rf in (node.get("refs") or {}).items():
+                if rf and dg not in refs_by_desig:
+                    refs_by_desig[dg] = rf
         for x in allees:
             not_valid = x["status"] != "validee"
             for p in x["products"]:
                 g = prod_agg.setdefault(p["designation"], {
                     "designation": p["designation"], "type": p["type"], "family": p["family"],
+                    "reference": refs_by_desig.get(p["designation"]) or "",
                     "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0})
                 g["prevu"] += p["plan"] or 0
                 g["pose"] += p["reel"] or 0
@@ -611,6 +620,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             for ep in x["extra_products"]:
                 g = prod_agg.setdefault(ep["designation"], {
                     "designation": ep["designation"], "type": "", "family": None,
+                    "reference": refs_by_desig.get(ep["designation"]) or "",
                     "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0, "extra": True})
                 g["pose"] += ep["qty"] or 0
         # ---- Agrégation stock côté CAMÉRAS (caméras + fixations spécifiques) ----
@@ -762,6 +772,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             alert = manque > 0 and g["prevu"] > 0
             stock.append({
                 "designation": desig, "label": desig,
+                "reference": g.get("reference") or "",  # (iter40) SKU produit
                 "type": g["type"], "family": g["family"],
                 "prevu": _r(g["prevu"]),
                 "recu": (None if recu is None else _r(recu)),
@@ -868,6 +879,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 cam_products.append({
                     "designation": dg,
                     "type": tdg,
+                    "reference": (matc.get("refs") or {}).get(dg) or "",  # (iter40) SKU
                     "is_camera": is_camera_device,
                     "is_fixation": (not is_camera_device),
                     "plan": pr,
@@ -1986,6 +1998,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             elem_col = cols[6]
         desig_col = next((c for c in ["Désignation", "Designation"] if c in cols), None)
         qty_col = next((c for c in ["Quantité", "Quantite"] if c in cols), None)
+        # (iter40) Colonne référence produit (SKU) pour l'afficher à côté du nom
+        ref_col = next((c for c in ["Référence", "Reference", "Réf.", "Ref"] if c in cols), None)
         idx = {}
         for r in raw:
             allee_raw = r.get(allee_col) if allee_col else None
@@ -2019,17 +2033,24 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 except (ValueError, TypeError):
                     elem_key = str(elem_v).strip()
             node = idx.setdefault(uid, {"uid": uid, "allee": allee_key, "secteur": secteur_v,
-                                        "rayon": rayon_v, "totals": {}, "elements": {}, "types": {}})
+                                        "rayon": rayon_v, "totals": {}, "elements": {}, "types": {}, "refs": {}})
             node["totals"][desig] = node["totals"].get(desig, 0.0) + qty
             if desig not in node["types"]:
                 typ_v = str(r.get(type_col) or "").strip() if type_col else ""
                 node["types"][desig] = "" if typ_v.lower() == "nan" else typ_v
+            # (iter40) Capture la première référence non-vide rencontrée pour ce produit
+            if ref_col and desig not in node["refs"]:
+                ref_v = str(r.get(ref_col) or "").strip()
+                if ref_v and ref_v.lower() != "nan":
+                    node["refs"][desig] = ref_v
             enode = node["elements"].setdefault(elem_key, {})
             enode[desig] = enode.get(desig, 0.0) + qty
         return idx
 
-    def _products_list(totals: dict) -> list:
-        return [{"designation": k, "qty": _r(v)} for k, v in sorted(totals.items(), key=lambda t: t[0].lower())]
+    def _products_list(totals: dict, refs: dict = None) -> list:
+        refs = refs or {}
+        return [{"designation": k, "qty": _r(v), "reference": refs.get(k) or ""}
+                for k, v in sorted(totals.items(), key=lambda t: t[0].lower())]
 
     def _sa_families_off_for(a: dict, cfg_sa: dict) -> set:
         """Version standalone de _sa_families_off (utilisée hors _build_state)."""
@@ -2101,6 +2122,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             "uid": uid, "allee": node.get("allee"),
             "secteur": node.get("secteur"), "rayon": node.get("rayon"),
             "totals": new_totals, "elements": new_elems, "types": types,
+            "refs": node.get("refs") or {},  # (iter40) préserve les références SKU
         }
 
     def _eff_nights_map(d: dict, doc: dict, mode: str = "eeg") -> dict:
@@ -2170,7 +2192,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         ph = normalize_phasage(d.get("phasage"))
         dates = ph.get("dates") or {}
         by_night = {}
-        unassigned = {"totals": {}, "nb_allees": 0}
+        unassigned = {"totals": {}, "nb_allees": 0, "refs": {}}
         for uid, node in idx.items():
             if mode in ("eeg", "cam") and uid not in nights_map:
                 # En mode filtré, on ignore les allées qui ne relèvent pas de ce phasage.
@@ -2178,25 +2200,30 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             node = _filter_materiel_node(node, mode, by_uid, cfg_sa)
             if not node.get("totals"):
                 continue
+            node_refs = node.get("refs") or {}
             n = nights_map.get(uid)
             if not n:
                 unassigned["nb_allees"] += 1
                 for k, v in node["totals"].items():
                     unassigned["totals"][k] = unassigned["totals"].get(k, 0.0) + v
+                    if k not in unassigned["refs"] and node_refs.get(k):
+                        unassigned["refs"][k] = node_refs[k]
                 continue
-            b = by_night.setdefault(n, {"nuit": n, "date": str(dates.get(str(n)) or ""), "nb_allees": 0, "totals": {}})
+            b = by_night.setdefault(n, {"nuit": n, "date": str(dates.get(str(n)) or ""), "nb_allees": 0, "totals": {}, "refs": {}})
             b["nb_allees"] += 1
             for k, v in node["totals"].items():
                 b["totals"][k] = b["totals"].get(k, 0.0) + v
+                if k not in b["refs"] and node_refs.get(k):
+                    b["refs"][k] = node_refs[k]
         nights = []
         for n in sorted(by_night.keys()):
             b = by_night[n]
             nights.append({"nuit": n, "date": b["date"], "nb_allees": b["nb_allees"],
-                           "products": _products_list(b["totals"])})
+                           "products": _products_list(b["totals"], refs=b["refs"])})
         return {
             "nights": nights,
             "unassigned": {"nb_allees": unassigned["nb_allees"],
-                           "products": _products_list(unassigned["totals"])},
+                           "products": _products_list(unassigned["totals"], refs=unassigned["refs"])},
         }
 
     def _materiel_nuit(d: dict, doc: dict, nuit: int, mode: str = "eeg") -> dict:
@@ -2220,6 +2247,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         totals_reel = {}
         totals_geo = {}
         totals_type = {}
+        totals_refs = {}  # (iter40) référence SKU par désignation
         # Statuts d'allée pour affichage (nb validées / à faire / bloquée)
         nb_val, nb_block, nb_todo = 0, 0, 0
         allees = []
@@ -2229,7 +2257,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             node = _filter_materiel_node(node_raw, mode, by_uid, cfg_sa)
             if not node.get("totals"):
                 continue
-            elements = [{"element": k, "products": _products_list(v)}
+            elements = [{"element": k, "products": _products_list(v, refs=node.get("refs") or {})}
                         for k, v in sorted(node["elements"].items(), key=_elem_sort)]
             # Récupération du réel/géoloc selon le mode (v28)
             reel_by_desig = {}
@@ -2281,6 +2309,10 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             for dg, q in (node["totals"] or {}).items():
                 totals_plan[dg] = totals_plan.get(dg, 0.0) + float(q or 0)
                 totals_type[dg] = (node["types"] or {}).get(dg) or totals_type.get(dg, "")
+                if dg not in totals_refs:
+                    rf = (node.get("refs") or {}).get(dg)
+                    if rf:
+                        totals_refs[dg] = rf
                 if dg in reel_by_desig:
                     totals_reel[dg] = totals_reel.get(dg, 0.0) + reel_by_desig[dg]
                 if dg in geo_by_desig:
@@ -2311,12 +2343,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 pgeo = geo_by_desig.get(dg) if is_geo else None
                 allee_ecarts.append({
                     "designation": dg, "plan": _r(pplan), "reel": _r(preel),
+                    "reference": (node.get("refs") or {}).get(dg) or "",  # (iter40) SKU
                     "geo": _r(pgeo) if pgeo is not None else None,
                     "family": fam, "is_geo": is_geo,
                     "delta": _r(delta), "status": st,
                 })
             allees.append({"uid": uid, "allee": node["allee"], "secteur": node["secteur"],
-                           "rayon": node["rayon"], "products": _products_list(node["totals"]),
+                           "rayon": node["rayon"], "products": _products_list(node["totals"], refs=node.get("refs") or {}),
                            "elements": elements, "ecarts": allee_ecarts,
                            "status": status_a})
         if not allees:
@@ -2352,6 +2385,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             pgeo = totals_geo.get(dg) if is_geo else None
             ecarts_nuit.append({
                 "designation": dg, "type": typ,
+                "reference": totals_refs.get(dg) or "",  # (iter40) SKU
                 "plan": _r(pplan), "reel": _r(preel),
                 "geo": _r(pgeo) if pgeo is not None else None,
                 "family": fam, "is_geo": is_geo,

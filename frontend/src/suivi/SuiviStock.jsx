@@ -82,6 +82,7 @@ function StockRow({ s, actions }) {
                 <div className="font-semibold text-xs sm:text-sm flex items-center gap-2 min-w-0">
                     {s.alert ? <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" /> : <PackageCheck className="w-4 h-4 text-blue-500 flex-shrink-0" />}
                     <span className="truncate" title={s.designation}>{s.designation}</span>
+                    {s.reference && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-blue-300 font-mono flex-shrink-0" title={`Référence ${s.reference}`}>#{s.reference}</span>}
                     {s.type && <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-normal flex-shrink-0">{s.type}</span>}
                 </div>
                 {s.alert ? (

@@ -184,10 +184,11 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                         <div key={p.designation}
                             className={`px-3 py-2.5 space-y-1.5 ${gapP ? "bg-red-950/20" : ""}`}
                             data-testid={`cam-prod-${a.uid}-${p.designation}`}>
-                            {/* Ligne 1 : nom du produit + icône type */}
+                            {/* Ligne 1 : nom du produit + icône type + référence SKU */}
                             <div className="flex items-start gap-2">
-                                <div className="text-xs text-slate-200 flex-1 min-w-0 break-words leading-snug flex items-center gap-1" title={p.designation}>
-                                    {p.is_camera ? "📷" : "🔧"} {p.designation}
+                                <div className="text-xs text-slate-200 flex-1 min-w-0 break-words leading-snug flex items-center gap-1 flex-wrap" title={p.designation}>
+                                    <span>{p.is_camera ? "📷" : "🔧"} {p.designation}</span>
+                                    {p.reference && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-blue-300 font-mono">#{p.reference}</span>}
                                 </div>
                                 {p.is_geo && (
                                     <span className="text-[9px] text-sky-400 flex items-center gap-0.5 flex-shrink-0 mt-0.5">

@@ -545,9 +545,12 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     <div key={p.designation}
                         className={`px-3 py-2.5 border-b border-slate-800/60 last:border-0 space-y-1.5 ${p.gap ? "bg-red-950/20" : ""}`}
                         data-testid={`product-row-${a.uid}-${p.designation}`}>
-                        {/* Ligne 1 : nom complet du produit */}
+                        {/* Ligne 1 : nom complet du produit + référence SKU */}
                         <div className="flex items-start gap-2">
-                            <div className="text-xs text-slate-200 flex-1 min-w-0 break-words leading-snug" title={p.designation}>{p.designation}</div>
+                            <div className="text-xs text-slate-200 flex-1 min-w-0 break-words leading-snug" title={p.designation}>
+                                {p.designation}
+                                {p.reference && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-blue-300 font-mono">#{p.reference}</span>}
+                            </div>
                             {p.is_geo && (
                                 <span className="text-[9px] text-sky-400 flex items-center gap-0.5 flex-shrink-0 mt-0.5">
                                     <MapPin className="w-2.5 h-2.5" /> géoloc

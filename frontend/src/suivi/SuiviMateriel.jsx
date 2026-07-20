@@ -146,7 +146,10 @@ function ProductTable({ products, small = false }) {
         <div className="divide-y divide-slate-800/60">
             {products.map((p) => (
                 <div key={p.designation} className={`flex items-center justify-between gap-3 ${small ? "py-0.5" : "py-1"}`}>
-                    <span className={`${small ? "text-[11px]" : "text-xs"} text-slate-300 min-w-0 truncate`} title={p.designation}>{p.designation}</span>
+                    <span className={`${small ? "text-[11px]" : "text-xs"} text-slate-300 min-w-0 flex items-center gap-1.5 flex-wrap`} title={p.designation}>
+                        <span className="truncate">{p.designation}</span>
+                        {p.reference && <span className="text-[10px] px-1 py-0 rounded bg-slate-800 text-blue-300 font-mono flex-shrink-0">#{p.reference}</span>}
+                    </span>
                     <span className={`${small ? "text-[11px]" : "text-xs"} font-bold text-blue-300 tabular-nums flex-shrink-0`}>{fmt(p.qty)}</span>
                 </div>
             ))}
