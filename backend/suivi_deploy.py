@@ -752,9 +752,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         # 3) Signalétique NON-rail → ES 1.5 (couleur).
         # (iter41) Les Rails ES (family=="rails_es") restent VISIBLES comme lignes
         # distinctes dans le stock — l'équipe terrain gère la livraison des rails
-        # séparément de celle des étiquettes ES 1.5. Le bonus "1 rail = +1 ES 1.5"
-        # reste appliqué dans les totaux EEG (voir _rail_bonus_qty ci-dessus) mais
-        # n'affecte plus l'affichage du stock produit par produit.
+        # séparément de celle des étiquettes ES 1.5. Une signalétique non-rail
+        # (rare) matcherait ici pour être absorbée.
         signal_by_color = {"noir": [], "blanc": []}
         for dg in list(prod_agg.keys()):
             fam_dg = (prod_agg[dg] or {}).get("family")
@@ -769,6 +768,60 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             target = _find_target("es 1.5", color=col) or f"ES 1.5 ({col})"
             for dg in desigs:
                 _merge_into(dg, target)
+
+        # 4) Bonus rails → ES 1.5 (couleur) SANS retirer les rails du stock.
+        # (iter42) Reprend EXACTEMENT la règle du recap commande
+        # (server.build_recap_produits) : 1 rail (noir ou blanc parmi
+        # RAILS_BONUS_ES15) = +1 étiquette ES 1.5 de même couleur.
+        # → chaque rail apparaît DEUX FOIS dans le stock : sur sa propre ligne,
+        # ET son prévu/posé/restant à poser est ajouté à l'ES 1.5 de sa couleur
+        # (car ce sont deux produits physiques à recevoir : le rail lui-même +
+        # l'étiquette ES 1.5 posée dessus).
+        rail_bonus_by_color = {
+            "noir": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
+            "blanc": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
+        }
+        for dg, g in prod_agg.items():
+            if (g or {}).get("family") != "rails_es":
+                continue
+            col = _signaletique_color(dg)
+            if col not in rail_bonus_by_color:
+                continue
+            rail_bonus_by_color[col]["prevu"] += float(g.get("prevu") or 0)
+            rail_bonus_by_color[col]["pose"] += float(g.get("pose") or 0)
+            rail_bonus_by_color[col]["restant_a_poser"] += float(g.get("restant_a_poser") or 0)
+        for col, bonus in rail_bonus_by_color.items():
+            if bonus["prevu"] <= 0 and bonus["pose"] <= 0:
+                continue
+            target = _find_target("es 1.5", color=col) or f"ES 1.5 ({col})"
+            tgt = prod_agg.get(target)
+            if tgt is None:
+                tgt = {"designation": target, "type": "", "family": "es_15",
+                       "reference": refs_by_desig.get(target) or "",
+                       "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0}
+                prod_agg[target] = tgt
+            tgt["prevu"] += bonus["prevu"]
+            tgt["pose"] += bonus["pose"]
+            tgt["restant_a_poser"] += bonus["restant_a_poser"]
+
+        # 5) Bonus flèches fixe → ES 1.5 (noir) prévu uniquement.
+        # (iter42) Correspond à server.FLECHE_FIXED_ES15_NOIR (=600) : réserve
+        # commande qui n'est pas posée physiquement (pas de pose ni de reste
+        # à poser). Le "reçu" étant théorique = prévu, ces 600 apparaissent
+        # comme surplus naturel dans "reste stock".
+        try:
+            from server import FLECHE_FIXED_ES15_NOIR as _FL_FIX
+        except ImportError:
+            _FL_FIX = 0
+        if _FL_FIX and _FL_FIX > 0:
+            target = _find_target("es 1.5", color="noir") or "ES 1.5 (noir)"
+            tgt = prod_agg.get(target)
+            if tgt is None:
+                tgt = {"designation": target, "type": "", "family": "es_15",
+                       "reference": refs_by_desig.get(target) or "",
+                       "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0}
+                prod_agg[target] = tgt
+            tgt["prevu"] += float(_FL_FIX)
 
         stock, alerts = [], []
         for desig in sorted(prod_agg.keys(), key=lambda s: s.lower()):

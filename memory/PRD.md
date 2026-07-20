@@ -1405,3 +1405,12 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Bonus rail intact** : le bonus « 1 rail posé = +1 ES 1.5 » (`_rail_bonus_qty`) reste appliqué dans `reel_fam["es_15"]` (ligne 434-436) et dans `eeg_plan`/`eeg_reel` — l'affichage stock est indépendant de ce calcul.
 - [x] Tests : `test_iter31_stock_fusion.py` mis à jour (`test_signaletique_non_rail_fusion_by_color`, `test_rails_es_stay_distinct`) — 6/6 passants. Validation E2E via curl sur `fd15443f-...` : « 990 mm (noir) » désormais présent dans le tableau `stock` avec `family=rails_es`.
 
+
+
+## Suite (20/02/2026 iter42) — Bonus rails + flèche fixe intégrés au prévu stock
+- [x] **Règle utilisateur (Commande exemple.xlsx)** : le stock du Suivi doit afficher **exactement** le "A afficher dans stock" du recap commande (server.build_recap_produits). Formule : `stock_prévu = brut + Flèche + Signalétique + Saisonnier`.
+- [x] **Section 4 (nouveau)** : bonus rails → ES 1.5 (couleur). Pour chaque rail (`family=="rails_es"`) présent dans `prod_agg`, sa quantité prévue/posée/restant à poser est **ajoutée** à l'ES 1.5 de sa couleur (mapping via `_RAILS_BONUS_COLORS`). Le rail **reste visible** sur sa propre ligne — pas de fusion.
+- [x] **Section 5 (nouveau)** : import de `server.FLECHE_FIXED_ES15_NOIR` (=600) ajouté au **prévu** d'ES 1.5 (noir) uniquement (pas au posé, pas au restant à poser) — réserve commande pas posée physiquement.
+- [x] **Section 3 (inchangée)** : signalétique NON-rail continue à être absorbée par ES 1.5 (couleur) (cas rare, générique).
+- [x] Exemple validé sur dataset preview `fd15443f-…` : `ES 1.5 noir` prévu passé de 180 → 785 = **180 (brut) + 5 (rail 990 noir) + 600 (flèche fixe)** ; posé passé de 10 → 15 = **10 (brut) + 5 (rail bonus)** ; le rail 990 noir reste visible avec sa qté propre.
+- [x] Tests : `test_iter42_stock_rail_bonus.py` (5 cas dont l'exemple complet 1773+600+9115=11488) → 5/5 passants. Aucune régression sur les tests logiques existants (11 échecs préexistants identiques avant/après, tous liés à des datasets E2E manquants).
