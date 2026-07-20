@@ -172,46 +172,64 @@ function CamAlleeCard({ allee: a, cam, actions, maxNight }) {
                 {(a.elements || []).length === 0 && <span className="text-[11px] text-slate-600">aucun</span>}
             </div>
 
-            {/* (v28 iter6) Grille par produit — même granularité que côté EEG */}
-            <div className="mt-2 rounded-lg bg-slate-900/40 border border-slate-800">
-                <div className="grid grid-cols-[1fr_60px_70px_70px_44px] gap-1 px-2 py-1.5 text-[9px] uppercase tracking-wide text-slate-500 font-semibold border-b border-slate-800/60">
-                    <span>Produit</span>
-                    <span className="text-right">Prévu</span>
-                    <span className="text-center">Posé</span>
-                    <span className="text-center">Géoloc</span>
-                    <span className="text-right">Δ</span>
-                </div>
+            {/* (iter39) Cartes verticales par produit — même style que côté EEG :
+                 nom complet du produit sur une ligne, compteurs Prévu/Posé/Géoloc/Δ dessous */}
+            <div className="mt-2 rounded-lg bg-slate-900/40 border border-slate-800 divide-y divide-slate-800/60">
                 {(a.products || []).map((p) => {
                     const vals = prodVals[p.designation] || { reel: "", geo: "" };
                     const dReel = (p.reel !== null && p.reel !== undefined) ? (p.reel - p.plan) : null;
                     const gapP = (p.is_geo && p.reel !== null && p.reel !== undefined
                                   && p.geo !== null && p.geo !== undefined && p.geo < p.reel) ? (p.reel - p.geo) : 0;
                     return (
-                        <div key={p.designation} className="grid grid-cols-[1fr_60px_70px_70px_44px] gap-1 px-2 py-1 items-center border-b border-slate-800/30 last:border-b-0"
+                        <div key={p.designation}
+                            className={`px-3 py-2.5 space-y-1.5 ${gapP ? "bg-red-950/20" : ""}`}
                             data-testid={`cam-prod-${a.uid}-${p.designation}`}>
-                            <span className="text-[11px] text-slate-200 truncate flex items-center gap-1" title={p.designation}>
-                                {p.is_camera ? "📷" : "🔧"} {p.designation}
-                            </span>
-                            <span className="text-[11px] text-slate-400 text-right tabular-nums">{fmt(p.plan)}</span>
-                            <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.reel}
-                                readOnly={readOnly}
-                                onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], reel: e.target.value } }))}
-                                onBlur={() => saveProductField(p.designation, "reel", vals.reel, p.reel)}
-                                data-testid={`cam-prod-reel-${a.uid}-${p.designation}`}
-                                className={`w-full h-6 px-1 rounded border text-[11px] text-center outline-none placeholder:text-slate-600 ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : "bg-slate-800 border-slate-700 focus:border-sky-500"}`} />
-                            {p.is_geo ? (
-                                <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.geo}
-                                    readOnly={readOnly}
-                                    onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], geo: e.target.value } }))}
-                                    onBlur={() => saveProductField(p.designation, "geo", vals.geo, p.geo)}
-                                    data-testid={`cam-prod-geo-${a.uid}-${p.designation}`}
-                                    className={`w-full h-6 px-1 rounded border text-[11px] text-center outline-none placeholder:text-slate-600 ${readOnly ? "bg-slate-950 border-slate-800 text-slate-400 cursor-not-allowed" : gapP ? "bg-slate-800 border-red-700 text-red-300 focus:border-red-500" : "bg-slate-800 border-slate-700 focus:border-sky-500"}`} />
-                            ) : (
-                                <span className="text-[10px] text-slate-600 text-center">—</span>
-                            )}
-                            <span className={`text-[10px] text-right font-bold tabular-nums ${dReel === null ? "text-slate-700" : dReel === 0 ? "text-blue-400" : dReel < 0 ? "text-red-400" : "text-amber-400"}`}>
-                                {dReel === null ? "" : (dReel > 0 ? "+" : "") + fmt(dReel)}
-                            </span>
+                            {/* Ligne 1 : nom du produit + icône type */}
+                            <div className="flex items-start gap-2">
+                                <div className="text-xs text-slate-200 flex-1 min-w-0 break-words leading-snug flex items-center gap-1" title={p.designation}>
+                                    {p.is_camera ? "📷" : "🔧"} {p.designation}
+                                </div>
+                                {p.is_geo && (
+                                    <span className="text-[9px] text-sky-400 flex items-center gap-0.5 flex-shrink-0 mt-0.5">
+                                        <MapPin className="w-2.5 h-2.5" /> géoloc
+                                    </span>
+                                )}
+                            </div>
+                            {/* Ligne 2 : Prévu / Posé / Géoloc / Δ */}
+                            <div className="grid grid-cols-4 gap-1.5 items-center">
+                                <div className="flex flex-col items-center">
+                                    <span className="text-[9px] uppercase text-slate-500 font-semibold">Prévu</span>
+                                    <span className="text-xs text-slate-300 tabular-nums font-semibold">{fmt(p.plan)}</span>
+                                </div>
+                                <div className="flex flex-col items-center">
+                                    <span className="text-[9px] uppercase text-slate-500 font-semibold">Posé</span>
+                                    <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.reel}
+                                        readOnly={readOnly}
+                                        onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], reel: e.target.value } }))}
+                                        onBlur={() => saveProductField(p.designation, "reel", vals.reel, p.reel)}
+                                        data-testid={`cam-prod-reel-${a.uid}-${p.designation}`}
+                                        className={`w-full h-8 px-1 rounded text-xs text-center outline-none placeholder:text-slate-600 ${readOnly ? "bg-slate-950 border border-slate-800 text-slate-400 cursor-not-allowed" : "bg-slate-800 border border-slate-700 focus:border-sky-500"}`} />
+                                </div>
+                                <div className="flex flex-col items-center">
+                                    <span className="text-[9px] uppercase text-slate-500 font-semibold">Géoloc</span>
+                                    {p.is_geo ? (
+                                        <input type="number" min="0" inputMode="numeric" placeholder="—" value={vals.geo}
+                                            readOnly={readOnly}
+                                            onChange={(e) => setProdVals(s => ({ ...s, [p.designation]: { ...s[p.designation], geo: e.target.value } }))}
+                                            onBlur={() => saveProductField(p.designation, "geo", vals.geo, p.geo)}
+                                            data-testid={`cam-prod-geo-${a.uid}-${p.designation}`}
+                                            className={`w-full h-8 px-1 rounded text-xs text-center outline-none placeholder:text-slate-600 ${readOnly ? "bg-slate-950 border border-slate-800 text-slate-400 cursor-not-allowed" : gapP ? "bg-slate-800 border border-red-700 text-red-300 focus:border-red-500" : "bg-slate-800 border border-slate-700 focus:border-sky-500"}`} />
+                                    ) : (
+                                        <span className="text-slate-700 text-xs">—</span>
+                                    )}
+                                </div>
+                                <div className="flex flex-col items-center">
+                                    <span className="text-[9px] uppercase text-slate-500 font-semibold">Δ</span>
+                                    <span className={`text-xs font-bold tabular-nums ${dReel === null ? "text-slate-700" : dReel === 0 ? "text-blue-400" : dReel < 0 ? "text-red-400" : "text-amber-400"}`}>
+                                        {dReel === null ? "—" : (dReel > 0 ? "+" : "") + fmt(dReel)}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     );
                 })}
