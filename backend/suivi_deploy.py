@@ -1318,15 +1318,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         ws.merge_range(row, 0, row, 11, verdict_txt, f_verdict_dyn)
         row += 2
 
-        # ---- Info bandeau rythme/cumul ----
+        # ---- Info bandeau écart cumulé uniquement ----
+        # (iter38) Rythme moyen/prévu et avance/retard estimé retirés (jugés stressants
+        # et peu fiables sur les premières nuits par l'utilisateur).
         ws.merge_range(row, 0, row, 11, "📊  Contexte de la campagne", f_info_title)
         ws.set_row(row, 22)
         row += 1
         info_lines = [
-            ("Rythme moyen réel (EEG/nuit)", st.get("rythme_reel") or "—"),
-            ("Rythme prévu (EEG/nuit)", st.get("rythme_prevu")),
             ("Écart cumulé (nuits terminées)", st.get("cumul_delta_eeg")),
-            ("Avance/retard estimé (nuits)", st.get("avance_nuits") if st.get("avance_nuits") is not None else "—"),
         ]
         for label, val in info_lines:
             ws.write(row, 0, "  " + label, f_kpi_l)
@@ -1865,11 +1864,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             ("Allées validées", f"{st['allees_validees']} / {st['allees_total']}"),
             ("Allées bloquées", st["allees_bloquees"]),
             ("Nuits terminées", f"{st['nuits_terminees']} / {state['nb_nuits']}"),
-            ("Rythme réel (EEG/nuit)", st["rythme_reel"] or "—"),
-            ("Rythme prévu (EEG/nuit)", st["rythme_prevu"]),
+            # (iter38) Rythme réel/prévu et retard estimé retirés du rapport à la
+            # demande utilisateur (jugés stressants et peu fiables les premières nuits).
             ("EEG restant à poser", st["eeg_restant"]),
-            ("Nuits estimées restantes", st["nuits_estimees_restantes"] if st["nuits_estimees_restantes"] is not None else "—"),
-            ("Avance/retard estimé (nuits)", st["avance_nuits"] if st["avance_nuits"] is not None else "—"),
             ("Écart cumulé EEG (nuits terminées)", st["cumul_delta_eeg"]),
         ]
         for label, val in gkpis:

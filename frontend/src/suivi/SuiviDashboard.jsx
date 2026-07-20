@@ -80,61 +80,20 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                         <div className="text-[10px] text-slate-500 mt-1">Caméras posées & géolocalisées</div>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
                     <Kpi label="Allées validées" value={`${st.allees_validees || 0} / ${st.allees_total || 0}`} icon={CheckCircle2} color="text-blue-400" testid="dash-allees" />
                     <Kpi label="Allées déplacées" value={st.allees_deplacees || 0} icon={MoveRight} color={st.allees_deplacees ? "text-orange-400" : "text-slate-400"} testid="dash-deplacees" />
                     <Kpi label="Nuits terminées" value={`${st.nuits_terminees || 0} / ${state.nb_nuits || 0}`} icon={Moon} color="text-sky-400" testid="dash-nuits" />
-                    <Kpi label="Rythme réel / prévu" value={`${fmt(st.rythme_reel) || "—"} / ${fmt(st.rythme_prevu)}`} icon={TrendingUp} color="text-amber-400" testid="dash-rythme" />
                 </div>
             </section>
 
-            {/* Avance / retard — (iter36) petit retard (≤1) en orange, gros retard (≥2) en rouge */}
-            <section className={`rounded-2xl border p-4 flex items-center gap-4
-                ${avance === null || avance === undefined ? "bg-slate-900 border-slate-800"
-                    : avance > 0 ? "bg-blue-950/50 border-blue-800/60"
-                        : avance <= -2 ? "bg-red-950/40 border-red-900/60"
-                            : avance < 0 ? "bg-amber-950/40 border-amber-800/60"
-                                : "bg-slate-900 border-slate-800"}`}
-                data-testid="dash-avance">
-                {avance === null || avance === undefined ? (
-                    <>
-                        <Turtle className="w-8 h-8 text-slate-600 flex-shrink-0" />
-                        <div>
-                            <div className="font-semibold text-sm">Pas encore de rythme mesuré</div>
-                            <div className="text-xs text-slate-400">Validez toutes les allées d'une nuit pour mesurer votre vitesse réelle.</div>
-                        </div>
-                    </>
-                ) : avance > 0 ? (
-                    <>
-                        <Zap className="w-8 h-8 text-blue-400 flex-shrink-0" />
-                        <div className="flex-1">
-                            <div className="font-semibold text-sm text-blue-300">En avance d'environ {avance} nuit{avance > 1 ? "s" : ""} ⚡</div>
-                            <div className="text-xs text-slate-400">
-                                Restant estimé : {st.nuits_estimees_restantes} nuit(s) au rythme réel ({fmt(st.rythme_reel)} EEG/nuit).
-                            </div>
-                        </div>
-                    </>
-                ) : avance < 0 ? (
-                    <>
-                        <TrendingDown className={`w-8 h-8 flex-shrink-0 ${avance <= -2 ? "text-red-400" : "text-amber-400"}`} />
-                        <div className="flex-1">
-                            <div className={`font-semibold text-sm ${avance <= -2 ? "text-red-300" : "text-amber-300"}`}>
-                                {avance <= -2 ? "Retard significatif" : "Léger retard"} : {Math.abs(avance)} nuit{Math.abs(avance) > 1 ? "s" : ""}
-                            </div>
-                            <div className="text-xs text-slate-400">
-                                Il faudrait {st.nuits_estimees_restantes} nuit(s) au rythme actuel pour finir.
-                                {avance === -1 && " Rattrapable si le rythme s'accélère."}
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <CheckCircle2 className="w-8 h-8 text-blue-400 flex-shrink-0" />
-                        <div className="font-semibold text-sm">Parfaitement dans le planning ✔</div>
-                    </>
-                )}
-                {mode === "chef" && <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />}
-            </section>
+            {/* (iter38) Bouton Replan seul, sans l'alerte retard qui stressait le client */}
+            {mode === "chef" && !!st.rythme_reel && (
+                <section className="rounded-2xl bg-slate-900 border border-slate-800 p-3 flex items-center justify-between gap-3" data-testid="dash-replan-bar">
+                    <div className="text-xs text-slate-400">Ajuster le planning si le rythme réel diverge du prévu ?</div>
+                    <ReplanButton actions={actions} canReplan={!!st.rythme_reel} />
+                </section>
+            )}
 
             {/* Publication espace terrain + effacement (chef uniquement) */}
             {mode === "chef" && <PublishCard publication={state.publication} actions={actions} />}
