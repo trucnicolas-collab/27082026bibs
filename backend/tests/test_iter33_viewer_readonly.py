@@ -124,6 +124,12 @@ def test_viewer_no_write_routes(viewer_token, method, path, payload):
 
 
 # ---- Rotation ---------------------------------------------------------------
+# ATTENTION : ce test rotate le TOKEN GLOBAL en base et INVALIDE définitivement
+# tous les liens partagés existants (par ex. le lien envoyé aux clients).
+# Il est donc SKIP par défaut. À exécuter manuellement uniquement, et
+# uniquement quand on est prêt à re-communiquer le nouveau lien aux clients :
+#   pytest tests/test_iter33_viewer_readonly.py -m rotate --run-rotate
+@pytest.mark.skip(reason="Rotates global viewer token — invalidates all shared client links. Run manually only.")
 def test_viewer_rotate_invalidates_old_token(auth, viewer_token):
     """Régénérer le token doit invalider les anciens liens partagés."""
     # Génère un nouveau token
@@ -139,6 +145,3 @@ def test_viewer_rotate_invalidates_old_token(auth, viewer_token):
     # Le nouveau token doit fonctionner
     r = requests.get(f"{BASE_URL}/api/suivi-view/stores", params={"token": new_token})
     assert r.status_code == 200
-
-    # Remettre l'ancien token pour ne pas casser les autres tests si ré-exécutés
-    # (idempotent : la rotation créera un nouveau token la prochaine fois)
