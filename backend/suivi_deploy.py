@@ -140,13 +140,15 @@ def _r(x):
 
 
 def _plan_for_allee(a: dict) -> dict:
-    # (iter34) Le bonus rails → ES 1.5 est retiré du plan côté Suivi : c'est une
-    # convention de Phasage (« 1 rail = +1 ES 1.5 à planifier ») qui n'a pas de
-    # produit physique à poser côté terrain. L'ajouter au plan gonflait
-    # artificiellement `eeg_plan` (ex : 746 au lieu de 667 pour l'allée 102),
-    # rendant impossible d'atteindre 100% même en posant tous les produits.
+    # (iter34+35) On CONSERVE le bonus rails → ES 1.5 (convention Phasage : « 1 rail
+    # = +1 ES 1.5 »). Cela aligne les totaux Phasage et Suivi (ex : 92 403 EEG
+    # dans les deux outils au lieu de 92 403 vs 82 263). Le posé compense en
+    # ajoutant automatiquement +1 ES 1.5 pour chaque rail posé (voir
+    # `_apply_rail_bonus_to_reel` plus bas), donc à 100% de pose on obtient
+    # bien eeg_reel == eeg_plan.
     return {
-        "es_15": _r((a.get("es_15") or 0) + (a.get("fleches") or 0)),
+        "es_15": _r((a.get("es_15") or 0) + (a.get("fleches") or 0)
+                    + (a.get("es_15_bonus_noir") or 0) + (a.get("es_15_bonus_blanc") or 0)),
         "es_21": _r(a.get("es_21")),
         "rails_es": _r(a.get("rails_es")),
         "sa_15": _r(a.get("sa_15")),
@@ -155,6 +157,18 @@ def _plan_for_allee(a: dict) -> dict:
         "sa_42": _r(a.get("sa_42")),
         "cameras": _r(a.get("cameras")),
     }
+
+
+def _rail_bonus_qty(desig: str, qty: float) -> float:
+    """Retourne la qté de « bonus ES 1.5 » induite par la pose d'un rail.
+    Convention Phasage : 1 rail (parmi RAILS_BONUS_ES15) = +1 ES 1.5 de même
+    couleur. On l'ajoute côté posé pour garder la cohérence Phasage↔Suivi."""
+    from server import RAILS_BONUS_ES15
+    d = (desig or "").lower().strip()
+    for pat, _color in RAILS_BONUS_ES15:
+        if pat.lower() in d:
+            return float(qty or 0)
+    return 0.0
 
 
 def _eeg_sum(vals: dict) -> float:
@@ -411,6 +425,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     has_reel = True
                     if fam:
                         reel_fam[fam] = _r((reel_fam[fam] or 0) + preel)
+                    # (iter35) Bonus rail → ES 1.5 : si le produit posé est un rail
+                    # de RAILS_BONUS_ES15, on incrémente automatiquement es_15 du
+                    # même montant, pour être cohérent avec la logique Phasage
+                    # qui compte "1 rail = +1 ES 1.5" dans le prévu.
+                    bonus = _rail_bonus_qty(desig, preel) if fam == "rails_es" else 0.0
+                    if bonus > 0:
+                        reel_fam["es_15"] = _r((reel_fam["es_15"] or 0) + bonus)
                 if pgeo is not None and is_geo:
                     geo_fam[fam] = _r((geo_fam[fam] or 0) + pgeo)
                 pgap = 0

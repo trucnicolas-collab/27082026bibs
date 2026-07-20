@@ -68,31 +68,26 @@ def test_rails_535_is_geo(auth):
     assert classify_family("Rail", "535 mm (noir)") == "rails_es"
 
 
-def test_1240_rail_no_longer_double_counted(auth):
-    """Reset l'état, pose 100% du 1240mm noir sur allée 1__A__R1, vérifie
-    que eeg_reel <= eeg_plan (le bonus ES 1.5 est retiré du plan côté Suivi)."""
+def test_1240_rail_bonus_accounted_in_reel(auth):
+    """(iter35) Poser 100% d'un rail doit incrémenter reel_es_15 du bonus
+    ES 1.5 (convention "1 rail = +1 ES 1.5"). Résultat : à 100% de pose,
+    eeg_reel == eeg_plan (au lieu de eeg_reel < eeg_plan à cause du bonus
+    non-comptabilisé). Aligne les totaux Phasage et Suivi."""
     auth.delete(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/reset")
     state = auth.get(f"{BASE_URL}/api/suivi/{UPLOAD_ID}").json()
-    a = next((x for x in state["allees"] if x["uid"] == "1__A__R1"), None)
-    if a is None:
-        pytest.skip("Allée 1__A__R1 absente du dataset test")
-    # Trouve les produits rails
-    rail_prods = [p for p in a["products"] if p.get("family") == "rails_es"]
-    if not rail_prods:
-        pytest.skip("Pas de rail sur cette allée")
-    # Pose 100%
-    for p in rail_prods:
+    # Pose 100% sur toutes les allées
+    for a in state["allees"]:
+        prods = [{"designation": p["designation"],
+                  "reel": p["plan"],
+                  "geo": p["plan"] if p["is_geo"] else None}
+                 for p in a["products"]]
         auth.patch(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/allee",
-                   json={"uid": "1__A__R1",
-                         "products": [{"designation": p["designation"],
-                                       "reel": p["plan"], "geo": p["plan"]}]})
+                   json={"uid": a["uid"], "products": prods})
     state2 = auth.get(f"{BASE_URL}/api/suivi/{UPLOAD_ID}").json()
-    a2 = next(x for x in state2["allees"] if x["uid"] == "1__A__R1")
-    reel = a2["eeg_reel"] or 0
-    plan = a2["eeg_plan"] or 0
-    # Le rail est rails_es (pas dans EEG_KEYS) donc n'apparaît ni dans reel ni dans plan EEG
-    # Avant le fix : plan aurait ajouté es_15_bonus, ce qui aurait fait plan > reel systématiquement.
-    # Après le fix : plan et reel EEG sont indépendants du bonus rails.
-    assert reel <= plan, f"eeg_reel ({reel}) > eeg_plan ({plan}) — bonus rails toujours compté"
-    # Nettoyage
+    prevues = state2["stats"]["eeg_prevues"]
+    posees = state2["stats"]["eeg_posees"]
+    assert prevues == posees, (
+        f"À 100% de pose, eeg_posees ({posees}) doit égaler eeg_prevues ({prevues}) — "
+        f"bonus rails toujours pas répercuté côté posé ?"
+    )
     auth.delete(f"{BASE_URL}/api/suivi/{UPLOAD_ID}/reset")
