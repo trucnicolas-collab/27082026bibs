@@ -171,6 +171,10 @@ def test_auth_photo_endpoints(auth):
 
 # ---- Rapport terrain ----------------------------------------------------
 def test_terrain_rapport_nuit_has_geo_and_images():
+    # Ajoute un commentaire géoloc pour tester que le nouveau bloc "NOTES & PHOTOS"
+    # (iter37) le fait apparaître dans le résumé
+    requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee",
+                   json={"uid": UID, "geoloc_comment": "test-geoloc-nuit"})
     r = requests.post(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee-photo",
                       files={"file": ("test.png", _tiny_png(), "image/png")},
                       data={"uid": UID})
@@ -185,10 +189,15 @@ def test_terrain_rapport_nuit_has_geo_and_images():
         flat = "\n".join(" | ".join(str(c) if c is not None else "" for c in row)
                         for row in ws.iter_rows(values_only=True))
         assert "Géoloc" in flat
-        assert "Commentaire GÉOLOC" in flat
+        # (iter37) Nouveau bloc unifié « NOTES & PHOTOS PAR ALLÉE » regroupe
+        # commentaire pose + géoloc + photos par allée dans le résumé.
+        assert "NOTES & PHOTOS PAR ALLÉE" in flat
+        assert "📍 Géoloc" in flat
         assert len(ws._images) >= 1
     finally:
         requests.delete(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/photo/{pid}")
+        requests.patch(f"{BASE_URL}/api/suivi-terrain/{UPLOAD_ID}/allee",
+                       json={"uid": UID, "geoloc_comment": ""})
 
 
 # ---- Incidents ---------------------------------------------------------

@@ -1390,16 +1390,78 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 row += 1
             row += 1
 
-        # ---- Commentaires par allée ----
-        alees_comm = [x for x in items if (x.get("comment") or "").strip()]
-        if alees_comm:
-            ws.merge_range(row, 0, row, 11, f"💬  COMMENTAIRES D'ALLÉE ({len(alees_comm)})", f_comment_title)
+        # ---- (iter37) NOTES & PHOTOS regroupées par allée : un seul bloc lisible ----
+        entries_map = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
+        # Une allée entre dans le bloc si elle a commentaire, geoloc_comment ou photos
+        notes_rows = []
+        for x in items:
+            entry = entries_map.get(x["uid"], {}) or {}
+            phs = entry.get("photos") or []
+            has_comment = bool((x.get("comment") or "").strip())
+            has_geoc = bool((x.get("geoloc_comment") or "").strip())
+            if has_comment or has_geoc or phs:
+                notes_rows.append((x, phs, has_comment, has_geoc))
+
+        if notes_rows:
+            nb_photos_tot = sum(len(p) for _, p, _, _ in notes_rows)
+            ws.merge_range(row, 0, row, 11,
+                           f"📝  NOTES & PHOTOS PAR ALLÉE ({len(notes_rows)} allée(s), {nb_photos_tot} photo(s))",
+                           f_info_title)
             ws.set_row(row, 22)
             row += 1
-            for x in alees_comm:
-                header = f"Allée {x['allee']} · {x['secteur']}{(' · ' + x['rayon']) if x['rayon'] else ''}"
-                ws.merge_range(row, 0, row, 3, header, f_kpi_l)
-                ws.merge_range(row, 4, row, 11, x["comment"], f_cl)
+            try:
+                from PIL import Image as PILImage
+                PIL_OK = True
+            except Exception:
+                PIL_OK = False
+
+            for x, photos, has_comment, has_geoc in notes_rows:
+                # En-tête allée
+                header = f"Allée {x['allee']} · {x['secteur']}"
+                if x.get("rayon"):
+                    header += f" · {x['rayon']}"
+                if photos:
+                    header += f"  ·  📸 {len(photos)} photo{'s' if len(photos) > 1 else ''}"
+                ws.merge_range(row, 0, row, 11, header, f_kpi_l)
+                ws.set_row(row, 20)
+                row += 1
+                # Commentaire POSE
+                if has_comment:
+                    ws.merge_range(row, 0, row, 1, "💬 Commentaire", f_h)
+                    ws.merge_range(row, 2, row, 11, x["comment"], f_cl)
+                    row += 1
+                # Commentaire GÉOLOC
+                if has_geoc:
+                    ws.merge_range(row, 0, row, 1, "📍 Géoloc", f_h)
+                    ws.merge_range(row, 2, row, 11, x["geoloc_comment"], f_cl)
+                    row += 1
+                # Photos (grille 4 col, sous les commentaires de la même allée)
+                if photos and PIL_OK:
+                    col_starts = [0, 3, 6, 9]
+                    photo_h_max = 0
+                    grid_start_row = row
+                    for i, p in enumerate(photos[:16]):  # max 16 photos par allée
+                        try:
+                            data, _ct = _get_object(p["path"])
+                            im = PILImage.open(io.BytesIO(data))
+                            w, h = im.size
+                            scale = min(1.0, 200.0 / float(w))
+                            ci = i % 4
+                            if ci == 0 and i > 0:
+                                row = grid_start_row + photo_h_max
+                                photo_h_max = 0
+                                grid_start_row = row
+                            ws.insert_image(grid_start_row, col_starts[ci], f"{p['id']}.jpg",
+                                            {"image_data": io.BytesIO(data),
+                                             "x_scale": scale, "y_scale": scale,
+                                             "x_offset": 4, "y_offset": 4})
+                            rows_needed = int((h * scale) / 20) + 2
+                            photo_h_max = max(photo_h_max, rows_needed)
+                        except Exception as pe:
+                            logger.warning(f"Photo embed failed ({p.get('id')}): {pe}")
+                            continue
+                    row = grid_start_row + photo_h_max
+                # Séparateur entre allées
                 row += 1
             row += 1
 
@@ -1483,59 +1545,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             row += 1
         row += 1
 
-        # ---- Storyboard photos (inline dans le Résumé, groupé par allée) ----
-        entries_map = {str(e.get("uid")): e for e in (doc.get("allees") or [])}
-        photo_groups = []
-        for x in items:
-            phs = (entries_map.get(x["uid"], {}) or {}).get("photos") or []
-            if phs:
-                photo_groups.append((x, phs))
-        if photo_groups:
-            total_photos = sum(len(p) for _, p in photo_groups)
-            ws.merge_range(row, 0, row, 11,
-                           f"📸  STORYBOARD PHOTOS ({total_photos} photo(s) sur {len(photo_groups)} allée(s))",
-                           f_info_title)
-            ws.set_row(row, 22)
-            row += 1
-            try:
-                from PIL import Image as PILImage
-                for allee_data, photos in photo_groups:
-                    header = f"Allée {allee_data['allee']} · {allee_data['secteur']}"
-                    if allee_data.get("rayon"):
-                        header += f" · {allee_data['rayon']}"
-                    header += f"  ({len(photos)} photo{'s' if len(photos) > 1 else ''})"
-                    ws.merge_range(row, 0, row, 11, header, f_kpi_l)
-                    row += 1
-                    # Grille 4 colonnes × N lignes, chaque photo occupe 3 colonnes de large
-                    col_starts = [0, 3, 6, 9]
-                    photo_h_max = 0
-                    grid_start_row = row
-                    for i, p in enumerate(photos[:16]):  # max 16 photos par allée
-                        try:
-                            data, _ct = _get_object(p["path"])
-                            im = PILImage.open(io.BytesIO(data))
-                            w, h = im.size
-                            # Cible ~200px de large max (colonnes de largeur 12 = ~85px, on prend 3 cols = ~255px)
-                            scale = min(1.0, 200.0 / float(w))
-                            ci = i % 4
-                            if ci == 0 and i > 0:
-                                row = grid_start_row + photo_h_max
-                                photo_h_max = 0
-                                grid_start_row = row
-                            ws.insert_image(grid_start_row, col_starts[ci], f"{p['id']}.jpg",
-                                            {"image_data": io.BytesIO(data),
-                                             "x_scale": scale, "y_scale": scale,
-                                             "x_offset": 4, "y_offset": 4})
-                            rows_needed = int((h * scale) / 20) + 2
-                            photo_h_max = max(photo_h_max, rows_needed)
-                        except Exception as pe:
-                            logger.warning(f"Photo embed failed ({p.get('id')}): {pe}")
-                            continue
-                    # Avancer après la dernière ligne de la grille
-                    row = grid_start_row + photo_h_max + 1
-            except Exception as e:
-                logger.warning(f"Photos storyboard section failed: {e}")
-                row += 1
+        # (iter37) La section STORYBOARD PHOTOS a été fusionnée avec les commentaires
+        # dans le bloc « NOTES & PHOTOS PAR ALLÉE » plus haut : chaque allée a
+        # désormais son propre bloc avec ses commentaires + photos regroupés.
 
         # ═══════════════════════════════════════════════════════════════
         # FEUILLE 2 — DÉTAIL PAR ALLÉE (le tableau complet historique)
@@ -1896,8 +1908,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
         wb.close()
         buf.seek(0)
-        from server import _export_basename  # lazy import (évite dep circulaire)
-        fname = f"{_export_basename(d)}_Rapport_nuit_{nuit}.xlsx"
+        from server import _display_store  # lazy import (évite dep circulaire)
+        # (iter37) Nom du fichier propre demandé par l'utilisateur :
+        # « ST PIERRE DES CORPS (H7351) - Nuit 1.xlsx » (au lieu du long
+        # « Export ... DD-MM-YYYY HH-MM_Rapport_nuit_1.xlsx »)
+        fname = f"{_display_store(d)} - Nuit {nuit}.xlsx"
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

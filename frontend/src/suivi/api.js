@@ -69,10 +69,16 @@ export function makeActions(base, refresh, { readOnly = false, tokenParam = "" }
             try {
                 const res = await fetch(withTk(`${base}/rapport-nuit/${nuit}`), { credentials: "include" });
                 if (!res.ok) throw new Error();
+                // (iter37) On lit le nom du fichier envoyé par le serveur pour respecter
+                // le format demandé « <Magasin> - Nuit N.xlsx » plutôt qu'un nom générique.
+                let filename = `Nuit ${nuit}.xlsx`;
+                const cd = res.headers.get("content-disposition") || "";
+                const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)"?/i);
+                if (m) filename = decodeURIComponent(m[1]);
                 const blob = await res.blob();
                 const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
-                a.download = `Rapport_nuit_${nuit}.xlsx`;
+                a.download = filename;
                 a.click();
                 URL.revokeObjectURL(a.href);
             } catch { toast.error("Impossible de générer le rapport"); }
