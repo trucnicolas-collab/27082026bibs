@@ -749,9 +749,17 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         for dg in fleche_desigs:
             _merge_into(dg, target_es15_noir)
 
-        # 3) Signalétique (rails 1187/1320/990/650/535/1240 mm) → ES 1.5 (couleur)
+        # 3) Signalétique NON-rail → ES 1.5 (couleur).
+        # (iter41) Les Rails ES (family=="rails_es") restent VISIBLES comme lignes
+        # distinctes dans le stock — l'équipe terrain gère la livraison des rails
+        # séparément de celle des étiquettes ES 1.5. Le bonus "1 rail = +1 ES 1.5"
+        # reste appliqué dans les totaux EEG (voir _rail_bonus_qty ci-dessus) mais
+        # n'affecte plus l'affichage du stock produit par produit.
         signal_by_color = {"noir": [], "blanc": []}
         for dg in list(prod_agg.keys()):
+            fam_dg = (prod_agg[dg] or {}).get("family")
+            if fam_dg == "rails_es":
+                continue  # on garde les rails ES en ligne distincte
             col = _signaletique_color(dg)
             if col:
                 signal_by_color[col].append(dg)

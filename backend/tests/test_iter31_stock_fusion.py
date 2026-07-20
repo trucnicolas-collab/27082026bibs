@@ -88,9 +88,11 @@ def _apply_stock_fusion(prod_agg):
     for dg in fleche_desigs:
         _merge_into(dg, target)
 
-    # 3) Signalétique
+    # 3) Signalétique NON-rail → ES 1.5 (couleur). Rails ES gardés distincts.
     signal_by_color = {"noir": [], "blanc": []}
     for dg in list(prod_agg.keys()):
+        if (prod_agg[dg] or {}).get("family") == "rails_es":
+            continue
         col = _signaletique_color(dg)
         if col:
             signal_by_color[col].append(dg)
@@ -129,21 +131,43 @@ def test_fleche_fusion_into_es15_noir():
     assert out["ES 1.5 (noir)"]["prevu"] == 1773 + 600
 
 
-def test_signaletique_fusion_by_color():
+def test_signaletique_non_rail_fusion_by_color():
+    """Signalétique non-rail (sans family=='rails_es') → ES 1.5 (couleur).
+    (iter41) Les Rails ES restent distincts, ce cas ne concerne donc que la
+    signalétique publicitaire éventuelle."""
     agg = _prod_agg_from_scenario([
         {"designation": "ES 1.5 (noir)", "prevu": 1773},
         {"designation": "ES 1.5 (blanc)", "prevu": 8088},
-        {"designation": "Rail 1187 mm (noir)", "prevu": 5000, "type": "Rail"},
-        {"designation": "Rail 990 mm (blanc)", "prevu": 1025, "type": "Rail"},
-        {"designation": "Rail 650 mm (noir)", "prevu": 4115, "type": "Rail"},
+        # Signalétique non-rail (family=None) : matche le pattern couleur mais pas classée rail
+        {"designation": "Signalétique 1187 mm (noir) publicitaire", "prevu": 200},
     ])
     out = _apply_stock_fusion(agg)
-    # Toutes les signalétiques sont absorbées
-    assert "Rail 1187 mm (noir)" not in out
-    assert "Rail 990 mm (blanc)" not in out
-    assert "Rail 650 mm (noir)" not in out
-    assert out["ES 1.5 (noir)"]["prevu"] == 1773 + 5000 + 4115  # noir : 1187 + 650
-    assert out["ES 1.5 (blanc)"]["prevu"] == 8088 + 1025
+    assert "Signalétique 1187 mm (noir) publicitaire" not in out
+    assert out["ES 1.5 (noir)"]["prevu"] == 1773 + 200
+
+
+def test_rails_es_stay_distinct():
+    """(iter41) Les Rails ES (family=='rails_es') doivent rester en lignes
+    distinctes dans le stock, pas être fusionnés dans ES 1.5."""
+    agg = _prod_agg_from_scenario([
+        {"designation": "ES 1.5 (noir)", "prevu": 1773},
+        {"designation": "ES 1.5 (blanc)", "prevu": 8088},
+        {"designation": "Rail 1187 mm (noir)", "prevu": 5000, "type": "Rail", "family": "rails_es"},
+        {"designation": "Rail 990 mm (blanc)", "prevu": 1025, "type": "Rail", "family": "rails_es"},
+        {"designation": "Rail 650 mm (noir)", "prevu": 4115, "type": "Rail", "family": "rails_es"},
+        {"designation": "Rail 535 mm (noir)", "prevu": 800, "type": "Rail", "family": "rails_es"},
+        {"designation": "Rail 1240 mm (noir)", "prevu": 350, "type": "Rail", "family": "rails_es"},
+    ])
+    out = _apply_stock_fusion(agg)
+    # Rails ES conservés
+    assert "Rail 1187 mm (noir)" in out
+    assert "Rail 990 mm (blanc)" in out
+    assert "Rail 650 mm (noir)" in out
+    assert "Rail 535 mm (noir)" in out
+    assert "Rail 1240 mm (noir)" in out
+    # ES 1.5 non gonflé par les rails
+    assert out["ES 1.5 (noir)"]["prevu"] == 1773
+    assert out["ES 1.5 (blanc)"]["prevu"] == 8088
 
 
 def test_no_target_creates_fallback():

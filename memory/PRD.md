@@ -1398,3 +1398,10 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Export Excel de nuit enrichi (3 feuilles)** : « Nuit N » (KPIs incl. allées à finaliser, colonne Justification écart >5%, sections Produits supplémentaires + Écarts >5% et justifications, tableau Caméras si nuit couverte, incidents, photos) ; « Détail produits » ; « Synthèse déploiement » (KPIs globaux : avancement %, rythme, EEG restant, nuits estimées + tableau de TOUTES les nuits avec validées/bloquées/à finaliser/écarts, marqueur « ◀ cette nuit »).
 - [x] **Fixations caméras** : champ « Fixations posées » (`fixations_reel`) par allée caméra, plan auto-détecté depuis le fichier (Type Fixation + désignation caméra), delta affiché. Inclus dans l'export.
 - [x] Testé : 52/52 pytest backend + 10/10 étapes frontend (iteration_17). Nouveau fichier de tests `/app/backend/tests/test_suivi_justif_finaliser.py`.
+
+## Suite (20/02/2026 iter41) — Rails ES visibles comme lignes distinctes dans le Stock
+- [x] **Correctif Stock** : les Rails ES (`family == "rails_es"` : 1187/1240/1320/535/650/990 mm en noir/blanc) n'étaient plus visibles dans l'écran Stock car ils étaient fusionnés dans « ES 1.5 (noir/blanc) » avec la signalétique lors de l'agrégation `prod_agg`.
+- [x] `backend/suivi_deploy.py` — Section « 3) Signalétique NON-rail → ES 1.5 » modifiée : on ignore désormais les produits `family == "rails_es"` lors de la fusion. Ils sont conservés comme lignes propres dans la liste `stock` retournée par `GET /api/suivi/{id}`.
+- [x] **Bonus rail intact** : le bonus « 1 rail posé = +1 ES 1.5 » (`_rail_bonus_qty`) reste appliqué dans `reel_fam["es_15"]` (ligne 434-436) et dans `eeg_plan`/`eeg_reel` — l'affichage stock est indépendant de ce calcul.
+- [x] Tests : `test_iter31_stock_fusion.py` mis à jour (`test_signaletique_non_rail_fusion_by_color`, `test_rails_es_stay_distinct`) — 6/6 passants. Validation E2E via curl sur `fd15443f-...` : « 990 mm (noir) » désormais présent dans le tableau `stock` avec `family=rails_es`.
+
