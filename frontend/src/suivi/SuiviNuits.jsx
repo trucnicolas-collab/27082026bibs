@@ -377,6 +377,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
     const [saving, setSaving] = useState(false);
     const [panel, setPanel] = useState(false);
     const [justif, setJustif] = useState(a.justification || "");
+    const [justifOk, setJustifOk] = useState(!!a.justif_ok);
     const [extras, setExtras] = useState(() =>
         (a.extra_products || []).map((x) => ({ designation: x.designation, qty: String(x.qty) })));
     const [uploading, setUploading] = useState(false);
@@ -414,9 +415,9 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
     };
 
     const confirmValidate = async () => {
-        // Blocage 1 : écart > 5% sur pose EEG / rails ES → justification obligatoire
-        if (justifProducts.length > 0 && !justif.trim()) {
-            toast.error("Justification obligatoire : écart de plus de 5% sur EEG / rails ES");
+        // Blocage 1 : écart > 5% sur pose EEG / rails ES → justif_ok OU commentaire
+        if (justifProducts.length > 0 && !justifOk && !justif.trim()) {
+            toast.error("Cochez « Tout est OK » ou ajoutez un commentaire — écart POSE > 5%");
             return;
         }
         // Blocage 2 : produits posés non géolocalisés → commentaire géoloc obligatoire
@@ -429,7 +430,11 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
         // Ne PAS auto-remplir posé = prévu si rien n'a été saisi : les valeurs vides restent nulles
         // (l'allée est validée mais les produits non saisis restent à 0 posé — visible dans le rapport)
         const fields = { status: "validee" };
-        if (justif.trim()) fields.justification = justif.trim();
+        if (justifProducts.length > 0) {
+            fields.justif_ok = justifOk;
+            if (justifOk) fields.justification = "";  // vide le champ texte
+            else if (justif.trim()) fields.justification = justif.trim();
+        }
         if (geoComment.trim() && geoComment !== (a.geoloc_comment || "")) {
             fields.geoloc_comment = geoComment.trim();
         }
@@ -765,10 +770,11 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                         </div>
 
                         {justifProducts.length > 0 && (
-                            <div className="rounded-xl bg-red-950/40 border border-red-900/60 p-3 space-y-2" data-testid={`validate-justif-${a.uid}`}>
-                                <div className="text-[11px] text-red-300 font-semibold flex items-start gap-1.5">
+                            <div className={`rounded-xl p-3 space-y-2 border ${justifOk ? "bg-amber-950/40 border-amber-800/60" : "bg-red-950/40 border-red-900/60"}`}
+                                data-testid={`validate-justif-${a.uid}`}>
+                                <div className={`text-[11px] font-semibold flex items-start gap-1.5 ${justifOk ? "text-amber-300" : "text-red-300"}`}>
                                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                                    <span>Écart POSE de plus de 5% entre prévu et posé — justification obligatoire :</span>
+                                    <span>Écart POSE de plus de 5% entre prévu et posé{justifOk ? " — validé par le poseur" : " — justification requise"} :</span>
                                 </div>
                                 {justifProducts.map((p) => {
                                     const raw = vals[p.designation]?.reel;
@@ -776,14 +782,26 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                                     const pct = Math.round(Math.abs(reel - p.plan) / p.plan * 1000) / 10;
                                     return (
                                         <div key={p.designation} className="text-[11px] text-slate-300">
-                                            • {p.designation} : prévu {fmt(p.plan)} → posé {fmt(reel)} <span className="text-red-400 font-bold">({pct}%)</span>
+                                            • {p.designation} : prévu {fmt(p.plan)} → posé {fmt(reel)} <span className={`font-bold ${justifOk ? "text-amber-400" : "text-red-400"}`}>({pct}%)</span>
                                         </div>
                                     );
                                 })}
-                                <textarea value={justif} onChange={(e) => setJustif(e.target.value)} rows={2}
-                                    placeholder="Pourquoi cet écart de POSE ? (obligatoire)"
-                                    data-testid={`validate-justif-input-${a.uid}`}
-                                    className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none resize-none" />
+                                {/* (iter36) Case "Tout est OK" pour ne pas stresser le client */}
+                                <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-slate-950/50 hover:bg-slate-950 transition-colors">
+                                    <input type="checkbox" checked={justifOk}
+                                        onChange={(e) => setJustifOk(e.target.checked)}
+                                        data-testid={`validate-justif-ok-${a.uid}`}
+                                        className="w-4 h-4 rounded accent-amber-500 cursor-pointer" />
+                                    <span className="text-xs text-slate-200 font-semibold">
+                                        ✅ Tout est OK — pas besoin de commentaire
+                                    </span>
+                                </label>
+                                {!justifOk && (
+                                    <textarea value={justif} onChange={(e) => setJustif(e.target.value)} rows={2}
+                                        placeholder="Sinon, expliquer l'écart de POSE (rupture stock, casse, difficulté d'accès...)"
+                                        data-testid={`validate-justif-input-${a.uid}`}
+                                        className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-red-900/70 text-xs placeholder:text-slate-600 focus:border-red-500 outline-none resize-none" />
+                                )}
                             </div>
                         )}
 

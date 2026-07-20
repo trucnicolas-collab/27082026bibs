@@ -194,6 +194,8 @@ class AlleeUpdate(BaseModel):
     comment: Optional[str] = None
     geoloc_comment: Optional[str] = None
     justification: Optional[str] = None  # écart > 5% EEG/rails
+    justif_ok: Optional[bool] = None  # (iter36) case "Tout est OK" cochée par le poseur
+                                       # → l'écart n'est plus considéré comme critique
     nuit_reelle: Optional[int] = None  # 0 → retour à la nuit planifiée
     nuit_rattrapage: Optional[int] = None  # nuit prévue pour rattraper une allée non faite
 
@@ -511,6 +513,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "eeg_plan": _r(_eeg_sum(plan)),
                 "eeg_reel": _r(_eeg_sum({k: (reel[k] or 0) for k in FAMILY_KEYS})) if has_reel else None,
                 "justification": e.get("justification") or "",
+                "justif_ok": bool(e.get("justif_ok")),  # (iter36) case "Tout est OK" cochée
                 "justif_products": justif_products,
                 "extra_products": extra_products,
                 "status": e.get("status") or "a_faire",
@@ -1166,6 +1169,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         f_cl_zebra = wb.add_format({"border": 1, "valign": "vcenter", "bg_color": C_ZEBRA})
         f_ok = wb.add_format({"border": 1, "align": "center", "bg_color": C_BLUE_LIGHT, "bold": True, "font_color": C_BLUE})
         f_neg = wb.add_format({"border": 1, "align": "center", "bg_color": C_DANGER_BG, "font_color": C_DANGER, "bold": True})
+        # (iter36) écart validé "Tout est OK" — orange doux au lieu de rouge alarmant
+        f_neg_soft = wb.add_format({"border": 1, "align": "center", "bg_color": C_WARNING_BG, "font_color": C_WARNING, "bold": True})
         f_pos = wb.add_format({"border": 1, "align": "center", "bg_color": C_WARNING_BG, "font_color": C_WARNING, "bold": True})
         f_geo_bad = wb.add_format({"border": 1, "align": "center", "bg_color": C_DANGER_BG, "font_color": C_DANGER, "bold": True})
         f_tot = wb.add_format({"bold": True, "border": 2, "align": "center", "bg_color": "#E0E7FF", "font_color": C_BLUE})
@@ -1423,12 +1428,16 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 for jp in x["justif_products"]:
                     fmtc = f_c_zebra if i % 2 else f_c
                     fmtl = f_cl_zebra if i % 2 else f_cl
+                    # (iter36) Coloration : orange si "Tout est OK" coché par le poseur (écart validé), rouge sinon
+                    ok = bool(x.get("justif_ok"))
+                    fmt_pct = f_neg_soft if ok else f_neg
                     ws.write(row, 0, x["allee"], fmtc)
                     ws.merge_range(row, 1, row, 4, jp["designation"], fmtl)
                     ws.write(row, 5, jp["plan"], fmtc)
                     ws.write(row, 6, jp["reel"], fmtc)
-                    ws.write(row, 7, jp["ecart_pct"], f_neg)
-                    ws.merge_range(row, 8, row, 11, x.get("justification") or "⚠ manquante", fmtl)
+                    ws.write(row, 7, jp["ecart_pct"], fmt_pct)
+                    justif_txt = x.get("justification") or ("✅ OK poseur — validé" if ok else "⚠ manquante")
+                    ws.merge_range(row, 8, row, 11, justif_txt, fmtl)
                     row += 1
                     i += 1
             row += 1
@@ -1532,7 +1541,8 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         # FEUILLE 2 — DÉTAIL PAR ALLÉE (le tableau complet historique)
         # ═══════════════════════════════════════════════════════════════
         ws = wb.add_worksheet("Détail allées")
-        ws.write(0, 0, f"Détail complet des allées — Nuit {nuit}", f_section)
+        ws.merge_range(0, 0, 0, 6, f"Détail complet des allées — Nuit {nuit}", f_section)
+        ws.set_row(0, 26)  # (iter36) hauteur suffisante pour le titre
         row = 2
 
         # Tableau des allées (prévu / réel / géo / Δ) + colonnes distinctes Pose vs Géoloc
@@ -1547,10 +1557,12 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         headers += ["Statut", "Justification écart >5%", "Commentaire POSE", "Commentaire GÉOLOC"]
         for c, h in enumerate(headers):
             ws.write(row, c, h, f_h)
+        ws.set_row(row, 30)  # (iter36) header lisible même avec libellés longs
         ws.set_column(0, 0, 8)
-        ws.set_column(1, 2, 16)
-        ws.set_column(3, len(headers) - 5, 9)
-        ws.set_column(len(headers) - 3, len(headers) - 1, 28)
+        ws.set_column(1, 2, 20)  # Secteur & Rayon
+        ws.set_column(3, len(headers) - 5, 11)  # colonnes numériques élargies
+        ws.set_column(len(headers) - 4, len(headers) - 4, 14)  # Statut
+        ws.set_column(len(headers) - 3, len(headers) - 1, 32)  # justif + commentaires
         row += 1
         status_lbl = {"a_faire": "À faire", "validee": "Validée", "bloquee": "BLOQUÉE",
                       "a_finaliser": "À FINALISER", "non_faite": "NON FAITE"}
@@ -1760,12 +1772,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             pass
         if (ecart_eeg and ecart_eeg.get("ecarts")) or (ecart_cam and ecart_cam.get("ecarts")):
             ws_ec = wb.add_worksheet("Écart phasage vs réel")
-            ws_ec.write(0, 0, f"Écart phasage vs réel — Nuit {nuit}", f_title)
-            ws_ec.write(1, 0, "Comparaison quantités prévues (phasage) vs réel posé, par produit. "
+            ws_ec.merge_range(0, 0, 0, 6, f"Écart phasage vs réel — Nuit {nuit}", f_title)
+            ws_ec.merge_range(1, 0, 1, 6, "Comparaison quantités prévues (phasage) vs réel posé, par produit. "
                               "Bonus > +5%, Manque < -5%.", f_sub)
-            ws_ec.set_column(0, 0, 42)
-            ws_ec.set_column(1, 1, 12)
-            ws_ec.set_column(2, 6, 11)
+            ws_ec.set_row(0, 32)  # (iter36) hauteur suffisante pour le titre
+            ws_ec.set_row(1, 22)
+            ws_ec.set_column(0, 0, 48)   # Désignation
+            ws_ec.set_column(1, 1, 14)   # Type
+            ws_ec.set_column(2, 6, 13)   # colonnes numériques et Statut
             r_ec = 3
 
             def _write_ecart_block(title: str, block: dict):
@@ -2443,10 +2457,17 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                         detail="Écart de géolocalisation : " + " · ".join(gap_details)
                                + " → renseigne le commentaire de géolocalisation avant de valider")
             justifs = _justifs_after_update(matnode, entry, fields)
-            if justifs and not (fields.get("justification") or "").strip() and not (entry.get("justification") or "").strip():
+            # (iter36) La case "Tout est OK" cochée par le poseur exempte du
+            # commentaire textuel — l'écart reste tracé (statut orange dans
+            # dashboard/Excel), mais on considère qu'il n'est pas critique.
+            justif_ok = bool(fields.get("justif_ok") if "justif_ok" in fields else entry.get("justif_ok"))
+            has_text = bool((fields.get("justification") or "").strip()
+                            or (entry.get("justification") or "").strip())
+            if justifs and not justif_ok and not has_text:
                 raise HTTPException(
                     status_code=400,
-                    detail="Justification requise : écart de plus de 5% sur " + ", ".join(justifs))
+                    detail="Justification requise : écart de plus de 5% sur " + ", ".join(justifs)
+                           + " — cochez « Tout est OK » ou renseignez un commentaire")
         valid = set((matnode.get("totals") or {}).keys())
         return await _apply_allee_update(doc["upload_id"], doc, payload, author,
                                          valid_designations=valid or None)

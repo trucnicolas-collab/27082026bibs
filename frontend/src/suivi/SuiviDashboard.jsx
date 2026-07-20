@@ -88,11 +88,13 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                 </div>
             </section>
 
-            {/* Avance / retard */}
+            {/* Avance / retard — (iter36) petit retard (≤1) en orange, gros retard (≥2) en rouge */}
             <section className={`rounded-2xl border p-4 flex items-center gap-4
                 ${avance === null || avance === undefined ? "bg-slate-900 border-slate-800"
                     : avance > 0 ? "bg-blue-950/50 border-blue-800/60"
-                        : avance < 0 ? "bg-red-950/40 border-red-900/60" : "bg-slate-900 border-slate-800"}`}
+                        : avance <= -2 ? "bg-red-950/40 border-red-900/60"
+                            : avance < 0 ? "bg-amber-950/40 border-amber-800/60"
+                                : "bg-slate-900 border-slate-800"}`}
                 data-testid="dash-avance">
                 {avance === null || avance === undefined ? (
                     <>
@@ -114,11 +116,14 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                     </>
                 ) : avance < 0 ? (
                     <>
-                        <TrendingDown className="w-8 h-8 text-red-400 flex-shrink-0" />
+                        <TrendingDown className={`w-8 h-8 flex-shrink-0 ${avance <= -2 ? "text-red-400" : "text-amber-400"}`} />
                         <div className="flex-1">
-                            <div className="font-semibold text-sm text-red-300">Retard estimé : {Math.abs(avance)} nuit{Math.abs(avance) > 1 ? "s" : ""}</div>
+                            <div className={`font-semibold text-sm ${avance <= -2 ? "text-red-300" : "text-amber-300"}`}>
+                                {avance <= -2 ? "Retard significatif" : "Léger retard"} : {Math.abs(avance)} nuit{Math.abs(avance) > 1 ? "s" : ""}
+                            </div>
                             <div className="text-xs text-slate-400">
                                 Il faudrait {st.nuits_estimees_restantes} nuit(s) au rythme actuel pour finir.
+                                {avance === -1 && " Rattrapable si le rythme s'accélère."}
                             </div>
                         </div>
                     </>
@@ -192,7 +197,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                         // (v28 iter3) Détecte présence commentaires/photos/incidents dans la nuit
                         const nAllees = (state.allees || []).filter(a => a.nuit_eff === n.nuit);
                         const nbComments = nAllees.filter(a => (a.comment || "").trim().length > 0).length;
-                        const nbJustifs = nAllees.filter(a => (a.justification || "").trim().length > 0).length;
+                        const nbJustifs = nAllees.filter(a => (a.justification || "").trim().length > 0 || a.justif_ok).length;
                         const nbGeoComments = nAllees.filter(a => (a.geoloc_comment || "").trim().length > 0).length;
                         const nbPhotos = nAllees.reduce((s, a) => s + ((a.photos || []).length), 0);
                         const nbIncidents = (state.incidents || []).filter(i => i.nuit === n.nuit).length;
@@ -233,13 +238,16 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                                                 <MessageSquare className="w-2.5 h-2.5" />{nbComments}
                                             </span>
                                         )}
-                                        {nbJustifs > 0 && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-200 font-semibold flex items-center gap-1"
-                                                title={`${nbJustifs} justification(s) d'écart POSE > 5%`}
-                                                data-testid={`dash-night-${n.nuit}-justif-badge`}>
-                                                <AlertTriangle className="w-2.5 h-2.5" />{nbJustifs}
-                                            </span>
-                                        )}
+                                        {nbJustifs > 0 && (() => {
+                                            const anyCritical = nAllees.some(a => (a.justification || "").trim().length > 0 && !a.justif_ok);
+                                            return (
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold flex items-center gap-1 ${anyCritical ? "bg-red-900/60 text-red-200" : "bg-amber-900/60 text-amber-200"}`}
+                                                    title={anyCritical ? `${nbJustifs} justification(s) d'écart POSE > 5% avec commentaire` : `${nbJustifs} écart(s) POSE > 5% validé(s) par le poseur (Tout est OK)`}
+                                                    data-testid={`dash-night-${n.nuit}-justif-badge`}>
+                                                    <AlertTriangle className="w-2.5 h-2.5" />{nbJustifs}
+                                                </span>
+                                            );
+                                        })()}
                                         {nbGeoComments > 0 && (
                                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-200 font-semibold flex items-center gap-1"
                                                 title={`${nbGeoComments} commentaire(s) GÉOLOC`}
@@ -274,7 +282,8 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
     const eegRestant = Math.max(0, (night.eeg_plan || 0) - (night.eeg_reel || 0));
     // (v28 iter3) Agrégats commentaires/photos/incidents pour cette nuit
     const alleesAvecComment = allees.filter(a => (a.comment || "").trim().length > 0);
-    const alleesAvecJustif = allees.filter(a => (a.justification || "").trim().length > 0);
+    // (iter36) Inclure aussi les allées où le poseur a coché "Tout est OK" (justif_ok)
+    const alleesAvecJustif = allees.filter(a => (a.justification || "").trim().length > 0 || a.justif_ok);
     const alleesAvecGeoComment = allees.filter(a => (a.geoloc_comment || "").trim().length > 0);
     const alleesAvecPhoto = allees.filter(a => (a.photos || []).length > 0);
     const nightIncidents = (state.incidents || []).filter(i => i.nuit === night.nuit);
@@ -385,21 +394,27 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
                         </div>
                     )}
 
-                    {/* (iter34) Justifications d'écart pose > 5% */}
+                    {/* (iter34) Justifications d'écart pose > 5% — orange si "Tout est OK" coché */}
                     {alleesAvecJustif.length > 0 && (
                         <div className="space-y-1" data-testid="night-summary-justifs">
                             <div className="text-[10px] uppercase text-slate-500 font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-2.5 h-2.5 text-red-400" /> Justifications écart POSE &gt; 5% ({alleesAvecJustif.length})
+                                <AlertTriangle className="w-2.5 h-2.5 text-amber-400" /> Écarts POSE &gt; 5% ({alleesAvecJustif.length})
                             </div>
-                            {alleesAvecJustif.map((a) => (
-                                <div key={a.uid} className="rounded-lg bg-red-950/30 border border-red-900/40 p-2 text-[11px] text-red-100"
-                                    data-testid={`night-summary-justif-${a.uid}`}>
-                                    <div className="text-red-300 font-semibold text-[10px] mb-0.5">
-                                        Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                            {alleesAvecJustif.map((a) => {
+                                const okChecked = a.justif_ok;
+                                return (
+                                    <div key={a.uid} className={`rounded-lg border p-2 text-[11px] ${okChecked ? "bg-amber-950/30 border-amber-900/40 text-amber-100" : "bg-red-950/30 border-red-900/40 text-red-100"}`}
+                                        data-testid={`night-summary-justif-${a.uid}`}>
+                                        <div className={`font-semibold text-[10px] mb-0.5 ${okChecked ? "text-amber-300" : "text-red-300"}`}>
+                                            Allée {a.allee} · {a.secteur}{a.rayon ? ` · ${a.rayon}` : ""}
+                                            {okChecked && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-900/50 font-bold">✅ OK poseur</span>}
+                                        </div>
+                                        <div className="whitespace-pre-wrap">
+                                            {okChecked && !a.justification ? "Écart validé par le poseur (aucun problème signalé)" : a.justification}
+                                        </div>
                                     </div>
-                                    <div className="whitespace-pre-wrap">{a.justification}</div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
 
