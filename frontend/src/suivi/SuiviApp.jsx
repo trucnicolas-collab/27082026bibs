@@ -295,15 +295,32 @@ function ViewerLinkButton() {
                             Ils voient tous les magasins <b className="text-slate-200">publiés</b> en Lecture Seule, sans pouvoir modifier quoi que ce soit.
                             Publier ou dépublier un magasin met à jour la liste automatiquement — le lien lui-même ne change jamais.
                         </p>
+                        <div className="rounded-lg bg-slate-950 border border-purple-800/40 px-3 py-2.5"
+                            data-testid="viewer-link-box">
+                            {token === null ? (
+                                <div className="text-[11px] text-slate-500 italic">Chargement du lien...</div>
+                            ) : !token ? (
+                                <div className="text-[11px] text-red-400">
+                                    Lien indisponible — connectez-vous en admin puis rouvrez cette fenêtre.
+                                </div>
+                            ) : (
+                                <code className="text-[11px] text-purple-300 break-all select-all leading-relaxed block"
+                                    data-testid="viewer-link-url">
+                                    {link}
+                                </code>
+                            )}
+                        </div>
                         <div className="flex items-center gap-2">
-                            <code className="flex-1 min-w-0 truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-purple-300"
-                                data-testid="viewer-link-url">
-                                {token === null ? "Chargement..." : token ? link : "Non disponible"}
-                            </code>
                             <button onClick={copy} disabled={!token} data-testid="viewer-link-copy"
-                                className="h-8 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40">
-                                <Copy className="w-3.5 h-3.5" /> Copier
+                                className="flex-1 h-9 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40">
+                                <Copy className="w-3.5 h-3.5" /> Copier le lien
                             </button>
+                            {token && (
+                                <a href={link} target="_blank" rel="noreferrer" data-testid="viewer-link-open-tab"
+                                    className="h-9 px-3 rounded-lg border border-purple-800 text-purple-300 hover:bg-purple-950/40 text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                                    Tester
+                                </a>
+                            )}
                         </div>
                     </div>
                 </div>
