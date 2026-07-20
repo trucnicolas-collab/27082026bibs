@@ -14,6 +14,7 @@ import { makeActions } from "./api";
 import {
     LayoutDashboard, Moon, Package, ChevronLeft, LogOut,
     Loader2, ClipboardList, Store, ChevronRight, Cctv, Boxes,
+    Eye, Copy, X,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -149,6 +150,7 @@ function ChefApp() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
+                    <ViewerLinkButton />
                     <a href="/" className="text-[11px] text-slate-400 hover:text-blue-400 transition-colors hidden sm:block">
                         ← App Phasage
                     </a>
@@ -241,3 +243,72 @@ function SessionPicker({ sessions, onOpen }) {
         </main>
     );
 }
+
+// Bouton discret dans le header : affiche le lien de partage client (Lecture Seule)
+// dans une modale. PAS de bouton Régénérer côté UI pour éviter toute casse
+// accidentelle du lien envoyé aux clients (le seul moyen de le régénérer est
+// désormais un appel API direct côté admin).
+function ViewerLinkButton() {
+    const [open, setOpen] = React.useState(false);
+    const [token, setToken] = React.useState(null);
+    const link = token ? `${window.location.origin}/suivi/view?token=${token}` : "";
+
+    const openModal = async () => {
+        setOpen(true);
+        if (token !== null) return;
+        try {
+            const res = await axios.get(`${API}/suivi/viewer-link`);
+            setToken(res.data?.token || "");
+        } catch { setToken(""); }
+    };
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(link);
+            toast.success("Lien copié — envoyez-le à vos clients");
+        } catch { toast.error("Copie impossible"); }
+    };
+
+    return (
+        <>
+            <button onClick={openModal} data-testid="viewer-link-open"
+                title="Voir le lien de partage client (lecture seule)"
+                className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-purple-300 transition-colors">
+                <Eye className="w-4 h-4" />
+            </button>
+            {open && (
+                <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+                    data-testid="viewer-link-modal" onClick={() => setOpen(false)}>
+                    <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-purple-800/50 p-5 shadow-2xl space-y-3"
+                        onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                <Eye className="w-4 h-4 text-purple-400" />
+                            </div>
+                            <h3 className="text-sm font-bold flex-1">Lien de partage client — Lecture seule</h3>
+                            <button onClick={() => setOpen(false)} data-testid="viewer-link-close"
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                            Un lien <b className="text-slate-200">unique et permanent</b> à partager à vos clients.
+                            Ils voient tous les magasins <b className="text-slate-200">publiés</b> en Lecture Seule, sans pouvoir modifier quoi que ce soit.
+                            Publier ou dépublier un magasin met à jour la liste automatiquement — le lien lui-même ne change jamais.
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <code className="flex-1 min-w-0 truncate text-[11px] bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-purple-300"
+                                data-testid="viewer-link-url">
+                                {token === null ? "Chargement..." : token ? link : "Non disponible"}
+                            </code>
+                            <button onClick={copy} disabled={!token} data-testid="viewer-link-copy"
+                                className="h-8 px-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40">
+                                <Copy className="w-3.5 h-3.5" /> Copier
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}
+
