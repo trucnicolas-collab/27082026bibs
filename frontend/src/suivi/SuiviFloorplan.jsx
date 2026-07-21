@@ -21,7 +21,7 @@ const nightColor = (n) => {
     return NIGHT_COLORS[(k - 1) % NIGHT_COLORS.length];
 };
 
-export default function SuiviFloorplan({ state, actions, readOnly = false, onOpenAllee }) {
+export default function SuiviFloorplan({ state, actions, readOnly = false, onOpenAllee, phaseKind = "eeg" }) {
     const [plans, setPlans] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeFloor, setActiveFloor] = useState(0);
@@ -49,9 +49,12 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
     const reload = useCallback(async () => {
         setLoading(true);
         const list = await actions.listFloorplans();
-        setPlans(list);
+        // (iter48) Ne conserve que les plans du phasage courant (EEG ou CAM).
+        // Les plans sans phase_kind sont considérés EEG (rétrocompatibilité).
+        const filtered = (list || []).filter((p) => (p.phase_kind || "eeg") === phaseKind);
+        setPlans(filtered);
         setLoading(false);
-    }, [actions]);
+    }, [actions, phaseKind]);
     useEffect(() => { reload(); }, [reload]);
 
     const plan = plans[activeFloor] || null;
@@ -263,7 +266,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                 fr.readAsDataURL(blob);
             });
             const label = (pendingNewLabel || `Étage ${plans.length + 1}`).trim() || `Étage ${plans.length + 1}`;
-            const created = await actions.createFloorplan(label, dataUrl, []);
+            const created = await actions.createFloorplan(label, dataUrl, [], phaseKind);
             if (created) {
                 setPlans((ps) => [...ps, created]);
                 setActiveFloor(plans.length);
@@ -304,11 +307,17 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                     <h2 className="text-lg font-bold flex items-center gap-2">
                         <MapPin className="w-5 h-5 text-blue-400" />
                         Plan du magasin
+                        <span className={`text-[10px] uppercase tracking-widest font-bold rounded-full px-2 py-0.5 border ${phaseKind === "cam"
+                            ? "bg-purple-950/60 border-purple-700 text-purple-300"
+                            : "bg-blue-950/60 border-blue-700 text-blue-300"}`}
+                            data-testid="floorplan-phase-badge">
+                            {phaseKind === "cam" ? "Caméras" : "EEG / Rails"}
+                        </span>
                     </h2>
                     <p className="text-xs text-slate-400 mt-0.5">
                         {readOnly
                             ? "Visualisation en lecture seule — un code couleur par nuit."
-                            : "Dessinez des zones (rectangles ou polygones) et attribuez-leur une nuit : chaque nuit a sa couleur."}
+                            : `Dessinez des zones et attribuez-leur une nuit : chaque nuit a sa couleur. Ce plan est spécifique au phasage ${phaseKind === "cam" ? "Caméras" : "EEG / Rails"}.`}
                     </p>
                 </div>
                 {readOnly && (
@@ -361,7 +370,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
             {plans.length === 0 ? (
                 <EmptyState readOnly={readOnly} />
             ) : (
-                <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex flex-col lg:flex-row gap-3">
                     <div className="flex-1 min-w-0">
                         {!readOnly && (
                             <Toolbar
@@ -392,7 +401,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                             onTouchStart={onTouchStart}
                             onTouchMove={onTouchMove}
                             onTouchEnd={onTouchEnd}
-                            style={{ touchAction: "none" }}
+                            style={{ touchAction: "none", height: "min(75vh, 780px)" }}
                         >
                             {plan && (
                                 <>
@@ -401,6 +410,8 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                                             transformOrigin: "0 0",
                                             transition: panDrag || pinch ? "none" : "transform 0.1s ease-out",
+                                            width: "100%",
+                                            height: "100%",
                                         }}
                                     >
                                         <svg
@@ -411,7 +422,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                             onMouseMove={handleSvgMouseMove}
                                             onMouseUp={handleSvgMouseUp}
                                             onClick={handleSvgClick}
-                                            style={{ width: "100%", display: "block", cursor, touchAction: "none" }}
+                                            style={{ width: "100%", height: "100%", display: "block", cursor, touchAction: "none" }}
                                         >
                                             <image
                                                 href={plan.image_data_url}
@@ -458,7 +469,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                     </div>
 
                     {!readOnly && (
-                        <aside className="lg:w-72 bg-slate-800/60 border border-slate-700 rounded-lg p-3">
+                        <aside className="lg:w-56 bg-slate-800/60 border border-slate-700 rounded-lg p-3 h-fit lg:sticky lg:top-4">
                             <h3 className="text-xs font-bold text-slate-300 mb-2">
                                 {selectedZone ? "Zone sélectionnée" : `${plan?.zones?.length || 0} zone(s) sur ce plan`}
                             </h3>
@@ -689,8 +700,8 @@ function Legend({ plan }) {
 
 function EmptyState({ readOnly }) {
     return (
-        <div className="py-16 text-center bg-slate-900/40 border border-dashed border-slate-700 rounded-lg" data-testid="floorplan-empty">
-            <MapPin className="w-8 h-8 mx-auto text-slate-500 mb-2" />
+        <div className="py-24 text-center bg-slate-900/40 border border-dashed border-slate-700 rounded-lg flex flex-col items-center justify-center" style={{ minHeight: "min(60vh, 600px)" }} data-testid="floorplan-empty">
+            <MapPin className="w-10 h-10 text-slate-500 mb-3" />
             <p className="text-sm text-slate-400">Aucun plan n&apos;a encore été chargé pour ce magasin.</p>
             {!readOnly && (
                 <p className="text-xs text-slate-500 mt-2">

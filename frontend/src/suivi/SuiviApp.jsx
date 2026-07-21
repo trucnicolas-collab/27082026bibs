@@ -205,7 +205,7 @@ function ChefApp() {
                         {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
                         {tab === "materiel" && <SuiviMateriel actions={actions} phaseKind={phaseKind} />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
-                        {tab === "plan" && <SuiviFloorplan state={state} actions={actions} />}
+                        {tab === "plan" && <SuiviFloorplan state={state} actions={actions} phaseKind={phaseKind} />}
                     </main>
                 </>
             )}

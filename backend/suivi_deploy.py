@@ -252,6 +252,9 @@ class FloorplanZone(BaseModel):
 class FloorplanIn(BaseModel):
     """Payload pour créer/mettre à jour un plan."""
     label: str = "RDC"
+    # (iter48) Type de phasage : "eeg" (étiquettes/rails) ou "cam" (caméras).
+    # Deux plans distincts par étage possibles : un pour l'EEG, un pour les cam.
+    phase_kind: str = "eeg"
     # Image en data-URL base64 (data:image/png;base64,...). Facultatif à
     # l'update — permet de ne modifier que les zones ou le label.
     image_data_url: Optional[str] = None
@@ -2222,13 +2225,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 return out
 
             for fp in floorplans:
-                sheet_label = (fp.get("label") or "Plan").strip()[:28] or "Plan"
-                safe = "".join(c for c in f"Plan {sheet_label}" if c not in "[]:*?/\\")[:31]
+                sheet_label = (fp.get("label") or "Plan").strip()[:22] or "Plan"
+                phase_lbl = "CAM" if (fp.get("phase_kind") == "cam") else "EEG"
+                safe = "".join(c for c in f"Plan {phase_lbl} {sheet_label}" if c not in "[]:*?/\\")[:31]
                 if safe in {s.get_name() for s in wb.worksheets()}:
                     safe = safe[:28] + f" {fp.get('id', '')[:3]}"[:31]
                 ws_p = wb.add_worksheet(safe)
                 ws_p.set_column(0, 20, 12)
-                ws_p.merge_range(0, 0, 0, 15, f"Plan magasin — {sheet_label}  ·  Nuit {nuit}", f_title)
+                ws_p.merge_range(0, 0, 0, 15, f"Plan {phase_lbl} — {sheet_label}  ·  Nuit {nuit}", f_title)
                 ws_p.set_row(0, 34)
                 ws_p.merge_range(1, 0, 1, 15,
                     "Zones ✓ = allées de cette nuit (colorées plein) ; teinte pâle = autres nuits.",
@@ -3169,6 +3173,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         new_plan = {
             "id": floor_id,
             "label": (payload.label or "RDC").strip()[:60] or "RDC",
+            "phase_kind": "cam" if payload.phase_kind == "cam" else "eeg",
             "image_data_url": payload.image_data_url,
             "zones": _sanitize_zones(payload.zones),
             "created_by": current_user.get("email") or "",
@@ -3385,6 +3390,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         new_plan = {
             "id": floor_id,
             "label": (payload.label or "RDC").strip()[:60] or "RDC",
+            "phase_kind": "cam" if payload.phase_kind == "cam" else "eeg",
             "image_data_url": payload.image_data_url,
             "zones": _sanitize_zones(payload.zones),
             "created_by": "équipe terrain",

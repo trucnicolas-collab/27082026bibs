@@ -1499,4 +1499,20 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
   - Support rectangle + polygone. Rejet gracieux si Pillow ou image data-url invalide.
   - Sanitize nom d'onglet Excel (≤ 31 chars, sans `[]:*?/\`, unique).
 - [x] Testé E2E : plan de test avec 2 zones (rect + polygone) créé sur dataset preview → rapport Excel généré avec onglets « Plan RDC » + « Plan RDC Test », HTTP 200, 1 image insérée par onglet, labels et légende présents. Tests iter31/42/44/45 : 32/32 verts. Frontend recompile sans erreur.
+
+## Suite (21/02/2026 iter48) — Plan agrandi + plans distincts EEG / Caméras
+### 1) Canvas plan considérablement agrandi sur PC
+- [x] Container canvas : hauteur fixe `min(75vh, 780px)` (au lieu de laisser l'aspect ratio de l'image contrôler la hauteur). Le SVG remplit maintenant à 100% en largeur ET en hauteur.
+- [x] Aside droite : `lg:w-72` → `lg:w-56` (plus étroite, laisse plus de place au plan) + `sticky top-4` pour rester visible en scroll.
+- [x] État vide : `minHeight: min(60vh, 600px)` avec centrage flex → même emprise visuelle que quand un plan est chargé.
+
+### 2) Plans distincts EEG vs Caméras (base image partagée, zones séparées)
+- [x] **Backend** (`backend/suivi_deploy.py`) : nouveau champ `phase_kind: str = "eeg"` sur `FloorplanIn` + `new_plan["phase_kind"]` persisté sur create (admin + terrain). Rétrocompatible : les plans sans `phase_kind` sont considérés « eeg ».
+- [x] **Frontend** (`SuiviFloorplan.jsx`) : le composant reçoit maintenant le prop `phaseKind` (déjà propagé depuis SuiviApp / TerrainApp / ViewerApp). La liste des plans est filtrée par phase courante (`p.phase_kind === phaseKind`).
+- [x] Badge visuel dans le header : « EEG / RAILS » bleu ou « Caméras » violet à côté du titre « Plan du magasin ».
+- [x] Sous-titre explicite : « Ce plan est spécifique au phasage EEG / Rails » (ou Caméras).
+- [x] Chaque nouveau plan est créé avec le `phaseKind` en cours automatiquement — pas de risque de mélange.
+- [x] **Excel** : les onglets Plan sont préfixés « Plan EEG — RDC » ou « Plan CAM — RDC » pour distinguer les deux phasages dans le même rapport.
+- [x] Testé E2E : plans EEG + CAM créés côte à côte sur le même dataset avec `phase_kind` correct, filtrage frontend fonctionnel.
+- [x] Aucun lint error frontend/backend. 32/32 tests iter31+iter42+iter44+iter45 verts.
 - [x] Tests : `test_iter44_geoloc_caisses_saisonnier.py` — 12 cas (caisses en majuscule/minuscule, préfixe strict, rails toujours géoloc, agrégation nightly). **12/12 passants**, aucune régression (25/25 pour iter31+iter42+iter44).

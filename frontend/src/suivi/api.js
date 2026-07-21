@@ -148,10 +148,10 @@ export function makeActions(base, refresh, { readOnly = false, tokenParam = "" }
                 return res.data.floorplans || [];
             } catch { return []; }
         },
-        createFloorplan: async (label, imageDataUrl, zones = []) => {
+        createFloorplan: async (label, imageDataUrl, zones = [], phaseKind = "eeg") => {
             if (readOnly) return denyRO();
             try {
-                const res = await axios.post(`${base}/floorplans`, { label, image_data_url: imageDataUrl, zones });
+                const res = await axios.post(`${base}/floorplans`, { label, image_data_url: imageDataUrl, zones, phase_kind: phaseKind });
                 toast.success("Plan ajouté");
                 return res.data.floorplan;
             } catch (e) {
