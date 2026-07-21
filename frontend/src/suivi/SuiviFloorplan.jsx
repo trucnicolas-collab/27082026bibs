@@ -401,7 +401,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                             onTouchStart={onTouchStart}
                             onTouchMove={onTouchMove}
                             onTouchEnd={onTouchEnd}
-                            style={{ touchAction: "none", height: "min(75vh, 780px)" }}
+                            style={{ touchAction: "none" }}
                         >
                             {plan && (
                                 <>
@@ -411,7 +411,6 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                             transformOrigin: "0 0",
                                             transition: panDrag || pinch ? "none" : "transform 0.1s ease-out",
                                             width: "100%",
-                                            height: "100%",
                                         }}
                                     >
                                         <svg
@@ -422,7 +421,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                             onMouseMove={handleSvgMouseMove}
                                             onMouseUp={handleSvgMouseUp}
                                             onClick={handleSvgClick}
-                                            style={{ width: "100%", height: "100%", display: "block", cursor, touchAction: "none" }}
+                                            style={{ width: "100%", display: "block", cursor, touchAction: "none" }}
                                         >
                                             <image
                                                 href={plan.image_data_url}

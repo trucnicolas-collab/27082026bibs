@@ -1515,4 +1515,10 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Excel** : les onglets Plan sont préfixés « Plan EEG — RDC » ou « Plan CAM — RDC » pour distinguer les deux phasages dans le même rapport.
 - [x] Testé E2E : plans EEG + CAM créés côte à côte sur le même dataset avec `phase_kind` correct, filtrage frontend fonctionnel.
 - [x] Aucun lint error frontend/backend. 32/32 tests iter31+iter42+iter44+iter45 verts.
+
+## Suite (21/02/2026 iter48b) — Fix taille du plan sur PC
+- [x] **Bug** : sur PC, l'image du plan apparaissait toute petite centrée dans un grand cadre vide.
+- [x] **Cause** : container avec `height: min(75vh, 780px)` fixe + SVG en `preserveAspectRatio="xMidYMid meet"` → l'image se fittait en hauteur et laissait des marges verticales énormes pour les plans très larges (aspect ~3:1).
+- [x] **Fix** : suppression de la hauteur fixe → le container prend maintenant la largeur complète (100%) et sa hauteur s'adapte automatiquement à l'aspect ratio naturel de l'image. Plus de marges vides.
+- [x] Le zoom molette + pan drag + pinch tactile restent fonctionnels.
 - [x] Tests : `test_iter44_geoloc_caisses_saisonnier.py` — 12 cas (caisses en majuscule/minuscule, préfixe strict, rails toujours géoloc, agrégation nightly). **12/12 passants**, aucune régression (25/25 pour iter31+iter42+iter44).
