@@ -1522,3 +1522,32 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Fix** : suppression de la hauteur fixe → le container prend maintenant la largeur complète (100%) et sa hauteur s'adapte automatiquement à l'aspect ratio naturel de l'image. Plus de marges vides.
 - [x] Le zoom molette + pan drag + pinch tactile restent fonctionnels.
 - [x] Tests : `test_iter44_geoloc_caisses_saisonnier.py` — 12 cas (caisses en majuscule/minuscule, préfixe strict, rails toujours géoloc, agrégation nightly). **12/12 passants**, aucune régression (25/25 pour iter31+iter42+iter44).
+## Suite (21/02/2026 iter48c) — Fix DEFINITIF taille plan sur PC (avec preuve visuelle)
+
+### Cause racine (enfin identifiée avec preuve)
+Les deux tentatives précédentes (iter48b et suivante) portaient sur le SVG lui-même (`height:auto`, aspect ratio). Le VRAI coupable était le conteneur **parent** :
+- `TerrainApp.jsx` L161 → `<main className="max-w-3xl ...">` (**768px max**)
+- `ViewerApp.jsx` L194 → même chose (768px max)
+- `SuiviApp.jsx` L202 → `max-w-5xl` (1024px max)
+
+Résultat : même sur écran 1920px, le plan était enfermé dans une colonne étroite. Aucun ajustement SVG ne pouvait compenser ça.
+
+### Fix
+Dans les 3 apps, la classe `<main>` devient conditionnelle :
+- `tab === "plan"` → `max-w-[1600px]`
+- autres onglets → largeur d'origine préservée (Board/Nuits/Stock/etc. inchangés)
+
+### Validation visuelle (screenshot + mesures DOM)
+Preview `/suivi/terrain`, viewport 1920x900, floorplan seed 3000x1200 :
+- `main.width` : **1600px** (au lieu de 768px)
+- `[data-testid=floorplan-canvas].width` : **1316px** (au lieu de ~480px)
+- `svg.width` : **1314px**, height 526px, aspect 3000:1200 respecté
+- Board tab (contrôle) : `main.width` = **768px** ✅ inchangé
+
+### Fichiers modifiés
+- `frontend/src/suivi/TerrainApp.jsx`
+- `frontend/src/suivi/ViewerApp.jsx`
+- `frontend/src/suivi/SuiviApp.jsx`
+
+### Recommandation
+Un test frontend automatisé (testing_agent) devrait couvrir ce cas en régression. L'utilisateur a choisi de tester manuellement (option a) après redéploiement.

@@ -158,7 +158,7 @@ export default function TerrainApp() {
                             })}
                         </div>
                     </nav>
-                    <main className="max-w-3xl mx-auto px-3 sm:px-6 py-4 pb-24 sm:pb-16">
+                    <main className={`${tab === "plan" ? "max-w-[1600px]" : "max-w-3xl"} mx-auto px-3 sm:px-6 py-4 pb-24 sm:pb-16`}>
                         {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} mode="terrain" phaseKind={phaseKind}
                             goTab={(t) => setTab(t === "nuits" ? "pose" : t)} />}
                         {tab === "pose" && phaseKind === "eeg" && <SuiviNuits state={state} actions={actions} mode="terrain" />}

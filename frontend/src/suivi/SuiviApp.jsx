@@ -199,7 +199,7 @@ function ChefApp() {
                             })}
                         </div>
                     </nav>
-                    <main className="max-w-5xl mx-auto px-3 sm:px-6 pt-4 pb-24 sm:pb-10">
+                    <main className={`${tab === "plan" ? "max-w-[1600px]" : "max-w-5xl"} mx-auto px-3 sm:px-6 pt-4 pb-24 sm:pb-10`}>
                         {tab === "dashboard" && <SuiviDashboard state={state} actions={actions} goTab={setTab} phaseKind={phaseKind} />}
                         {tab === "nuits" && phaseKind === "eeg" && <SuiviNuits state={state} actions={actions} mode="chef" />}
                         {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
