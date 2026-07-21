@@ -384,6 +384,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             plan = _plan_for_allee(a)
             mat = matidx.get(uid) or {"totals": {}, "types": {}}
             sa_off = _sa_families_off(uid)
+            # (iter44) Caisses & Zones saisonnières : les EEG SA 1.5 et SA 2.1
+            # de ces allées ne sont PAS géolocalisées (règle métier Carrefour).
+            # Détection : secteur commence par « CAISSE » OU is_seasonal=True.
+            _sect = (a.get("secteur") or "").strip().upper()
+            no_geo_sa = _sect.startswith("CAISSE") or bool(a.get("is_seasonal"))
             # Neutralise le plan pour les familles SA « à ne pas poser » afin
             # que les KPI (eeg_plan, total_eeg_plan, restant à poser) ne comptent
             # plus ces produits qui ne relèvent pas de ce magasin.
@@ -418,6 +423,10 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 if pplan <= 0:
                     continue
                 is_geo = fam in GEO_KEYS
+                # (iter44) SA 1.5 / SA 2.1 des caisses & zones saisonnières :
+                # jamais de géoloc requise (règle métier).
+                if is_geo and no_geo_sa and fam in ("sa_15", "sa_21_std"):
+                    is_geo = False
                 pe = pentries.get(desig) or {}
                 preel = pe.get("reel")
                 pgeo = pe.get("geo")
@@ -502,6 +511,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 "products": products,
                 "nb_produits": len(products),
                 "nb_saisis": sum(1 for p in products if p["reel"] is not None),
+                "no_geo_sa": no_geo_sa,  # (iter44) caisses & zones saisonnières
                 # Séparation pose / géoloc
                 "pose_total": len(pose_products),
                 "pose_saisis": pose_saisis,
@@ -547,8 +557,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             geo_saisis_tot = sum(int(x.get("geo_saisis") or 0) for x in items)
             geo_total_tot = sum(int(x.get("geo_total") or 0) for x in items)
             # (iter34) Géoloc en UNITÉS (rails_es + sa_15 + sa_21_std)
-            geo_eeg_plan_night = sum(sum(float((x.get("plan") or {}).get(k) or 0) for k in GEO_KEYS) for x in items)
-            geo_eeg_reel_night = sum(sum(float((x.get("geo") or {}).get(k) or 0) for k in GEO_KEYS) for x in items)
+            # (iter44) Exclut sa_15 / sa_21_std sur allées « caisses » et zones saisonnières.
+            def _geo_keys_for(x):
+                if x.get("no_geo_sa"):
+                    return ["rails_es"]
+                return GEO_KEYS
+            geo_eeg_plan_night = sum(sum(float((x.get("plan") or {}).get(k) or 0) for k in _geo_keys_for(x)) for x in items)
+            geo_eeg_reel_night = sum(sum(float((x.get("geo") or {}).get(k) or 0) for k in _geo_keys_for(x)) for x in items)
             nb_pose_complete = sum(1 for x in items if x.get("pose_complete"))
             nb_geo_complete = sum(1 for x in items if x.get("geo_complete"))
             # Allées rapatriées en avance = allées dont la nuit planifiée était postérieure
@@ -1018,8 +1033,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         incidents = sorted(doc.get("incidents") or [], key=lambda i: (i.get("nuit") or 0, i.get("created_at") or ""))
 
         # Totaux unitaires géoloc EEG (rails_es + sa_15 + sa_21_std uniquement)
-        geo_eeg_plan = _r(sum(sum(float((x.get("plan") or {}).get(k) or 0) for k in GEO_KEYS) for x in allees))
-        geo_eeg_reel = _r(sum(sum(float((x.get("geo") or {}).get(k) or 0) for k in GEO_KEYS) for x in allees))
+        # (iter44) Exclut sa_15 / sa_21_std sur allées « caisses » et zones saisonnières.
+        def _geo_keys_agg(x):
+            return ["rails_es"] if x.get("no_geo_sa") else GEO_KEYS
+        geo_eeg_plan = _r(sum(sum(float((x.get("plan") or {}).get(k) or 0) for k in _geo_keys_agg(x)) for x in allees))
+        geo_eeg_reel = _r(sum(sum(float((x.get("geo") or {}).get(k) or 0) for k in _geo_keys_agg(x)) for x in allees))
         # Totaux caméras (unités posées + géolocalisées)
         cam_total_plan = _r(sum(float(x.get("plan") or 0) for x in cam_allees))
         cam_total_reel = _r(sum(float(x.get("reel") or 0) for x in cam_allees))

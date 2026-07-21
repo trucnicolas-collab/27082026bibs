@@ -1425,3 +1425,14 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Frontend** :
   - `SuiviDashboard.jsx` (2×), `SuiviNuits.jsx`, `SuiviCam.jsx` : couleur delta_eeg passée de `text-red-400` → `text-amber-400` pour delta < 0, et de `text-blue-400` → `text-emerald-400` pour delta ≥ 0.
 - [x] Validé : bandeau vérifié pour delta > 500 (« BRAVO »), delta ≥ 0 (« Nuit conforme »), delta < 0 (« Écart de comptage »). Excel généré HTTP 200 sur preview, aucun lint error, tests iter31 + iter42 (13/13) toujours verts.
+
+
+## Suite (21/02/2026 iter44) — Caisses & Zones saisonnières exclues de la géoloc SA
+- [x] **Règle métier Carrefour** : les EEG SA 1.5 et SA 2.1 sur les allées de type « caisse » (secteur commençant par « CAISSE » — ex : « CAISSES · Caisses ») et sur les zones saisonnières (`is_seasonal=True`) ne sont **jamais géolocalisés**. Les Rails ES gardent leur géoloc partout.
+- [x] `backend/suivi_deploy.py` — dans `_build_state` :
+  - Détection : `no_geo_sa = secteur.upper().startswith("CAISSE") or is_seasonal`.
+  - Chaque produit : `is_geo = fam in GEO_KEYS AND not (no_geo_sa AND fam in ("sa_15", "sa_21_std"))`.
+  - Le flag `no_geo_sa` est exposé sur l'objet allée pour les agrégations en aval.
+- [x] Agrégations `geo_eeg_plan_night` / `geo_eeg_plan` : les clés géoloc sont réduites à `["rails_es"]` uniquement pour les allées `no_geo_sa=True` — les SA sur caisses/saisonnières n'apparaissent plus dans les KPI « Géoloc EEG prévues / effectuées » ni dans les alertes « Posés sans géoloc ».
+- [x] **Frontend** : aucun changement nécessaire, la colonne géoloc est déjà conditionnée sur `p.is_geo` dans `SuiviNuits.jsx` (lignes 554, 580).
+- [x] Tests : `test_iter44_geoloc_caisses_saisonnier.py` — 12 cas (caisses en majuscule/minuscule, préfixe strict, rails toujours géoloc, agrégation nightly). **12/12 passants**, aucune régression (25/25 pour iter31+iter42+iter44).
