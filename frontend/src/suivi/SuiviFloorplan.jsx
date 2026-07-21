@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
     Plus, Square, Pentagon, MousePointer2, Trash2, Save, X,
-    MapPin, Eye, Loader2, PencilRuler,
+    MapPin, Eye, Loader2, PencilRuler, ZoomIn, ZoomOut, Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { compressImage } from "./api";
@@ -37,7 +37,13 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
     const [uploadingNew, setUploadingNew] = useState(false);
     const [pendingNewLabel, setPendingNewLabel] = useState("");
     const [imgSize, setImgSize] = useState({ w: 1000, h: 700 });
+    // (iter46) Zoom & pan — transform CSS appliqué au conteneur SVG
+    const [zoom, setZoom] = useState(1);
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [panDrag, setPanDrag] = useState(null); // {startX, startY, panX, panY}
+    const [pinch, setPinch] = useState(null); // {dist, midX, midY}
     const svgRef = useRef(null);
+    const wrapperRef = useRef(null);
     const fileInputRef = useRef(null);
 
     const reload = useCallback(async () => {
@@ -60,6 +66,82 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
 
     // viewBox SVG basé sur la taille image → coordonnées normalisées via <svg viewBox>
     const vbW = imgSize.w, vbH = imgSize.h;
+
+    // Reset zoom/pan quand on change d'étage
+    useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, [activeFloor]);
+
+    // ---- Zoom molette (Ctrl+molette OU molette simple sur canvas) ----
+    const onWheel = (e) => {
+        if (!plan) return;
+        e.preventDefault();
+        const wrapper = wrapperRef.current;
+        if (!wrapper) return;
+        const rect = wrapper.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const delta = -e.deltaY;
+        const factor = delta > 0 ? 1.15 : 1 / 1.15;
+        const newZoom = Math.max(0.5, Math.min(6, zoom * factor));
+        // Point sous le curseur en coord non-zoomées avant/après → ajuste le pan
+        const kx = (cx - pan.x) / zoom;
+        const ky = (cy - pan.y) / zoom;
+        setPan({ x: cx - kx * newZoom, y: cy - ky * newZoom });
+        setZoom(newZoom);
+    };
+
+    // ---- Pan par drag (bouton gauche en mode select, OU 2 doigts en mobile) ----
+    const startPan = (e) => {
+        // Uniquement en mode Sélectionner + clic gauche
+        if (readOnly ? false : tool !== "select") return false;
+        if (e.button && e.button !== 0) return false;
+        const pt = e.touches ? e.touches[0] : e;
+        setPanDrag({ startX: pt.clientX, startY: pt.clientY, panX: pan.x, panY: pan.y });
+        return true;
+    };
+    const movePan = (e) => {
+        if (!panDrag) return;
+        const pt = e.touches ? e.touches[0] : e;
+        setPan({ x: panDrag.panX + (pt.clientX - panDrag.startX),
+                 y: panDrag.panY + (pt.clientY - panDrag.startY) });
+    };
+    const endPan = () => setPanDrag(null);
+
+    // ---- Pinch to zoom (2 doigts sur tablette / mobile) ----
+    const onTouchStart = (e) => {
+        if (e.touches.length === 2) {
+            const t1 = e.touches[0], t2 = e.touches[1];
+            const dx = t2.clientX - t1.clientX, dy = t2.clientY - t1.clientY;
+            const dist = Math.hypot(dx, dy);
+            const wrapper = wrapperRef.current;
+            const rect = wrapper?.getBoundingClientRect();
+            setPinch({
+                dist,
+                midX: ((t1.clientX + t2.clientX) / 2) - (rect?.left || 0),
+                midY: ((t1.clientY + t2.clientY) / 2) - (rect?.top || 0),
+            });
+        } else if (e.touches.length === 1) {
+            startPan(e);
+        }
+    };
+    const onTouchMove = (e) => {
+        if (e.touches.length === 2 && pinch) {
+            const t1 = e.touches[0], t2 = e.touches[1];
+            const dx = t2.clientX - t1.clientX, dy = t2.clientY - t1.clientY;
+            const dist = Math.hypot(dx, dy);
+            const factor = dist / (pinch.dist || 1);
+            const newZoom = Math.max(0.5, Math.min(6, zoom * factor));
+            const kx = (pinch.midX - pan.x) / zoom;
+            const ky = (pinch.midY - pan.y) / zoom;
+            setPan({ x: pinch.midX - kx * newZoom, y: pinch.midY - ky * newZoom });
+            setZoom(newZoom);
+            setPinch({ ...pinch, dist });
+        } else if (e.touches.length === 1) {
+            movePan(e);
+        }
+    };
+    const onTouchEnd = () => { setPinch(null); endPan(); };
+
+    const resetZoom = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
     // Convertit coords écran → 0..1
     const clientToNorm = (evt) => {
@@ -300,55 +382,80 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                             statusFilter={statusFilter} setStatusFilter={setStatusFilter}
                         />
                         <div
-                            className="mt-2 bg-slate-900 border border-slate-700 rounded-lg overflow-hidden"
+                            ref={wrapperRef}
+                            className="mt-2 bg-slate-900 border border-slate-700 rounded-lg overflow-hidden relative select-none"
                             data-testid="floorplan-canvas"
+                            onWheel={onWheel}
+                            onMouseDown={(e) => {
+                                if (tool === "select" && e.target?.tagName === "svg") startPan(e);
+                            }}
+                            onMouseMove={movePan}
+                            onMouseUp={endPan}
+                            onMouseLeave={endPan}
+                            onTouchStart={onTouchStart}
+                            onTouchMove={onTouchMove}
+                            onTouchEnd={onTouchEnd}
+                            style={{ touchAction: "none" }}
                         >
                             {plan && (
-                                <svg
-                                    ref={svgRef}
-                                    viewBox={`0 0 ${vbW} ${vbH}`}
-                                    preserveAspectRatio="xMidYMid meet"
-                                    onMouseDown={handleSvgMouseDown}
-                                    onMouseMove={handleSvgMouseMove}
-                                    onMouseUp={handleSvgMouseUp}
-                                    onClick={handleSvgClick}
-                                    style={{ width: "100%", display: "block", cursor, touchAction: "none" }}
-                                >
-                                    <image
-                                        href={plan.image_data_url}
-                                        x={0} y={0} width={vbW} height={vbH}
-                                        style={{ userSelect: "none" }}
-                                    />
-                                    {visibleZones.map((z) => (
-                                        <ZoneShape
-                                            key={z.id} zone={z}
-                                            allee={alleeByUid[z.allee_uid]}
-                                            vbW={vbW} vbH={vbH}
-                                            selected={z.id === selectedZoneId}
-                                            onSelect={(e) => {
-                                                e.stopPropagation?.();
-                                                if (readOnly) {
-                                                    if (onOpenAllee && z.allee_uid) onOpenAllee(z.allee_uid);
-                                                } else if (tool === "select") {
-                                                    setSelectedZoneId(z.id);
-                                                }
-                                            }}
-                                        />
-                                    ))}
-                                    {rectDraft && (
-                                        <rect
-                                            x={Math.min(rectDraft.x1, rectDraft.x2) * vbW}
-                                            y={Math.min(rectDraft.y1, rectDraft.y2) * vbH}
-                                            width={Math.abs(rectDraft.x2 - rectDraft.x1) * vbW}
-                                            height={Math.abs(rectDraft.y2 - rectDraft.y1) * vbH}
-                                            fill="rgba(59,130,246,0.25)" stroke="#3B82F6"
-                                            strokeWidth={vbW * 0.002} strokeDasharray="8 4"
-                                        />
-                                    )}
-                                    {drawingPoly.length > 0 && (
-                                        <PolygonDraft points={drawingPoly} vbW={vbW} vbH={vbH} />
-                                    )}
-                                </svg>
+                                <>
+                                    <div
+                                        style={{
+                                            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                                            transformOrigin: "0 0",
+                                            transition: panDrag || pinch ? "none" : "transform 0.1s ease-out",
+                                        }}
+                                    >
+                                        <svg
+                                            ref={svgRef}
+                                            viewBox={`0 0 ${vbW} ${vbH}`}
+                                            preserveAspectRatio="xMidYMid meet"
+                                            onMouseDown={handleSvgMouseDown}
+                                            onMouseMove={handleSvgMouseMove}
+                                            onMouseUp={handleSvgMouseUp}
+                                            onClick={handleSvgClick}
+                                            style={{ width: "100%", display: "block", cursor, touchAction: "none" }}
+                                        >
+                                            <image
+                                                href={plan.image_data_url}
+                                                x={0} y={0} width={vbW} height={vbH}
+                                                style={{ userSelect: "none" }}
+                                            />
+                                            {visibleZones.map((z) => (
+                                                <ZoneShape
+                                                    key={z.id} zone={z}
+                                                    allee={alleeByUid[z.allee_uid]}
+                                                    vbW={vbW} vbH={vbH}
+                                                    selected={z.id === selectedZoneId}
+                                                    onSelect={(e) => {
+                                                        e.stopPropagation?.();
+                                                        if (readOnly) {
+                                                            if (onOpenAllee && z.allee_uid) onOpenAllee(z.allee_uid);
+                                                        } else if (tool === "select") {
+                                                            setSelectedZoneId(z.id);
+                                                        }
+                                                    }}
+                                                />
+                                            ))}
+                                            {rectDraft && (
+                                                <rect
+                                                    x={Math.min(rectDraft.x1, rectDraft.x2) * vbW}
+                                                    y={Math.min(rectDraft.y1, rectDraft.y2) * vbH}
+                                                    width={Math.abs(rectDraft.x2 - rectDraft.x1) * vbW}
+                                                    height={Math.abs(rectDraft.y2 - rectDraft.y1) * vbH}
+                                                    fill="rgba(59,130,246,0.25)" stroke="#3B82F6"
+                                                    strokeWidth={vbW * 0.002} strokeDasharray="8 4"
+                                                />
+                                            )}
+                                            {drawingPoly.length > 0 && (
+                                                <PolygonDraft points={drawingPoly} vbW={vbW} vbH={vbH} />
+                                            )}
+                                        </svg>
+                                    </div>
+                                    <ZoomControls zoom={zoom} onReset={resetZoom}
+                                                  onZoomIn={() => setZoom((z) => Math.min(6, z * 1.25))}
+                                                  onZoomOut={() => setZoom((z) => Math.max(0.5, z / 1.25))} />
+                                </>
                             )}
                         </div>
                         <Legend />
@@ -368,7 +475,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                 />
                             ) : (
                                 <p className="text-xs text-slate-500">
-                                    Cliquez sur une zone pour l'éditer, ou dessinez-en une nouvelle avec les outils.
+                                    Cliquez sur une zone pour l&apos;éditer, ou dessinez-en une nouvelle avec les outils.
                                 </p>
                             )}
                         </aside>
@@ -585,12 +692,33 @@ function EmptyState({ readOnly }) {
     return (
         <div className="py-16 text-center bg-slate-900/40 border border-dashed border-slate-700 rounded-lg" data-testid="floorplan-empty">
             <MapPin className="w-8 h-8 mx-auto text-slate-500 mb-2" />
-            <p className="text-sm text-slate-400">Aucun plan n'a encore été chargé pour ce magasin.</p>
+            <p className="text-sm text-slate-400">Aucun plan n&apos;a encore été chargé pour ce magasin.</p>
             {!readOnly && (
                 <p className="text-xs text-slate-500 mt-2">
                     Chargez une image PNG ou JPEG (max 4 Mo) avec le bouton « Nouveau plan » ci-dessus.
                 </p>
             )}
+        </div>
+    );
+}
+
+// (iter46) Contrôles zoom / reset flottants dans le coin inférieur droit du plan
+function ZoomControls({ zoom, onReset, onZoomIn, onZoomOut }) {
+    const btn = "w-8 h-8 flex items-center justify-center rounded-md bg-slate-800/90 border border-slate-600 text-slate-200 hover:bg-slate-700 backdrop-blur";
+    return (
+        <div className="absolute bottom-3 right-3 flex flex-col gap-1.5" data-testid="floorplan-zoom-controls">
+            <button onClick={onZoomIn} className={btn} title="Zoom +" data-testid="floorplan-zoom-in">
+                <ZoomIn className="w-4 h-4" />
+            </button>
+            <button onClick={onZoomOut} className={btn} title="Zoom −" data-testid="floorplan-zoom-out">
+                <ZoomOut className="w-4 h-4" />
+            </button>
+            <button onClick={onReset} className={btn} title="Réinitialiser le zoom" data-testid="floorplan-zoom-reset">
+                <Maximize2 className="w-4 h-4" />
+            </button>
+            <span className="text-[10px] text-slate-400 text-center bg-slate-800/70 rounded px-1 py-0.5 border border-slate-700" data-testid="floorplan-zoom-level">
+                {Math.round(zoom * 100)}%
+            </span>
         </div>
     );
 }

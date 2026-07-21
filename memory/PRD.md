@@ -1455,4 +1455,20 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Compression image** : réutilise `compressImage()` existant (max 2000px, JPEG q=0.82) → image ~200-400 Ko.
 - [x] Tests : `test_iter45_floorplan.py` — **7/7 verts** (CRUD admin, refus payloads invalides, clamp coords, filtrage polygones < 3 points, accès terrain sans auth, viewer read-only).
 - [ ] **Phase 2 (backlog)** : snapshot du plan avec zones colorées dans le rapport Excel nocturne (via PIL côté serveur), zoom/pan mobile.
+
+## Suite (21/02/2026 iter46) — Zoom/Pan Plan + Snapshot Plan dans le rapport Excel
+- [x] **Zoom & Pan Plan** (`frontend/src/suivi/SuiviFloorplan.jsx`) :
+  - Zoom molette (Ctrl ou simple, ancré sur le curseur) 0.5× → 6×.
+  - Pan par drag souris (bouton gauche en mode Sélectionner, sur zone vide du plan).
+  - Support tactile : 1 doigt = pan, 2 doigts = pinch-to-zoom (ancré sur le milieu des doigts).
+  - Contrôles flottants coin bas-droit : Zoom+, Zoom−, Reset (Maximize2), badge % niveau de zoom.
+  - Reset auto lors du changement d'étage.
+- [x] **Snapshot Plan dans le rapport Excel** (`backend/suivi_deploy.py`) :
+  - Nouveau(x) onglet(s) « Plan {label} » dans le fichier Nuit — un par étage/plan configuré sur le magasin.
+  - Rendu via Pillow (`PIL.ImageDraw`) : base image PNG + overlay des zones colorées selon le statut de l'allée pour la nuit courante (validee/a_finaliser/bloquee/non_faite/en cours/a_faire). Les allées d'autres nuits apparaissent en teinte pâle atténuée (info seulement).
+  - Labels centraux « SECTEUR N° allée » avec halo noir pour lisibilité.
+  - Image redimensionnée si > 2400 px (Excel gère mal les très grandes images).
+  - Support rectangle + polygone. Rejet gracieux si Pillow ou image data-url invalide.
+  - Sanitize nom d'onglet Excel (≤ 31 chars, sans `[]:*?/\`, unique).
+- [x] Testé E2E : plan de test avec 2 zones (rect + polygone) créé sur dataset preview → rapport Excel généré avec onglets « Plan RDC » + « Plan RDC Test », HTTP 200, 1 image insérée par onglet, labels et légende présents. Tests iter31/42/44/45 : 32/32 verts. Frontend recompile sans erreur.
 - [x] Tests : `test_iter44_geoloc_caisses_saisonnier.py` — 12 cas (caisses en majuscule/minuscule, préfixe strict, rails toujours géoloc, agrégation nightly). **12/12 passants**, aucune régression (25/25 pour iter31+iter42+iter44).

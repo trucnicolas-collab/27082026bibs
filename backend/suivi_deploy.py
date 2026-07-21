@@ -2084,6 +2084,143 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             ws3.write(r3, 9, stat, f_stat)
             r3 += 1
 
+        # ═══════════════════════════════════════════════════════════════
+        # ONGLET(S) « Plan » — (iter46) Snapshot du plan magasin avec les zones
+        # colorées selon le statut des allées de la nuit courante. Image PNG
+        # composée côté serveur via Pillow (base + overlay polygones/rectangles).
+        # ═══════════════════════════════════════════════════════════════
+        floorplans = list(doc.get("floorplans") or [])
+        if floorplans:
+            allee_by_uid = {x["uid"]: x for x in state["allees"]}
+
+            def _plan_status_for_night(alee_uid: str):
+                a = allee_by_uid.get(alee_uid)
+                if not a:
+                    return None, None  # (status, hasReel)
+                # Ne montre en couleur QUE les allées de cette nuit
+                if a["nuit_eff"] != nuit:
+                    return "hors_nuit", False
+                return a["status"] or "a_faire", bool(a.get("has_reel"))
+
+            STATUS_COLORS_RGB = {
+                "validee": (16, 185, 129),      # green
+                "a_finaliser": (245, 158, 11),  # orange
+                "bloquee": (239, 68, 68),       # red
+                "non_faite": (124, 58, 237),    # violet
+                "a_faire": (100, 116, 139),     # slate
+                "en_cours": (59, 130, 246),     # blue
+                "hors_nuit": (148, 163, 184),   # slate light — atténué
+            }
+
+            def _render_floorplan(plan: dict) -> "io.BytesIO | None":
+                """Compose l'image plan + overlay coloré et retourne un BytesIO PNG."""
+                try:
+                    from PIL import Image as PILImage, ImageDraw, ImageFont
+                except ImportError:
+                    return None
+                dus = plan.get("image_data_url") or ""
+                if not dus.startswith("data:image/"):
+                    return None
+                try:
+                    header, b64 = dus.split(",", 1)
+                    import base64 as _b64
+                    raw = _b64.b64decode(b64)
+                    base = PILImage.open(io.BytesIO(raw)).convert("RGBA")
+                except Exception:
+                    return None
+                overlay = PILImage.new("RGBA", base.size, (0, 0, 0, 0))
+                draw = ImageDraw.Draw(overlay, "RGBA")
+                W, H = base.size
+                # Choix police (font par défaut si truetype indisponible)
+                try:
+                    font_size = max(14, int(W * 0.014))
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+                except Exception:
+                    font = ImageFont.load_default()
+
+                for z in (plan.get("zones") or []):
+                    status, has_reel = _plan_status_for_night(z.get("allee_uid"))
+                    if status == "hors_nuit":
+                        color = STATUS_COLORS_RGB["hors_nuit"]
+                        alpha = 60
+                    elif status is None:
+                        # Zone orpheline (allée disparue) — grise transparente
+                        color = (148, 163, 184)
+                        alpha = 40
+                    else:
+                        if status == "a_faire" and has_reel:
+                            color = STATUS_COLORS_RGB["en_cours"]
+                        else:
+                            color = STATUS_COLORS_RGB.get(status, STATUS_COLORS_RGB["a_faire"])
+                        alpha = 120
+                    fill = color + (alpha,)
+                    stroke = color + (255,)
+                    kind = z.get("kind", "rect")
+                    coords = z.get("coords") or []
+                    label_x, label_y = None, None
+                    if kind == "rect" and coords:
+                        try:
+                            x, y, w, h = coords[0]
+                        except (ValueError, TypeError):
+                            continue
+                        px, py = int(x * W), int(y * H)
+                        pw, ph = int(w * W), int(h * H)
+                        draw.rectangle([px, py, px + pw, py + ph], fill=fill, outline=stroke, width=3)
+                        label_x, label_y = px + 6, py + 4
+                    elif kind == "polygon" and len(coords) >= 3:
+                        pts = [(int(nx * W), int(ny * H)) for nx, ny in coords]
+                        draw.polygon(pts, fill=fill, outline=stroke)
+                        cx = sum(p[0] for p in pts) // len(pts)
+                        cy = sum(p[1] for p in pts) // len(pts)
+                        label_x, label_y = cx - int(W * 0.03), cy - font_size // 2
+                    # Label allée
+                    a = allee_by_uid.get(z.get("allee_uid"))
+                    if a and label_x is not None:
+                        label = f"{(a.get('secteur') or '').strip()} {a.get('allee', '')}".strip()
+                        if label:
+                            # Halo noir pour lisibilité
+                            for dx in (-1, 0, 1):
+                                for dy in (-1, 0, 1):
+                                    if dx == 0 and dy == 0:
+                                        continue
+                                    draw.text((label_x + dx, label_y + dy), label, fill=(0, 0, 0, 255), font=font)
+                            draw.text((label_x, label_y), label, fill=(255, 255, 255, 255), font=font)
+
+                composed = PILImage.alpha_composite(base, overlay).convert("RGB")
+                out = io.BytesIO()
+                # Redimensionne si trop grand (Excel gère mal les > 3000px)
+                if max(composed.size) > 2400:
+                    ratio = 2400 / max(composed.size)
+                    composed = composed.resize((int(composed.size[0] * ratio),
+                                                int(composed.size[1] * ratio)),
+                                               PILImage.LANCZOS)
+                composed.save(out, format="PNG", optimize=True)
+                out.seek(0)
+                return out
+
+            for fp in floorplans:
+                sheet_label = (fp.get("label") or "Plan").strip()[:28] or "Plan"
+                # Excel : noms uniques ≤ 31 chars, sans []:*?/\
+                safe = "".join(c for c in f"Plan {sheet_label}" if c not in "[]:*?/\\")[:31]
+                if safe in {s.get_name() for s in wb.worksheets()}:
+                    safe = safe[:28] + f" {fp.get('id', '')[:3]}"[:31]
+                ws_p = wb.add_worksheet(safe)
+                ws_p.set_column(0, 20, 12)
+                ws_p.write(0, 0, f"Plan magasin — {sheet_label}  ·  Nuit {nuit}", f_title)
+                ws_p.merge_range(0, 0, 0, 15, f"Plan magasin — {sheet_label}  ·  Nuit {nuit}", f_title)
+                ws_p.set_row(0, 34)
+                ws_p.write(1, 0, "Zones colorées = allées de cette nuit ; teinte pâle = allées d'autres nuits.", f_sub)
+                # Rendu image
+                img_buf = _render_floorplan(fp)
+                if img_buf is not None:
+                    ws_p.insert_image(3, 0, "plan.png", {
+                        "image_data": img_buf,
+                        "x_scale": 1.0, "y_scale": 1.0,
+                        "object_position": 1,
+                    })
+                else:
+                    ws_p.write(3, 0, "⚠️ Impossible de rendre l'image du plan (image invalide ou Pillow indisponible).", f_neg)
+
         wb.close()
         buf.seek(0)
         from server import _display_store  # lazy import (évite dep circulaire)
