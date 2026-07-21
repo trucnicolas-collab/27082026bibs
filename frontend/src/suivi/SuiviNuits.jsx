@@ -95,7 +95,7 @@ function NightRow({ night, actions, onOpen }) {
                     <div className="text-xs text-slate-400">
                         {night.nb_validees}/{night.nb_allees} allées validées · {fmt(night.eeg_reel)} / {fmt(night.eeg_plan)} EEG
                         {night.delta_eeg !== null && night.delta_eeg !== undefined && (
-                            <span className={`ml-1.5 font-semibold ${night.delta_eeg > 0 ? "text-blue-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
+                            <span className={`ml-1.5 font-semibold ${night.delta_eeg >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
                                 ({night.delta_eeg > 0 ? "+" : ""}{fmt(night.delta_eeg)})
                             </span>
                         )}
@@ -595,7 +595,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             <div className="flex flex-col items-center">
                                 <span className="text-[9px] uppercase text-slate-500 font-semibold">Δ</span>
                                 <span className={`text-xs font-bold tabular-nums
-                                    ${p.delta === null || p.delta === undefined ? "text-slate-700" : p.delta === 0 ? "text-blue-400" : p.delta < 0 ? "text-red-400" : "text-amber-400"}`}
+                                    ${p.delta === null || p.delta === undefined ? "text-slate-700" : p.delta >= 0 ? "text-emerald-400" : "text-amber-400"}`}
                                     data-testid={`product-delta-${p.designation}`}>
                                     {p.delta === null || p.delta === undefined ? "—" : (p.delta > 0 ? "+" : "") + fmt(p.delta)}
                                 </span>

@@ -176,7 +176,7 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
                                 <div className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
                                     {n.nb_validees}/{n.nb_allees} allées · {fmt(n.eeg_reel)} / {fmt(n.eeg_plan)} EEG
                                     {n.delta_eeg !== null && n.delta_eeg !== undefined && (
-                                        <span className={n.delta_eeg > 0 ? "text-blue-400" : n.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}>
+                                        <span className={n.delta_eeg >= 0 ? "text-emerald-400" : "text-amber-400"}>
                                             {n.delta_eeg > 0 ? "+" : ""}{fmt(n.delta_eeg)}
                                         </span>
                                     )}
@@ -280,7 +280,7 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
                         <div className="text-[10px] uppercase text-slate-500 font-semibold">EEG posées</div>
                         <div className="text-lg font-bold" data-testid="night-summary-eeg">{fmt(night.eeg_reel)} / {fmt(night.eeg_plan)}</div>
                         {night.delta_eeg !== null && night.delta_eeg !== undefined && (
-                            <div className={`text-[10px] font-semibold ${night.delta_eeg > 0 ? "text-blue-400" : night.delta_eeg < 0 ? "text-red-400" : "text-slate-500"}`}>
+                            <div className={`text-[10px] font-semibold ${night.delta_eeg >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
                                 {night.delta_eeg > 0 ? "+" : ""}{fmt(night.delta_eeg)}
                             </div>
                         )}

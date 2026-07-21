@@ -1414,3 +1414,14 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
 - [x] **Section 3 (inchangée)** : signalétique NON-rail continue à être absorbée par ES 1.5 (couleur) (cas rare, générique).
 - [x] Exemple validé sur dataset preview `fd15443f-…` : `ES 1.5 noir` prévu passé de 180 → 785 = **180 (brut) + 5 (rail 990 noir) + 600 (flèche fixe)** ; posé passé de 10 → 15 = **10 (brut) + 5 (rail bonus)** ; le rail 990 noir reste visible avec sa qté propre.
 - [x] Tests : `test_iter42_stock_rail_bonus.py` (7 cas dont l'exemple complet 1773+600+9115=11488 + cas 1187 blanc + cas produit non-rail qui matche accidentellement un pattern couleur) → 7/7 passants. Aucune régression sur les tests logiques existants (11 échecs préexistants identiques avant/après, tous liés à des datasets E2E manquants).
+
+## Suite (21/02/2026 iter43) — Rouge réservé aux VRAIS problèmes ; retards séparés (pose / géoloc)
+- [x] **Règle utilisateur** : un écart négatif prévu/posé n'est PAS un retard, c'est juste une différence entre le moment du comptage (brief) et le moment de la pose (validé par le poseur). Les VRAIS retards sont ceux JUSTIFIÉS par un commentaire (retard de pose EEG OU retard de géoloc — bien séparés dans les rapports). Le rouge est réservé aux vrais problèmes (allées bloquées, retards commentés).
+- [x] **Excel rapport nuit** (`backend/suivi_deploy.py`) :
+  - KPI « 📈 ÉCART VS PRÉVU » : rouge → **orange** (`f_kpi_warn_*`) quand delta < 0 (avant : rouge alarmant).
+  - Bandeau verdict : mention « Léger retard » et « Retard important » **supprimée**. Remplacée par « ℹ️ Écart de comptage vs pose (X EEG) — validé par le poseur » en orange. Vert conservé pour delta ≥ 0.
+  - Nouveaux bandeaux ROUGES séparés : « 🚨 Retard de pose EEG justifié : X allée(s) » (allées avec `justif_products` + `justification` non vide + non `justif_ok`) ET « 🚨 Retard de géolocalisation : X allée(s) » (allées avec `geo_gap > 0` + `geoloc_comment` non vide). Bandeau bloquées séparé aussi.
+  - Colonnes delta EEG dans « Détail allées », « Détail produits », « Synthèse déploiement » : nouveau format `f_delta_ok` **vert émeraude** pour delta ≥ 0 (avant : bleu/rouge/orange selon signe), `f_neg_soft` **orange** pour delta < 0.
+- [x] **Frontend** :
+  - `SuiviDashboard.jsx` (2×), `SuiviNuits.jsx`, `SuiviCam.jsx` : couleur delta_eeg passée de `text-red-400` → `text-amber-400` pour delta < 0, et de `text-blue-400` → `text-emerald-400` pour delta ≥ 0.
+- [x] Validé : bandeau vérifié pour delta > 500 (« BRAVO »), delta ≥ 0 (« Nuit conforme »), delta < 0 (« Écart de comptage »). Excel généré HTTP 200 sur preview, aucun lint error, tests iter31 + iter42 (13/13) toujours verts.

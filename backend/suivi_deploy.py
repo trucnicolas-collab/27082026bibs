@@ -1246,6 +1246,10 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         f_c_zebra = wb.add_format({"border": 1, "align": "center", "valign": "vcenter", "bg_color": C_ZEBRA})
         f_cl_zebra = wb.add_format({"border": 1, "valign": "vcenter", "bg_color": C_ZEBRA})
         f_ok = wb.add_format({"border": 1, "align": "center", "bg_color": C_BLUE_LIGHT, "bold": True, "font_color": C_BLUE})
+        # (iter43) Vert pour les cellules « pose conforme ou dépassement » — utilisé
+        # dans les tableaux d'écart (delta EEG). Le rouge est réservé aux vrais
+        # problèmes (bloqué, à finaliser). Un écart négatif sans commentaire = orange.
+        f_delta_ok = wb.add_format({"border": 1, "align": "center", "bg_color": C_SUCCESS_BG, "font_color": C_SUCCESS, "bold": True})
         f_neg = wb.add_format({"border": 1, "align": "center", "bg_color": C_DANGER_BG, "font_color": C_DANGER, "bold": True})
         # (iter36) écart validé "Tout est OK" — orange doux au lieu de rouge alarmant
         f_neg_soft = wb.add_format({"border": 1, "align": "center", "bg_color": C_WARNING_BG, "font_color": C_WARNING, "bold": True})
@@ -1352,9 +1356,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         _draw_kpi(row, 3, 5, "📊 EEG PRÉVUES", f"{eeg_plan:,}".replace(",", " "))
         _draw_kpi(row, 6, 8, "⚡ TAUX DE POSE", f"{pct_pose}%",
                   _card_style(pct_pose))
+        # ÉCART VS PRÉVU : vert si ≥ 0 (posé conforme ou dépassement),
+        # orange si < 0 (simple écart entre comptage et pose, validé par le
+        # poseur — pas un vrai retard). Le rouge est réservé aux vrais
+        # problèmes (allées bloquées / retards justifiés par un commentaire).
         delta_str = f"{'+' if isinstance(delta_n, (int, float)) and delta_n > 0 else ''}{int(delta_n)}" if isinstance(delta_n, (int, float)) else "—"
         delta_style = (f_kpi_success_lbl, f_kpi_success_val) if isinstance(delta_n, (int, float)) and delta_n >= 0 else \
-                      (f_kpi_danger_lbl, f_kpi_danger_val) if isinstance(delta_n, (int, float)) else \
+                      (f_kpi_warn_lbl, f_kpi_warn_val) if isinstance(delta_n, (int, float)) else \
                       (f_kpi_card_label, f_kpi_card_val)
         _draw_kpi(row, 9, 11, "📈 ÉCART VS PRÉVU", delta_str, delta_style)
 
@@ -1372,7 +1380,27 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                   (f_kpi_warn_lbl, f_kpi_warn_val) if geo_gap_total > 0 else (f_kpi_success_lbl, f_kpi_success_val))
         row += 3
 
-        # ---- Verdict ludique de la nuit ----
+        # ---- Verdict de la nuit ----
+        # (iter43) Un écart négatif entre EEG prévues et posées n'est PAS un
+        # retard : c'est une différence entre le moment du comptage (par le
+        # brief) et le moment de la pose (validé par le poseur sur le terrain).
+        # Les VRAIS retards sont ceux justifiés par un commentaire du poseur
+        # (retard de pose ou retard de géolocalisation) — voir sections
+        # dédiées « Écarts > 5% justifiés » et « Écarts GÉOLOC » plus bas.
+        # Rouge réservé aux vrais problèmes : allées bloquées ou retards
+        # explicitement commentés.
+        real_pose_delays = [
+            x for x in items
+            if x.get("justif_products")
+            and not x.get("justif_ok")
+            and (x.get("justification") or "").strip()
+        ]
+        real_geo_delays = [
+            x for x in items
+            if any((x.get("geo_gap") or {}).values())
+            and (x.get("geoloc_comment") or "").strip()
+        ]
+        nb_bloq = sum(1 for x in items if x["status"] == "bloquee")
         if isinstance(delta_n, (int, float)):
             if delta_n > 500:
                 verdict_txt = f"⚡🎉  BRAVO ! Nuit +{int(delta_n)} EEG au-dessus du prévisionnel"
@@ -1380,12 +1408,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             elif delta_n >= 0:
                 verdict_txt = f"✅  Nuit conforme (+{int(delta_n)} EEG)"
                 verdict_bg, verdict_fg = C_BLUE_LIGHT, C_BLUE
-            elif delta_n > -500:
-                verdict_txt = f"⚠️  Léger retard ({int(delta_n)} EEG)"
-                verdict_bg, verdict_fg = C_WARNING_BG, C_WARNING
             else:
-                verdict_txt = f"🚨  Retard important ({int(delta_n)} EEG) — à rattraper d'urgence"
-                verdict_bg, verdict_fg = C_DANGER_BG, C_DANGER
+                # Écart négatif — orange par défaut (simple écart de comptage
+                # validé par le poseur), pas de mention « retard ».
+                verdict_txt = f"ℹ️  Écart de comptage vs pose ({int(delta_n)} EEG) — validé par le poseur"
+                verdict_bg, verdict_fg = C_WARNING_BG, C_WARNING
         else:
             verdict_txt = "⏳  Nuit en cours"
             verdict_bg, verdict_fg = "#F3F4F6", C_NEUTRAL
@@ -1395,6 +1422,40 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         ws.set_row(row, 40)
         ws.merge_range(row, 0, row, 11, verdict_txt, f_verdict_dyn)
         row += 2
+
+        # ---- Bandeau(x) séparés pour VRAIS retards (avec commentaire) ----
+        # (iter43) Retard de POSE et retard de GÉOLOC affichés séparément —
+        # rouge uniquement s'il y a un commentaire ou une allée bloquée.
+        if nb_bloq > 0:
+            f_bloc_banner = wb.add_format({"font_size": 14, "bold": True, "align": "center",
+                                           "valign": "vcenter", "text_wrap": True,
+                                           "bg_color": C_DANGER_BG, "font_color": C_DANGER,
+                                           "border": 2, "border_color": C_DANGER})
+            ws.set_row(row, 30)
+            ws.merge_range(row, 0, row, 11,
+                           f"🚨  {nb_bloq} allée(s) BLOQUÉE(S) — intervention requise",
+                           f_bloc_banner)
+            row += 2
+        if real_pose_delays:
+            f_pose_banner = wb.add_format({"font_size": 14, "bold": True, "align": "center",
+                                           "valign": "vcenter", "text_wrap": True,
+                                           "bg_color": C_DANGER_BG, "font_color": C_DANGER,
+                                           "border": 2, "border_color": C_DANGER})
+            ws.set_row(row, 30)
+            ws.merge_range(row, 0, row, 11,
+                           f"🚨  Retard de pose EEG justifié : {len(real_pose_delays)} allée(s) — voir détail plus bas",
+                           f_pose_banner)
+            row += 2
+        if real_geo_delays:
+            f_geo_banner = wb.add_format({"font_size": 14, "bold": True, "align": "center",
+                                          "valign": "vcenter", "text_wrap": True,
+                                          "bg_color": C_DANGER_BG, "font_color": C_DANGER,
+                                          "border": 2, "border_color": C_DANGER})
+            ws.set_row(row, 30)
+            ws.merge_range(row, 0, row, 11,
+                           f"🚨  Retard de géolocalisation : {len(real_geo_delays)} allée(s) — voir détail plus bas",
+                           f_geo_banner)
+            row += 2
 
         # ---- Info bandeau écart cumulé uniquement ----
         # (iter38) Rythme moyen/prévu et avance/retard estimé retirés (jugés stressants
@@ -1845,7 +1906,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 if dv is None:
                     ws2.write(rr, 7, "", f_c)
                 else:
-                    ws2.write(rr, 7, dv, f_ok if dv == 0 else (f_neg if dv < 0 else f_pos))
+                    ws2.write(rr, 7, dv, f_delta_ok if dv >= 0 else f_neg_soft)
                 rr += 1
 
         # Feuille 3 : Écart phasage vs réel (EEG + Caméras)
@@ -1977,7 +2038,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             ws3.write(r3, 7, n["eeg_reel"], f_c)
             dv = n["delta_eeg"]
             ws3.write(r3, 8, "" if dv is None else dv,
-                      f_c if dv is None else (f_ok if dv == 0 else (f_neg if dv < 0 else f_pos)))
+                      f_c if dv is None else (f_delta_ok if dv >= 0 else f_neg_soft))
             ws3.write(r3, 9, stat, f_stat)
             r3 += 1
 
