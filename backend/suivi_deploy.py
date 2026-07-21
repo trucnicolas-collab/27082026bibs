@@ -237,12 +237,15 @@ class PublishUpdate(BaseModel):
 
 # ============================================= FLOORPLAN (iter45) ================
 class FloorplanZone(BaseModel):
-    """Zone dessinée sur le plan, liée à une allée via son uid."""
+    """Zone dessinée sur le plan.
+    (iter47) Zone liée à une NUIT (numéro), pas à une allée individuelle.
+    → Plusieurs rectangles/polygones peuvent représenter la même nuit.
+    → Un code couleur unique par nuit s'applique automatiquement à toutes les zones.
+    Le champ `allee_uid` reste accepté en entrée pour rétrocompatibilité (ignoré)."""
     id: str
-    allee_uid: str
+    nuit: int = 1
+    allee_uid: Optional[str] = None  # deprecated (iter47)
     kind: str = "rect"  # "rect" | "polygon"
-    # rect: [x, y, w, h] normalisés 0..1 (relatif à la taille de l'image)
-    # polygon: [[x1,y1], [x2,y2], ...] normalisés 0..1
     coords: List[List[float]]
 
 
@@ -1443,6 +1446,30 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             and (x.get("geoloc_comment") or "").strip()
         ]
         nb_bloq = sum(1 for x in items if x["status"] == "bloquee")
+
+        # ---- (iter47) Bandeau « EN AVANCE » — mise en avant forte ----
+        # Affiché en vert brillant si cumul_delta_eeg > 0 (posé plus que prévu sur
+        # les nuits terminées) OU si des allées ont été rapatriées en avance.
+        cumul_delta = st.get("cumul_delta_eeg") or 0
+        nb_rapatriees_total = sum((n.get("nb_rapatriees") or 0) for n in state.get("nuits") or [])
+        show_avance = cumul_delta > 0 or nb_rapatriees_total > 0
+        if show_avance:
+            avance_bits = []
+            if cumul_delta > 0:
+                avance_bits.append(f"+{int(cumul_delta)} EEG au-dessus du prévisionnel cumulé")
+            if nb_rapatriees_total > 0:
+                s = "s" if nb_rapatriees_total > 1 else ""
+                avance_bits.append(f"{nb_rapatriees_total} allée{s} rapatriée{s} en avance")
+            avance_txt = "🎉  EN AVANCE SUR LE PLANNING  —  " + "  ·  ".join(avance_bits) + "  ·  Bravo !"
+            f_avance_banner = wb.add_format({
+                "font_size": 16, "bold": True, "align": "center", "valign": "vcenter",
+                "text_wrap": True, "bg_color": C_SUCCESS_BG, "font_color": C_SUCCESS,
+                "border": 3, "border_color": C_SUCCESS,
+            })
+            ws.set_row(row, 44)
+            ws.merge_range(row, 0, row, 11, avance_txt, f_avance_banner)
+            row += 2
+
         if isinstance(delta_n, (int, float)):
             if delta_n > 500:
                 verdict_txt = f"⚡🎉  BRAVO ! Nuit +{int(delta_n)} EEG au-dessus du prévisionnel"
@@ -1849,12 +1876,18 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             row += 1
             for x in justif_rows:
                 for jp in x["justif_products"]:
+                    # (iter47) Aligné sur l'onglet Résumé N1 (iter36) : orange +
+                    # « OK poseur — validé » si la case « Tout est OK » est cochée,
+                    # rouge + « ⚠ manquante » uniquement si aucune justification.
+                    ok = bool(x.get("justif_ok"))
+                    fmt_pct = f_neg_soft if ok else f_neg
                     ws.write(row, 0, x["allee"], f_c)
                     ws.write(row, 1, jp["designation"], f_cl)
                     ws.write(row, 2, jp["plan"], f_c)
                     ws.write(row, 3, jp["reel"], f_c)
-                    ws.write(row, 4, jp["ecart_pct"], f_neg)
-                    ws.write(row, 5, x.get("justification") or "⚠ manquante", f_cl)
+                    ws.write(row, 4, jp["ecart_pct"], fmt_pct)
+                    justif_txt = x.get("justification") or ("✅ OK poseur — validé" if ok else "⚠ manquante")
+                    ws.write(row, 5, justif_txt, f_cl)
                     row += 1
             row += 1
 
@@ -2091,29 +2124,31 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         # ═══════════════════════════════════════════════════════════════
         floorplans = list(doc.get("floorplans") or [])
         if floorplans:
-            allee_by_uid = {x["uid"]: x for x in state["allees"]}
+            # (iter47) Palette couleur par NUIT (cycle sur 12 couleurs distinctes)
+            NIGHT_COLORS = [
+                (16, 185, 129),   # emerald
+                (59, 130, 246),   # blue
+                (245, 158, 11),   # orange
+                (168, 85, 247),   # purple
+                (239, 68, 68),    # red
+                (14, 165, 233),   # sky
+                (236, 72, 153),   # pink
+                (34, 197, 94),    # green
+                (250, 204, 21),   # yellow
+                (99, 102, 241),   # indigo
+                (20, 184, 166),   # teal
+                (249, 115, 22),   # amber
+            ]
 
-            def _plan_status_for_night(alee_uid: str):
-                a = allee_by_uid.get(alee_uid)
-                if not a:
-                    return None, None  # (status, hasReel)
-                # Ne montre en couleur QUE les allées de cette nuit
-                if a["nuit_eff"] != nuit:
-                    return "hors_nuit", False
-                return a["status"] or "a_faire", bool(a.get("has_reel"))
-
-            STATUS_COLORS_RGB = {
-                "validee": (16, 185, 129),      # green
-                "a_finaliser": (245, 158, 11),  # orange
-                "bloquee": (239, 68, 68),       # red
-                "non_faite": (124, 58, 237),    # violet
-                "a_faire": (100, 116, 139),     # slate
-                "en_cours": (59, 130, 246),     # blue
-                "hors_nuit": (148, 163, 184),   # slate light — atténué
-            }
+            def _night_color(n: int):
+                if not n or n < 1:
+                    return (148, 163, 184)
+                return NIGHT_COLORS[(int(n) - 1) % len(NIGHT_COLORS)]
 
             def _render_floorplan(plan: dict) -> "io.BytesIO | None":
-                """Compose l'image plan + overlay coloré et retourne un BytesIO PNG."""
+                """Compose l'image plan + overlay coloré par NUIT (iter47).
+                Les zones de la nuit courante sont marquées ✓ ; les autres nuits
+                apparaissent en teinte pâle pour donner un aperçu global."""
                 try:
                     from PIL import Image as PILImage, ImageDraw, ImageFont
                 except ImportError:
@@ -2131,30 +2166,22 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 overlay = PILImage.new("RGBA", base.size, (0, 0, 0, 0))
                 draw = ImageDraw.Draw(overlay, "RGBA")
                 W, H = base.size
-                # Choix police (font par défaut si truetype indisponible)
                 try:
-                    font_size = max(14, int(W * 0.014))
+                    font_size = max(14, int(W * 0.018))
                     font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
                 except Exception:
                     font = ImageFont.load_default()
 
                 for z in (plan.get("zones") or []):
-                    status, has_reel = _plan_status_for_night(z.get("allee_uid"))
-                    if status == "hors_nuit":
-                        color = STATUS_COLORS_RGB["hors_nuit"]
-                        alpha = 60
-                    elif status is None:
-                        # Zone orpheline (allée disparue) — grise transparente
-                        color = (148, 163, 184)
-                        alpha = 40
-                    else:
-                        if status == "a_faire" and has_reel:
-                            color = STATUS_COLORS_RGB["en_cours"]
-                        else:
-                            color = STATUS_COLORS_RGB.get(status, STATUS_COLORS_RGB["a_faire"])
-                        alpha = 120
-                    fill = color + (alpha,)
-                    stroke = color + (255,)
+                    zn = int(z.get("nuit") or 0)
+                    color = _night_color(zn)
+                    is_current = (zn == nuit)
+                    # Alpha : nuit courante = bien visible, autres = très pâle
+                    alpha_fill = 130 if is_current else 55
+                    alpha_stroke = 255 if is_current else 140
+                    stroke_w = 4 if is_current else 2
+                    fill = color + (alpha_fill,)
+                    stroke = color + (alpha_stroke,)
                     kind = z.get("kind", "rect")
                     coords = z.get("coords") or []
                     label_x, label_y = None, None
@@ -2165,7 +2192,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                             continue
                         px, py = int(x * W), int(y * H)
                         pw, ph = int(w * W), int(h * H)
-                        draw.rectangle([px, py, px + pw, py + ph], fill=fill, outline=stroke, width=3)
+                        draw.rectangle([px, py, px + pw, py + ph], fill=fill, outline=stroke, width=stroke_w)
                         label_x, label_y = px + 6, py + 4
                     elif kind == "polygon" and len(coords) >= 3:
                         pts = [(int(nx * W), int(ny * H)) for nx, ny in coords]
@@ -2173,22 +2200,18 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                         cx = sum(p[0] for p in pts) // len(pts)
                         cy = sum(p[1] for p in pts) // len(pts)
                         label_x, label_y = cx - int(W * 0.03), cy - font_size // 2
-                    # Label allée
-                    a = allee_by_uid.get(z.get("allee_uid"))
-                    if a and label_x is not None:
-                        label = f"{(a.get('secteur') or '').strip()} {a.get('allee', '')}".strip()
-                        if label:
-                            # Halo noir pour lisibilité
-                            for dx in (-1, 0, 1):
-                                for dy in (-1, 0, 1):
-                                    if dx == 0 and dy == 0:
-                                        continue
-                                    draw.text((label_x + dx, label_y + dy), label, fill=(0, 0, 0, 255), font=font)
-                            draw.text((label_x, label_y), label, fill=(255, 255, 255, 255), font=font)
+                    # Label « Nuit N » avec halo noir pour lisibilité
+                    if zn and label_x is not None:
+                        label = f"Nuit {zn}" + ("  ✓" if is_current else "")
+                        for dx in (-1, 0, 1):
+                            for dy in (-1, 0, 1):
+                                if dx == 0 and dy == 0:
+                                    continue
+                                draw.text((label_x + dx, label_y + dy), label, fill=(0, 0, 0, 255), font=font)
+                        draw.text((label_x, label_y), label, fill=(255, 255, 255, 255), font=font)
 
                 composed = PILImage.alpha_composite(base, overlay).convert("RGB")
                 out = io.BytesIO()
-                # Redimensionne si trop grand (Excel gère mal les > 3000px)
                 if max(composed.size) > 2400:
                     ratio = 2400 / max(composed.size)
                     composed = composed.resize((int(composed.size[0] * ratio),
@@ -2200,26 +2223,37 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
             for fp in floorplans:
                 sheet_label = (fp.get("label") or "Plan").strip()[:28] or "Plan"
-                # Excel : noms uniques ≤ 31 chars, sans []:*?/\
                 safe = "".join(c for c in f"Plan {sheet_label}" if c not in "[]:*?/\\")[:31]
                 if safe in {s.get_name() for s in wb.worksheets()}:
                     safe = safe[:28] + f" {fp.get('id', '')[:3]}"[:31]
                 ws_p = wb.add_worksheet(safe)
                 ws_p.set_column(0, 20, 12)
-                ws_p.write(0, 0, f"Plan magasin — {sheet_label}  ·  Nuit {nuit}", f_title)
                 ws_p.merge_range(0, 0, 0, 15, f"Plan magasin — {sheet_label}  ·  Nuit {nuit}", f_title)
                 ws_p.set_row(0, 34)
-                ws_p.write(1, 0, "Zones colorées = allées de cette nuit ; teinte pâle = allées d'autres nuits.", f_sub)
-                # Rendu image
+                ws_p.merge_range(1, 0, 1, 15,
+                    "Zones ✓ = allées de cette nuit (colorées plein) ; teinte pâle = autres nuits.",
+                    f_sub)
+                # Légende des nuits présentes
+                nights_used = sorted({int(z.get("nuit") or 0) for z in (fp.get("zones") or []) if z.get("nuit")})
+                if nights_used:
+                    for i, n in enumerate(nights_used):
+                        col = _night_color(n)
+                        f_leg_swatch = wb.add_format({
+                            "bg_color": f"#{col[0]:02X}{col[1]:02X}{col[2]:02X}",
+                            "border": 1, "align": "center", "valign": "vcenter",
+                            "font_color": "#FFFFFF", "bold": True, "font_size": 10,
+                        })
+                        ws_p.set_column(i, i, 12)
+                        ws_p.write(2, i, f"Nuit {n}" + ("  (courante)" if n == nuit else ""), f_leg_swatch)
                 img_buf = _render_floorplan(fp)
                 if img_buf is not None:
-                    ws_p.insert_image(3, 0, "plan.png", {
+                    ws_p.insert_image(4, 0, "plan.png", {
                         "image_data": img_buf,
                         "x_scale": 1.0, "y_scale": 1.0,
                         "object_position": 1,
                     })
                 else:
-                    ws_p.write(3, 0, "⚠️ Impossible de rendre l'image du plan (image invalide ou Pillow indisponible).", f_neg)
+                    ws_p.write(4, 0, "⚠️ Impossible de rendre l'image du plan (image invalide ou Pillow indisponible).", f_neg)
 
         wb.close()
         buf.seek(0)
@@ -3074,14 +3108,18 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return list(doc.get("floorplans") or [])
 
     def _sanitize_zones(zones):
-        """Normalise les coordonnées : clamp 0..1 pour rect, chaque point pour polygon."""
+        """Normalise les coordonnées : clamp 0..1 pour rect, chaque point pour polygon.
+        (iter47) Une zone est liée à un numéro de nuit, plus à une allée."""
         out = []
         for z in zones or []:
             kind = z.kind if hasattr(z, "kind") else z.get("kind", "rect")
             coords = z.coords if hasattr(z, "coords") else z.get("coords", [])
-            uid = z.allee_uid if hasattr(z, "allee_uid") else z.get("allee_uid")
             zid = z.id if hasattr(z, "id") else z.get("id")
-            if not zid or not uid:
+            try:
+                nuit = int(z.nuit if hasattr(z, "nuit") else z.get("nuit", 1))
+            except (TypeError, ValueError):
+                nuit = 1
+            if not zid:
                 continue
             clean = []
             if kind == "rect":
@@ -3103,8 +3141,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                                   max(0.0, min(1.0, float(p[1])))])
                 if len(clean) < 3:
                     continue
-            out.append({"id": str(zid), "allee_uid": str(uid), "kind": kind,
-                        "coords": clean})
+            out.append({"id": str(zid), "nuit": max(1, nuit), "kind": kind, "coords": clean})
         return out
 
     def _validate_image_data_url(dus: str):

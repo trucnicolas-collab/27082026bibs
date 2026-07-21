@@ -1,7 +1,8 @@
-// (iter45) Plan magasin interactif — dessin de zones (SVG, sans dépendance externe)
-// et visualisation temps réel du statut de chaque allée (vert = validée, orange = à
-// finaliser, rouge = bloquée, bleu = en cours, gris = à faire). Supporte plusieurs
-// étages, rectangles + polygones, upload image PNG/JPEG, et mode lecture seule.
+// (iter45→iter47) Plan magasin interactif — dessin de zones (SVG natif) et
+// visualisation temps réel. Chaque zone est liée à un NUMÉRO DE NUIT (Nuit 1,
+// Nuit 2…). Une palette 12 couleurs distingue les nuits ; plusieurs rectangles
+// et/ou polygones peuvent représenter la même nuit. Support zoom molette + pan
+// drag + pinch tactile.
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
     Plus, Square, Pentagon, MousePointer2, Trash2, Save, X,
@@ -10,16 +11,14 @@ import {
 import { toast } from "sonner";
 import { compressImage } from "./api";
 
-const STATUS_COLORS = {
-    validee: "#10B981",     // green
-    a_finaliser: "#F59E0B", // orange
-    bloquee: "#EF4444",     // red
-    non_faite: "#7C3AED",   // violet
-    a_faire: "#64748B",     // slate
-};
-const zoneFillFor = (status, hasReel) => {
-    if (status === "a_faire" && hasReel) return "#3B82F6"; // blue = en cours
-    return STATUS_COLORS[status] || STATUS_COLORS.a_faire;
+// (iter47) Palette 12 couleurs — 1 par nuit (cycle si > 12 nuits)
+const NIGHT_COLORS = [
+    "#10B981", "#3B82F6", "#F59E0B", "#A855F7", "#EF4444", "#0EA5E9",
+    "#EC4899", "#22C55E", "#FACC15", "#6366F1", "#14B8A6", "#F97316",
+];
+const nightColor = (n) => {
+    const k = Math.max(1, parseInt(n, 10) || 1);
+    return NIGHT_COLORS[(k - 1) % NIGHT_COLORS.length];
 };
 
 export default function SuiviFloorplan({ state, actions, readOnly = false, onOpenAllee }) {
@@ -30,11 +29,12 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
     const [selectedZoneId, setSelectedZoneId] = useState(null);
     const [drawingPoly, setDrawingPoly] = useState([]);
     const [rectDraft, setRectDraft] = useState(null);
+    // (iter47) Nuit active pour dessin — nouvelle zone créée avec cette nuit.
+    const [drawNuit, setDrawNuit] = useState(1);
     const [nightFilter, setNightFilter] = useState("all");
-    const [statusFilter, setStatusFilter] = useState("all");
+    const [uploadingNew, setUploadingNew] = useState(false);
     const [dirty, setDirty] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [uploadingNew, setUploadingNew] = useState(false);
     const [pendingNewLabel, setPendingNewLabel] = useState("");
     const [imgSize, setImgSize] = useState({ w: 1000, h: 700 });
     // (iter46) Zoom & pan — transform CSS appliqué au conteneur SVG
@@ -159,26 +159,22 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
         };
     };
 
-    const alleeByUid = useMemo(() => {
-        const m = {};
-        (state?.allees || []).forEach((a) => { m[a.uid] = a; });
-        return m;
-    }, [state]);
+    // (iter47) statusFilter retiré (les zones sont par NUIT, plus par allée)
+    // Supprime aussi alleeByUid — plus utilisé
     const nightsAvailable = useMemo(() => {
+        // Nuits présentes dans les allées + nuits déjà utilisées sur ce plan
         const s = new Set((state?.allees || []).map((a) => a.nuit_eff).filter(Boolean));
+        (plan?.zones || []).forEach((z) => { if (z.nuit) s.add(parseInt(z.nuit, 10)); });
         return Array.from(s).sort((a, b) => a - b);
-    }, [state]);
+    }, [state, plan]);
 
     const visibleZones = useMemo(() => {
         if (!plan) return [];
         return (plan.zones || []).filter((z) => {
-            const a = alleeByUid[z.allee_uid];
-            if (!a) return true;
-            if (nightFilter !== "all" && String(a.nuit_eff) !== String(nightFilter)) return false;
-            if (statusFilter !== "all" && a.status !== statusFilter) return false;
-            return true;
+            if (nightFilter === "all") return true;
+            return String(z.nuit) === String(nightFilter);
         });
-    }, [plan, alleeByUid, nightFilter, statusFilter]);
+    }, [plan, nightFilter]);
 
     // ---- Interactions ----
     const handleSvgMouseDown = (e) => {
@@ -198,7 +194,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
         const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
         if (w > 0.01 && h > 0.01) {
             const zone = {
-                id: `z-${Date.now()}`, allee_uid: "", kind: "rect",
+                id: `z-${Date.now()}`, nuit: drawNuit, kind: "rect",
                 coords: [[Math.min(x1, x2), Math.min(y1, y2), w, h]],
             };
             setPlans((ps) => ps.map((p, i) => (i === activeFloor
@@ -220,7 +216,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
     };
     const finishPolygon = () => {
         if (drawingPoly.length < 3) { toast.error("Un polygone doit avoir au moins 3 points"); return; }
-        const zone = { id: `z-${Date.now()}`, allee_uid: "", kind: "polygon", coords: drawingPoly };
+        const zone = { id: `z-${Date.now()}`, nuit: drawNuit, kind: "polygon", coords: drawingPoly };
         setPlans((ps) => ps.map((p, i) => (i === activeFloor
             ? { ...p, zones: [...(p.zones || []), zone] } : p)));
         setDrawingPoly([]);
@@ -311,8 +307,8 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                     </h2>
                     <p className="text-xs text-slate-400 mt-0.5">
                         {readOnly
-                            ? "Visualisation en lecture seule — les couleurs se mettent à jour en temps réel."
-                            : "Dessinez des zones (rectangles ou polygones), reliez-les aux allées : les couleurs suivent le statut du terrain."}
+                            ? "Visualisation en lecture seule — un code couleur par nuit."
+                            : "Dessinez des zones (rectangles ou polygones) et attribuez-leur une nuit : chaque nuit a sa couleur."}
                     </p>
                 </div>
                 {readOnly && (
@@ -370,6 +366,8 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                         {!readOnly && (
                             <Toolbar
                                 tool={tool} setTool={setTool}
+                                drawNuit={drawNuit} setDrawNuit={setDrawNuit}
+                                nightsAvailable={nightsAvailable}
                                 dirty={dirty} saving={saving} onSave={saveCurrent}
                                 drawingPoly={drawingPoly} onFinishPoly={finishPolygon}
                                 onCancelPoly={() => setDrawingPoly([])}
@@ -379,7 +377,6 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                         <FilterBar
                             nights={nightsAvailable}
                             nightFilter={nightFilter} setNightFilter={setNightFilter}
-                            statusFilter={statusFilter} setStatusFilter={setStatusFilter}
                         />
                         <div
                             ref={wrapperRef}
@@ -424,13 +421,12 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                             {visibleZones.map((z) => (
                                                 <ZoneShape
                                                     key={z.id} zone={z}
-                                                    allee={alleeByUid[z.allee_uid]}
                                                     vbW={vbW} vbH={vbH}
                                                     selected={z.id === selectedZoneId}
                                                     onSelect={(e) => {
                                                         e.stopPropagation?.();
                                                         if (readOnly) {
-                                                            if (onOpenAllee && z.allee_uid) onOpenAllee(z.allee_uid);
+                                                            // En viewer, un clic ne fait rien (pas d'allée liée)
                                                         } else if (tool === "select") {
                                                             setSelectedZoneId(z.id);
                                                         }
@@ -458,7 +454,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                 </>
                             )}
                         </div>
-                        <Legend />
+                        <Legend plan={plan} />
                     </div>
 
                     {!readOnly && (
@@ -469,7 +465,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                             {selectedZone ? (
                                 <ZoneInspector
                                     zone={selectedZone}
-                                    allees={state?.allees || []}
+                                    nightsAvailable={nightsAvailable}
                                     onChange={(patch) => updateZone(selectedZone.id, patch)}
                                     onDelete={() => deleteZone(selectedZone.id)}
                                 />
@@ -487,14 +483,13 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
 }
 
 // ─── Zone drawn in SVG ───────────────────────────────────────────
-function ZoneShape({ zone, allee, vbW, vbH, selected, onSelect }) {
-    const status = allee?.status || "a_faire";
-    const hasReel = !!allee?.has_reel;
-    const fill = zoneFillFor(status, hasReel);
-    const opacity = allee ? 0.5 : 0.25;
-    const stroke = selected ? "#FBBF24" : (allee ? fill : "#94A3B8");
+function ZoneShape({ zone, vbW, vbH, selected, onSelect }) {
+    const nuitLabel = `Nuit ${zone.nuit || 1}`;
+    const color = nightColor(zone.nuit);
+    const fill = color;
+    const opacity = 0.42;
+    const stroke = selected ? "#FBBF24" : color;
     const strokeW = (selected ? 3 : 2) * (vbW * 0.001);
-    const label = allee ? `${allee.secteur ? allee.secteur + " · " : ""}${allee.allee}` : "⚠ Non lié";
     const textStyle = {
         fontSize: Math.max(11, vbW * 0.013),
         fontWeight: 700,
@@ -512,7 +507,7 @@ function ZoneShape({ zone, allee, vbW, vbH, selected, onSelect }) {
             <g onClick={onSelect} onMouseDown={(e) => e.stopPropagation()} style={{ cursor: "pointer" }}>
                 <rect x={x} y={y} width={w} height={h} fill={fill} fillOpacity={opacity}
                       stroke={stroke} strokeWidth={strokeW} rx={4} />
-                <text x={x + 6} y={y + Math.max(16, vbW * 0.02)} style={textStyle}>{label}</text>
+                <text x={x + 6} y={y + Math.max(16, vbW * 0.02)} style={textStyle}>{nuitLabel}</text>
             </g>
         );
     }
@@ -523,7 +518,7 @@ function ZoneShape({ zone, allee, vbW, vbH, selected, onSelect }) {
     return (
         <g onClick={onSelect} onMouseDown={(e) => e.stopPropagation()} style={{ cursor: "pointer" }}>
             <polygon points={pts} fill={fill} fillOpacity={opacity} stroke={stroke} strokeWidth={strokeW} />
-            <text x={cx} y={cy} textAnchor="middle" style={textStyle}>{label}</text>
+            <text x={cx} y={cy} textAnchor="middle" style={textStyle}>{nuitLabel}</text>
         </g>
     );
 }
@@ -544,7 +539,8 @@ function PolygonDraft({ points, vbW, vbH }) {
     );
 }
 
-function Toolbar({ tool, setTool, dirty, saving, onSave, drawingPoly, onFinishPoly, onCancelPoly, onDeletePlan }) {
+function Toolbar({ tool, setTool, drawNuit, setDrawNuit, nightsAvailable,
+                  dirty, saving, onSave, drawingPoly, onFinishPoly, onCancelPoly, onDeletePlan }) {
     const btn = (id, label, Icon, testid) => (
         <button
             onClick={() => setTool(id)}
@@ -556,11 +552,30 @@ function Toolbar({ tool, setTool, dirty, saving, onSave, drawingPoly, onFinishPo
             <Icon className="w-3.5 h-3.5" />{label}
         </button>
     );
+    const drawing = tool === "rect" || tool === "polygon";
+    const maxNuit = Math.max(1, ...(nightsAvailable || []));
+    const nuitOptions = [];
+    for (let n = 1; n <= maxNuit + 1; n++) nuitOptions.push(n);
     return (
         <div className="flex items-center gap-1.5 flex-wrap">
             {btn("select", "Sélectionner", MousePointer2, "floorplan-tool-select")}
             {btn("rect", "Rectangle", Square, "floorplan-tool-rect")}
             {btn("polygon", "Polygone", Pentagon, "floorplan-tool-polygon")}
+            {drawing && (
+                <label className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs">
+                    <span className="w-3 h-3 rounded-sm border border-slate-500"
+                          style={{ background: nightColor(drawNuit) }} />
+                    <span className="text-slate-400">Dessine pour :</span>
+                    <select
+                        value={drawNuit}
+                        onChange={(e) => setDrawNuit(parseInt(e.target.value, 10) || 1)}
+                        data-testid="floorplan-draw-nuit"
+                        className="bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-slate-200"
+                    >
+                        {nuitOptions.map((n) => <option key={n} value={n}>Nuit {n}</option>)}
+                    </select>
+                </label>
+            )}
             {drawingPoly.length >= 3 && (
                 <button
                     onClick={onFinishPoly} data-testid="floorplan-poly-finish"
@@ -598,7 +613,7 @@ function Toolbar({ tool, setTool, dirty, saving, onSave, drawingPoly, onFinishPo
     );
 }
 
-function FilterBar({ nights, nightFilter, setNightFilter, statusFilter, setStatusFilter }) {
+function FilterBar({ nights, nightFilter, setNightFilter }) {
     const opt = "px-2 py-1 rounded-md text-xs bg-slate-800 border border-slate-700 text-slate-300";
     return (
         <div className="flex items-center gap-2 flex-wrap text-xs mt-2">
@@ -608,48 +623,32 @@ function FilterBar({ nights, nightFilter, setNightFilter, statusFilter, setStatu
                 <option value="all">Toutes les nuits</option>
                 {nights.map((n) => <option key={n} value={n}>Nuit {n}</option>)}
             </select>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                    className={opt} data-testid="floorplan-filter-status">
-                <option value="all">Tous statuts</option>
-                <option value="a_faire">À faire</option>
-                <option value="validee">Validées</option>
-                <option value="a_finaliser">À finaliser</option>
-                <option value="bloquee">Bloquées</option>
-                <option value="non_faite">Non faite</option>
-            </select>
         </div>
     );
 }
 
-function ZoneInspector({ zone, allees, onChange, onDelete }) {
-    const opts = useMemo(() => {
-        const grouped = {};
-        (allees || []).forEach((a) => {
-            const g = a.secteur || "—";
-            (grouped[g] = grouped[g] || []).push(a);
-        });
-        return grouped;
-    }, [allees]);
+function ZoneInspector({ zone, nightsAvailable, onChange, onDelete }) {
+    // Palette compacte pour visualiser la couleur de nuit choisie
+    const swatch = (
+        <span className="inline-block w-4 h-4 rounded-sm border border-slate-500"
+              style={{ background: nightColor(zone.nuit) }} />
+    );
+    // Nuits proposées : celles utilisées côté allées + 1..max — évite les nuits vides
+    const maxNuit = Math.max(1, ...(nightsAvailable || []), (zone.nuit || 1));
+    const options = [];
+    for (let n = 1; n <= maxNuit + 1; n++) options.push(n);
     return (
         <div className="space-y-2 text-xs">
             <label className="block">
-                <span className="text-slate-400">Allée liée</span>
+                <span className="text-slate-400 flex items-center gap-2">Nuit associée {swatch}</span>
                 <select
-                    value={zone.allee_uid || ""}
-                    onChange={(e) => onChange({ allee_uid: e.target.value })}
-                    data-testid="zone-allee-select"
+                    value={zone.nuit || 1}
+                    onChange={(e) => onChange({ nuit: parseInt(e.target.value, 10) || 1 })}
+                    data-testid="zone-nuit-select"
                     className="mt-1 w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-md text-slate-200"
                 >
-                    <option value="">— Sélectionner —</option>
-                    {Object.keys(opts).sort().map((sec) => (
-                        <optgroup key={sec} label={sec}>
-                            {opts[sec].sort((a, b) => String(a.allee).localeCompare(String(b.allee)))
-                                .map((a) => (
-                                    <option key={a.uid} value={a.uid}>
-                                        {a.allee} — {a.rayon || "?"} (Nuit {a.nuit_eff})
-                                    </option>
-                                ))}
-                        </optgroup>
+                    {options.map((n) => (
+                        <option key={n} value={n}>Nuit {n}</option>
                     ))}
                 </select>
             </label>
@@ -667,21 +666,21 @@ function ZoneInspector({ zone, allees, onChange, onDelete }) {
     );
 }
 
-function Legend() {
-    const items = [
-        { c: STATUS_COLORS.validee, l: "Validée" },
-        { c: "#3B82F6", l: "En cours" },
-        { c: STATUS_COLORS.a_finaliser, l: "À finaliser" },
-        { c: STATUS_COLORS.bloquee, l: "Bloquée" },
-        { c: STATUS_COLORS.non_faite, l: "Non faite" },
-        { c: STATUS_COLORS.a_faire, l: "À faire" },
-    ];
+function Legend({ plan }) {
+    // (iter47) Légende dynamique : liste les nuits présentes sur le plan avec leur couleur.
+    const nightsOnPlan = useMemo(() => {
+        const s = new Set();
+        (plan?.zones || []).forEach((z) => { if (z.nuit) s.add(parseInt(z.nuit, 10)); });
+        return Array.from(s).sort((a, b) => a - b);
+    }, [plan]);
+    if (nightsOnPlan.length === 0) return null;
     return (
-        <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400 flex-wrap">
-            {items.map((it) => (
-                <span key={it.l} className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded-sm" style={{ background: it.c, opacity: 0.6 }} />
-                    {it.l}
+        <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400 flex-wrap" data-testid="floorplan-legend">
+            <span className="text-slate-500">Nuits sur ce plan :</span>
+            {nightsOnPlan.map((n) => (
+                <span key={n} className="flex items-center gap-1">
+                    <span className="w-3 h-3 rounded-sm" style={{ background: nightColor(n), opacity: 0.7 }} />
+                    Nuit {n}
                 </span>
             ))}
         </div>

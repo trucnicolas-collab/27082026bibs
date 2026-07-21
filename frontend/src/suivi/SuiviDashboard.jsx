@@ -21,9 +21,52 @@ export default function SuiviDashboard({ state, actions, goTab, mode = "chef", p
     const nonFaites = alerts.filter((a) => a.type === "non_faite");
     const pct = Math.min(100, st.pct || 0);
     const avance = st.avance_nuits;
+    // (iter47) Mise en avant « en avance » : cumul_delta_eeg > 0 signifie qu'on
+    // a posé plus d'EEG que prévu sur l'ensemble des nuits terminées.
+    const cumulDelta = st.cumul_delta_eeg || 0;
+    // Comptage des allées rapatriées en avance (planifiées pour une nuit ultérieure
+    // mais faites plus tôt) — champ nb_rapatriees ajouté par le backend par nuit.
+    const nbRapatriees = (state.nuits || []).reduce((s, n) => s + (n.nb_rapatriees || 0), 0);
+    const showAvanceBanner = cumulDelta > 0 || nbRapatriees > 0;
 
     return (
         <div className="space-y-4" data-testid="suivi-dashboard">
+            {/* (iter47) Bandeau « En avance » — mise en avant forte quand on dépasse le prévu */}
+            {showAvanceBanner && (
+                <section
+                    className="rounded-2xl bg-gradient-to-r from-emerald-600/25 via-emerald-500/20 to-teal-500/20 border-2 border-emerald-500/60 p-4 flex items-center gap-4 shadow-lg shadow-emerald-900/30"
+                    data-testid="dash-avance-banner"
+                >
+                    <div className="flex-shrink-0 w-12 h-12 rounded-full bg-emerald-500/30 flex items-center justify-center text-2xl">
+                        🎉
+                    </div>
+                    <div className="flex-1">
+                        <div className="text-emerald-200 font-bold text-base flex items-center gap-2">
+                            En avance sur le planning
+                            <span className="text-[10px] uppercase tracking-widest bg-emerald-500/30 text-emerald-100 rounded-full px-2 py-0.5">
+                                Bravo
+                            </span>
+                        </div>
+                        <div className="text-xs text-emerald-100/90 mt-1 flex items-center gap-3 flex-wrap">
+                            {cumulDelta > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="font-bold text-emerald-300 tabular-nums">+{fmt(cumulDelta)}</span> EEG posés au-dessus du prévisionnel cumulé
+                                </span>
+                            )}
+                            {nbRapatriees > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="font-bold text-emerald-300 tabular-nums">{nbRapatriees}</span> allée{nbRapatriees > 1 ? "s" : ""} rapatriée{nbRapatriees > 1 ? "s" : ""} en avance
+                                </span>
+                            )}
+                            {avance != null && avance > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="font-bold text-emerald-300 tabular-nums">{avance}</span> nuit{avance > 1 ? "s" : ""} d&apos;avance estimée{avance > 1 ? "s" : ""}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </section>
+            )}
             {/* Progression globale */}
             <section className="rounded-2xl bg-slate-900 border border-slate-800 p-5">
                 <div className="flex items-end justify-between mb-3">

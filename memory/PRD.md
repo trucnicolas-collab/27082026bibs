@@ -1468,6 +1468,34 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
   - Rendu via Pillow (`PIL.ImageDraw`) : base image PNG + overlay des zones colorées selon le statut de l'allée pour la nuit courante (validee/a_finaliser/bloquee/non_faite/en cours/a_faire). Les allées d'autres nuits apparaissent en teinte pâle atténuée (info seulement).
   - Labels centraux « SECTEUR N° allée » avec halo noir pour lisibilité.
   - Image redimensionnée si > 2400 px (Excel gère mal les très grandes images).
+
+## Suite (21/02/2026 iter47) — Simplification Plan, banner « En avance », fix Excel Détail allées
+### 1) Simplification du Plan (`SuiviFloorplan.jsx` + `suivi_deploy.py`)
+- [x] **Zone liée à une NUIT** (numéro), pas à une allée. Un rectangle ou un polygone représente une portion des allées faites la nuit N.
+- [x] **Palette 12 couleurs** — 1 couleur unique par nuit (cycle sur les nuits > 12). Constante `NIGHT_COLORS` partagée frontend/backend.
+- [x] **Plusieurs zones par nuit** possibles — chaque forme est indépendante mais partage la même couleur/légende.
+- [x] Toolbar : nouveau sélecteur « Dessine pour : Nuit N » à côté des boutons Rectangle/Polygone.
+- [x] ZoneInspector : dropdown « Nuit associée » (avec swatch de couleur) au lieu du sélecteur d'allée par secteur.
+- [x] Légende dynamique : liste uniquement les nuits présentes sur le plan avec leur couleur.
+- [x] Filtre : filtre par nuit conservé (filtre par statut retiré — inutile puisque la couleur = nuit).
+- [x] Modèle backend `FloorplanZone` : champ `nuit: int` remplace `allee_uid` (rétrocompat : le champ `allee_uid` reçu en entrée est ignoré, pas d'erreur).
+
+### 2) Snapshot Excel adapté à la logique par nuit (`suivi_deploy.py`)
+- [x] Overlay Pillow coloré par nuit avec la même palette RGB. Zone de la nuit courante = pleine opacité (alpha 130) + label « Nuit N ✓ » + bordure épaisse (4 px). Autres nuits = teinte pâle (alpha 55, bordure fine).
+- [x] Légende Excel : ligne avec une swatch colorée par nuit présente sur le plan, « (courante) » sur la nuit du rapport.
+
+### 3) Bandeau « EN AVANCE » — mise en avant forte
+- [x] **Dashboard** : nouveau bandeau vert gradient (émeraude → teal) en tête de page si `cumul_delta_eeg > 0` OU s'il y a des allées rapatriées (`nb_rapatriees`). Affiche +N EEG au-dessus du prévisionnel, N allées rapatriées, N nuits d'avance estimée. Emoji 🎉 + badge « Bravo ».
+- [x] **Excel Résumé N1** : bandeau vert plein (bg vert clair, texte vert foncé, bordure 3 px) « 🎉 EN AVANCE SUR LE PLANNING » juste avant le verdict de la nuit, uniquement si `cumul_delta_eeg > 0` OU `nb_rapatriees_total > 0`.
+
+### 4) Fix bug Excel : « Détail allées » écarts justifiés incohérents
+- [x] Onglet « Détail allées » — table « Écarts > 5% (EEG / rails ES) et justifications » : alignée sur « Résumé N1 » (iter36). Écart % passe en orange (`f_neg_soft`) et libellé « ✅ OK poseur — validé » si `justif_ok=True`. Reste rouge + « ⚠ manquante » uniquement si aucune justification.
+- [x] Cohérence PJ1 ↔ PJ2 assurée : même règle appliquée dans les deux onglets.
+
+### 5) Tests
+- Aligné `test_iter45_floorplan.py` sur le nouveau schéma (`nuit` au lieu de `allee_uid`).
+- **32/32 tests verts** (iter31 + iter42 + iter44 + iter45). Aucun lint error frontend/backend.
+- E2E preview : plan créé avec zones Nuit 1 + Nuit 2, rapport Excel généré → onglet « Plan RDC » avec légende « Nuit 1 (courante) », « Nuit 2 » + image PNG intégrée. HTTP 200.
   - Support rectangle + polygone. Rejet gracieux si Pillow ou image data-url invalide.
   - Sanitize nom d'onglet Excel (≤ 31 chars, sans `[]:*?/\`, unique).
 - [x] Testé E2E : plan de test avec 2 zones (rect + polygone) créé sur dataset preview → rapport Excel généré avec onglets « Plan RDC » + « Plan RDC Test », HTTP 200, 1 image insérée par onglet, labels et légende présents. Tests iter31/42/44/45 : 32/32 verts. Frontend recompile sans erreur.

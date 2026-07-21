@@ -57,7 +57,7 @@ def test_floorplan_crud_admin():
     payload = {
         "label": "RDC Test iter45",
         "image_data_url": TINY_DATA_URL,
-        "zones": [{"id": zone_id, "allee_uid": "test-uid", "kind": "rect",
+        "zones": [{"id": zone_id, "nuit": 1, "kind": "rect",
                    "coords": [[0.1, 0.2, 0.3, 0.4]]}],
     }
     r = s.post(f"{API}/suivi/{uid}/floorplans", json=payload)
@@ -66,19 +66,19 @@ def test_floorplan_crud_admin():
     floor_id = plan["id"]
     assert plan["label"] == "RDC Test iter45"
     assert len(plan["zones"]) == 1
-    assert plan["zones"][0]["allee_uid"] == "test-uid"
+    assert plan["zones"][0]["nuit"] == 1
 
     # LIST après create
     r = s.get(f"{API}/suivi/{uid}/floorplans")
     ids = [p["id"] for p in r.json()["floorplans"]]
     assert floor_id in ids
 
-    # UPDATE (ajoute une seconde zone polygone)
+    # UPDATE (ajoute une seconde zone polygone en Nuit 2)
     poly_id = f"z-{uuid.uuid4().hex[:8]}"
     r = s.put(f"{API}/suivi/{uid}/floorplans/{floor_id}", json={
         "label": "RDC Test iter45 (mod)",
         "zones": plan["zones"] + [{
-            "id": poly_id, "allee_uid": "another-uid", "kind": "polygon",
+            "id": poly_id, "nuit": 2, "kind": "polygon",
             "coords": [[0.1, 0.1], [0.5, 0.1], [0.3, 0.5]],
         }],
     })
@@ -86,7 +86,7 @@ def test_floorplan_crud_admin():
     upd = r.json()["floorplan"]
     assert upd["label"] == "RDC Test iter45 (mod)"
     assert len(upd["zones"]) == 2
-    assert any(z["kind"] == "polygon" for z in upd["zones"])
+    assert any(z["kind"] == "polygon" and z["nuit"] == 2 for z in upd["zones"])
 
     # DELETE
     r = s.delete(f"{API}/suivi/{uid}/floorplans/{floor_id}")
@@ -120,7 +120,7 @@ def test_floorplan_zones_are_clamped():
         "label": "Clamp",
         "image_data_url": TINY_DATA_URL,
         "zones": [
-            {"id": "z-clamp", "allee_uid": "test", "kind": "rect",
+            {"id": "z-clamp", "nuit": 1, "kind": "rect",
              "coords": [[-0.5, 2.0, 0.3, 0.4]]},
         ],
     })
@@ -140,7 +140,7 @@ def test_floorplan_polygon_min_3_points():
     r = s.post(f"{API}/suivi/{uid}/floorplans", json={
         "label": "Poly2",
         "image_data_url": TINY_DATA_URL,
-        "zones": [{"id": "z-bad", "allee_uid": "test", "kind": "polygon",
+        "zones": [{"id": "z-bad", "nuit": 1, "kind": "polygon",
                    "coords": [[0.1, 0.1], [0.5, 0.5]]}],
     })
     assert r.status_code == 200
