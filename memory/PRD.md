@@ -1551,3 +1551,30 @@ Preview `/suivi/terrain`, viewport 1920x900, floorplan seed 3000x1200 :
 
 ### Recommandation
 Un test frontend automatisé (testing_agent) devrait couvrir ce cas en régression. L'utilisateur a choisi de tester manuellement (option a) après redéploiement.
+
+## Suite (21/02/2026 iter48d) — Validation stricte cohérence Excel Résumé N1 ↔ Détail allées
+
+### Test créé
+`backend/tests/test_iter47_justif_coherence_excel.py` — 3 cas end-to-end qui construisent 2 allées sur la même nuit (via patch temporaire du phasage) et vérifient les couleurs de cellule ET les textes dans les 2 onglets Excel générés par `/rapport-nuit/{N}` :
+
+| Scénario | Cellule écart % | Texte justification | Cohérence 2 onglets |
+|---|---|---|---|
+| `justif_ok=True` (poseur valide) | **Orange** (`FEF3C7`) partout | « ✅ OK poseur — validé » | ✅ Identique |
+| `justification="Rayon réduit"` seul | **Rouge** (`FEE2E2`) partout | « Rayon réduit par le magasin » | ✅ Identique |
+| delta ≥ 0 (pose ≥ prévu) | Aucun rouge sur la ligne allée | — | ✅ Pas de faux positif |
+
+### Découverte du test
+- L'onglet Résumé N1 utilise le titre **« 📌 ÉCARTS > 5% JUSTIFIÉS »** (majuscules + emoji)
+- L'onglet Détail allées utilise **« Écarts > 5% (EEG / rails ES) et justifications »**
+- Les deux blocs partagent EXACTEMENT la même logique de coloration (`fmt_pct = f_neg_soft if justif_ok else f_neg`) et de texte (`justification or "✅ OK poseur — validé" / "⚠ manquante"`)
+- **Aucune incohérence détectée** — les 2 onglets renvoient toujours la même couleur ET le même texte pour une même ligne (allée × produit)
+
+### Sémantique confirmée (règle utilisateur)
+- Case « Tout est OK » cochée par le poseur → **orange**, jamais qualifié de retard
+- Texte de justification écrit par le poseur (sans cocher OK) → **rouge** (poseur signale un vrai souci)
+- Delta ≥ 0 (pose ≥ prévu) → **vert** partout, jamais rouge/orange
+
+### Résultat
+- iter47 test : **3/3 verts**
+- Régression iter31 + iter42 + iter44 + iter45 : **28 passed, 7 skipped**, 0 échec
+- Aucun lint error introduit
