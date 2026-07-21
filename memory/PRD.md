@@ -1435,4 +1435,24 @@ Cette branche applique des règles métier différentes du magasin 1 (branche `m
   - Le flag `no_geo_sa` est exposé sur l'objet allée pour les agrégations en aval.
 - [x] Agrégations `geo_eeg_plan_night` / `geo_eeg_plan` : les clés géoloc sont réduites à `["rails_es"]` uniquement pour les allées `no_geo_sa=True` — les SA sur caisses/saisonnières n'apparaissent plus dans les KPI « Géoloc EEG prévues / effectuées » ni dans les alertes « Posés sans géoloc ».
 - [x] **Frontend** : aucun changement nécessaire, la colonne géoloc est déjà conditionnée sur `p.is_geo` dans `SuiviNuits.jsx` (lignes 554, 580).
+
+## Suite (21/02/2026 iter45) — Plan magasin interactif (MVP)
+- [x] **Nouvelle fonctionnalité** : intégration d'un plan de magasin cliquable directement dans le suivi. Objectif : rendre visuel l'avancement du déploiement en recouvrant les allées faites/en cours/bloquées avec des zones colorées, mise à jour en temps réel.
+- [x] **Backend** (`backend/suivi_deploy.py`) :
+  - Modèles `FloorplanIn`, `FloorplanZone` (kind rect|polygon, coordonnées normalisées 0..1).
+  - Endpoints admin `/api/suivi/{upload_id}/floorplans` (GET / POST / PUT / DELETE).
+  - Endpoints terrain `/api/suivi-terrain/{upload_id}/floorplans` (accès sans auth, mêmes règles).
+  - Endpoint viewer `/api/suivi-view/{upload_id}/floorplans?token=…` (lecture seule).
+  - Stockage dans `db.suivi_docs.floorplans[]`. Image en base64 data-url (max 4 Mo). Sanitize coord (clamp 0..1, filtre polygones < 3 points).
+- [x] **Frontend** (`frontend/src/suivi/SuiviFloorplan.jsx` — nouveau fichier, ~500 lignes) :
+  - Rendu SVG natif (pas de dépendance externe — Konva initialement essayé mais retiré pour éviter les problèmes d'intégration).
+  - Éditeur : upload PNG/JPEG (compressé côté client via `compressImage`), outils Sélectionner / Rectangle (drag) / Polygone (clic multiple + « Terminer »), suppression zone, sélecteur d'allée liée (groupé par secteur).
+  - Rendu : zones colorées selon `allee.status` (vert=validee, orange=a_finaliser, rouge=bloquee, violet=non_faite, bleu=en cours, gris=a_faire).
+  - Filtres : par nuit et par statut.
+  - Multi-étages : onglets RDC / Étage 1 / etc.
+  - Légende visuelle sous le canvas.
+- [x] **Intégration navigation** : nouvel onglet 🗺️ « Plan » ajouté à `SuiviApp`, `TerrainApp` (édition) et `ViewerApp` (lecture seule). Fonctionne pour phases EEG et CAM.
+- [x] **Compression image** : réutilise `compressImage()` existant (max 2000px, JPEG q=0.82) → image ~200-400 Ko.
+- [x] Tests : `test_iter45_floorplan.py` — **7/7 verts** (CRUD admin, refus payloads invalides, clamp coords, filtrage polygones < 3 points, accès terrain sans auth, viewer read-only).
+- [ ] **Phase 2 (backlog)** : snapshot du plan avec zones colorées dans le rapport Excel nocturne (via PIL côté serveur), zoom/pan mobile.
 - [x] Tests : `test_iter44_geoloc_caisses_saisonnier.py` — 12 cas (caisses en majuscule/minuscule, préfixe strict, rails toujours géoloc, agrégation nightly). **12/12 passants**, aucune régression (25/25 pour iter31+iter42+iter44).

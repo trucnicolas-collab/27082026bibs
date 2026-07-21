@@ -140,6 +140,46 @@ export function makeActions(base, refresh, { readOnly = false, tokenParam = "" }
                 return false;
             }
         },
+        // ---- Floorplans (iter45) ----
+        listFloorplans: async () => {
+            try {
+                const url = readOnly ? withTk(`${base}/floorplans`) : `${base}/floorplans`;
+                const res = await axios.get(url);
+                return res.data.floorplans || [];
+            } catch { return []; }
+        },
+        createFloorplan: async (label, imageDataUrl, zones = []) => {
+            if (readOnly) return denyRO();
+            try {
+                const res = await axios.post(`${base}/floorplans`, { label, image_data_url: imageDataUrl, zones });
+                toast.success("Plan ajouté");
+                return res.data.floorplan;
+            } catch (e) {
+                toast.error(e?.response?.data?.detail || "Ajout du plan impossible");
+                return null;
+            }
+        },
+        updateFloorplan: async (floorId, patch) => {
+            if (readOnly) return denyRO();
+            try {
+                const res = await axios.put(`${base}/floorplans/${floorId}`, patch);
+                return res.data.floorplan;
+            } catch (e) {
+                toast.error(e?.response?.data?.detail || "Mise à jour du plan impossible");
+                return null;
+            }
+        },
+        deleteFloorplan: async (floorId) => {
+            if (readOnly) return denyRO();
+            try {
+                await axios.delete(`${base}/floorplans/${floorId}`);
+                toast.success("Plan supprimé");
+                return true;
+            } catch (e) {
+                toast.error(e?.response?.data?.detail || "Suppression impossible");
+                return false;
+            }
+        },
         refresh,
     };
 }

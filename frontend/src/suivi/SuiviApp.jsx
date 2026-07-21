@@ -8,13 +8,14 @@ import SuiviNuits from "./SuiviNuits";
 import SuiviCam from "./SuiviCam";
 import SuiviMateriel from "./SuiviMateriel";
 import SuiviStock from "./SuiviStock";
+import SuiviFloorplan from "./SuiviFloorplan";
 import TerrainApp from "./TerrainApp";
 import PhaseCategoryPicker from "./PhaseCategoryPicker";
 import { makeActions } from "./api";
 import {
     LayoutDashboard, Moon, Package, ChevronLeft, LogOut,
     Loader2, ClipboardList, Store, ChevronRight, Cctv, Boxes,
-    Eye, Copy, X,
+    Eye, Copy, X, MapPin,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -24,12 +25,14 @@ const LS_PHASE = "suivi.lastPhase";
 const TABS_EEG = [
     { id: "dashboard", label: "Tableau de bord", shortLabel: "Board", icon: LayoutDashboard },
     { id: "nuits", label: "Nuits", shortLabel: "Nuits", icon: Moon },
+    { id: "plan", label: "Plan", shortLabel: "Plan", icon: MapPin },
     { id: "materiel", label: "Matériel", shortLabel: "Matériel", icon: Boxes },
     { id: "stock", label: "Stock", shortLabel: "Stock", icon: Package },
 ];
 const TABS_CAM = [
     { id: "dashboard", label: "Tableau de bord", shortLabel: "Board", icon: LayoutDashboard },
     { id: "cam", label: "Caméras", shortLabel: "Cam", icon: Cctv },
+    { id: "plan", label: "Plan", shortLabel: "Plan", icon: MapPin },
     { id: "materiel", label: "Matériel", shortLabel: "Matériel", icon: Boxes },
     { id: "stock", label: "Stock", shortLabel: "Stock", icon: Package },
 ];
@@ -202,6 +205,7 @@ function ChefApp() {
                         {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
                         {tab === "materiel" && <SuiviMateriel actions={actions} phaseKind={phaseKind} />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
+                        {tab === "plan" && <SuiviFloorplan state={state} actions={actions} />}
                     </main>
                 </>
             )}

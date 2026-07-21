@@ -235,6 +235,30 @@ class PublishUpdate(BaseModel):
     published: bool
 
 
+# ============================================= FLOORPLAN (iter45) ================
+class FloorplanZone(BaseModel):
+    """Zone dessinée sur le plan, liée à une allée via son uid."""
+    id: str
+    allee_uid: str
+    kind: str = "rect"  # "rect" | "polygon"
+    # rect: [x, y, w, h] normalisés 0..1 (relatif à la taille de l'image)
+    # polygon: [[x1,y1], [x2,y2], ...] normalisés 0..1
+    coords: List[List[float]]
+
+
+class FloorplanIn(BaseModel):
+    """Payload pour créer/mettre à jour un plan."""
+    label: str = "RDC"
+    # Image en data-URL base64 (data:image/png;base64,...). Facultatif à
+    # l'update — permet de ne modifier que les zones ou le label.
+    image_data_url: Optional[str] = None
+    zones: List[FloorplanZone] = Field(default_factory=list)
+
+
+MAX_FLOORPLAN_BYTES = 4 * 1024 * 1024  # 4 Mo max par image (base64 inclus)
+
+
+
 def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summary,
                        normalize_phasage, save_phasage_snapshot, persist_phasage,
                        classify_family, compute_node_sa_install=None,
@@ -2908,6 +2932,113 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             "preview": preview,
         }
 
+    # ============================================= FLOORPLANS (iter45) ==========
+    def _floorplans_of(doc: dict) -> list:
+        return list(doc.get("floorplans") or [])
+
+    def _sanitize_zones(zones):
+        """Normalise les coordonnées : clamp 0..1 pour rect, chaque point pour polygon."""
+        out = []
+        for z in zones or []:
+            kind = z.kind if hasattr(z, "kind") else z.get("kind", "rect")
+            coords = z.coords if hasattr(z, "coords") else z.get("coords", [])
+            uid = z.allee_uid if hasattr(z, "allee_uid") else z.get("allee_uid")
+            zid = z.id if hasattr(z, "id") else z.get("id")
+            if not zid or not uid:
+                continue
+            clean = []
+            if kind == "rect":
+                if len(coords) < 1 or len(coords[0]) < 4:
+                    continue
+                x, y, w, h = coords[0][:4]
+                clean.append([max(0.0, min(1.0, float(x))),
+                              max(0.0, min(1.0, float(y))),
+                              max(0.001, min(1.0, float(w))),
+                              max(0.001, min(1.0, float(h)))])
+            else:  # polygon
+                pts = coords[0] if len(coords) == 1 and len(coords[0]) > 2 and isinstance(coords[0][0], list) else coords
+                if len(pts) < 3:
+                    continue
+                for p in pts:
+                    if len(p) < 2:
+                        continue
+                    clean.append([max(0.0, min(1.0, float(p[0]))),
+                                  max(0.0, min(1.0, float(p[1])))])
+                if len(clean) < 3:
+                    continue
+            out.append({"id": str(zid), "allee_uid": str(uid), "kind": kind,
+                        "coords": clean})
+        return out
+
+    def _validate_image_data_url(dus: str):
+        if not dus or not dus.startswith("data:image/"):
+            raise HTTPException(status_code=400, detail="image_data_url invalide (attendu : data:image/...;base64,...)")
+        if len(dus) > MAX_FLOORPLAN_BYTES:
+            raise HTTPException(status_code=413, detail=f"Image trop lourde (max {MAX_FLOORPLAN_BYTES // (1024*1024)} Mo). Compressez-la avant l'import.")
+
+    @router.get("/{upload_id}/floorplans")
+    async def list_floorplans(upload_id: str,
+                              current_user: dict = Depends(get_current_user)):
+        await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        return {"floorplans": _floorplans_of(doc)}
+
+    @router.post("/{upload_id}/floorplans")
+    async def create_floorplan(upload_id: str, payload: FloorplanIn,
+                               current_user: dict = Depends(get_current_user)):
+        await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        if not payload.image_data_url:
+            raise HTTPException(status_code=400, detail="image_data_url requis à la création d'un plan")
+        _validate_image_data_url(payload.image_data_url)
+        floor_id = str(uuid.uuid4())
+        new_plan = {
+            "id": floor_id,
+            "label": (payload.label or "RDC").strip()[:60] or "RDC",
+            "image_data_url": payload.image_data_url,
+            "zones": _sanitize_zones(payload.zones),
+            "created_by": current_user.get("email") or "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.suivi_docs.update_one(
+            {"upload_id": upload_id},
+            {"$push": {"floorplans": new_plan}})
+        return {"ok": True, "floorplan": new_plan}
+
+    @router.put("/{upload_id}/floorplans/{floor_id}")
+    async def update_floorplan(upload_id: str, floor_id: str, payload: FloorplanIn,
+                               current_user: dict = Depends(get_current_user)):
+        await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        plans = _floorplans_of(doc)
+        found = next((i for i, p in enumerate(plans) if p.get("id") == floor_id), -1)
+        if found < 0:
+            raise HTTPException(status_code=404, detail="Plan introuvable")
+        upd = {"floorplans.$[el].zones": _sanitize_zones(payload.zones),
+               "floorplans.$[el].label": (payload.label or "RDC").strip()[:60] or "RDC",
+               "floorplans.$[el].updated_by": current_user.get("email") or "",
+               "floorplans.$[el].updated_at": datetime.now(timezone.utc).isoformat()}
+        if payload.image_data_url:
+            _validate_image_data_url(payload.image_data_url)
+            upd["floorplans.$[el].image_data_url"] = payload.image_data_url
+        await db.suivi_docs.update_one(
+            {"upload_id": upload_id},
+            {"$set": upd},
+            array_filters=[{"el.id": floor_id}])
+        doc = await db.suivi_docs.find_one({"upload_id": upload_id})
+        plan = next((p for p in _floorplans_of(doc or {}) if p.get("id") == floor_id), None)
+        return {"ok": True, "floorplan": plan}
+
+    @router.delete("/{upload_id}/floorplans/{floor_id}")
+    async def delete_floorplan(upload_id: str, floor_id: str,
+                               current_user: dict = Depends(get_current_user)):
+        await _load(upload_id, current_user)
+        await _get_doc(upload_id, str(current_user["_id"]))
+        await db.suivi_docs.update_one(
+            {"upload_id": upload_id},
+            {"$pull": {"floorplans": {"id": floor_id}}})
+        return {"ok": True}
+
     # ============================================= ROUTES LECTURE SEULE (CLIENTS) ====
     viewer = APIRouter(prefix="/suivi-view")
 
@@ -2969,6 +3100,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     async def viewer_rapport(upload_id: str, nuit: int, token: str = Query(...)):
         d, doc = await _resolve_viewer(upload_id, token)
         return _rapport_response(d, doc, doc["upload_id"], nuit)
+
+    @viewer.get("/{upload_id}/floorplans")
+    async def viewer_floorplans(upload_id: str, token: str = Query(...)):
+        _d, doc = await _resolve_viewer(upload_id, token)
+        return {"floorplans": _floorplans_of(doc)}
 
     # ============================================= ROUTES TERRAIN (SANS COMPTE) ====
     @terrain.get("/stores")
@@ -3058,6 +3194,61 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
     async def terrain_materiel_nuit(upload_id: str, nuit: int, mode: str = "eeg"):
         d, doc = await _resolve_terrain(upload_id)
         return _materiel_nuit(d, doc, nuit, mode=mode)
+
+    # Floorplan CRUD côté terrain (poseur) — pas d'authentification
+    @terrain.get("/{upload_id}/floorplans")
+    async def terrain_floorplans(upload_id: str):
+        _d, doc = await _resolve_terrain(upload_id)
+        return {"floorplans": _floorplans_of(doc)}
+
+    @terrain.post("/{upload_id}/floorplans")
+    async def terrain_create_floorplan(upload_id: str, payload: FloorplanIn):
+        _d, doc = await _resolve_terrain(upload_id)
+        if not payload.image_data_url:
+            raise HTTPException(status_code=400, detail="image_data_url requis à la création d'un plan")
+        _validate_image_data_url(payload.image_data_url)
+        floor_id = str(uuid.uuid4())
+        new_plan = {
+            "id": floor_id,
+            "label": (payload.label or "RDC").strip()[:60] or "RDC",
+            "image_data_url": payload.image_data_url,
+            "zones": _sanitize_zones(payload.zones),
+            "created_by": "équipe terrain",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.suivi_docs.update_one(
+            {"upload_id": doc["upload_id"]},
+            {"$push": {"floorplans": new_plan}})
+        return {"ok": True, "floorplan": new_plan}
+
+    @terrain.put("/{upload_id}/floorplans/{floor_id}")
+    async def terrain_update_floorplan(upload_id: str, floor_id: str, payload: FloorplanIn):
+        _d, doc = await _resolve_terrain(upload_id)
+        plans = _floorplans_of(doc)
+        if not any(p.get("id") == floor_id for p in plans):
+            raise HTTPException(status_code=404, detail="Plan introuvable")
+        upd = {"floorplans.$[el].zones": _sanitize_zones(payload.zones),
+               "floorplans.$[el].label": (payload.label or "RDC").strip()[:60] or "RDC",
+               "floorplans.$[el].updated_by": "équipe terrain",
+               "floorplans.$[el].updated_at": datetime.now(timezone.utc).isoformat()}
+        if payload.image_data_url:
+            _validate_image_data_url(payload.image_data_url)
+            upd["floorplans.$[el].image_data_url"] = payload.image_data_url
+        await db.suivi_docs.update_one(
+            {"upload_id": doc["upload_id"]},
+            {"$set": upd},
+            array_filters=[{"el.id": floor_id}])
+        doc = await db.suivi_docs.find_one({"upload_id": upload_id})
+        plan = next((p for p in _floorplans_of(doc or {}) if p.get("id") == floor_id), None)
+        return {"ok": True, "floorplan": plan}
+
+    @terrain.delete("/{upload_id}/floorplans/{floor_id}")
+    async def terrain_delete_floorplan(upload_id: str, floor_id: str):
+        _d, doc = await _resolve_terrain(upload_id)
+        await db.suivi_docs.update_one(
+            {"upload_id": doc["upload_id"]},
+            {"$pull": {"floorplans": {"id": floor_id}}})
+        return {"ok": True}
 
     parent = APIRouter()
     parent.include_router(router)

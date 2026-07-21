@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
-import { Loader2, HardHat, AlertCircle, Moon, Cctv, Boxes, Store, ChevronRight, ChevronLeft, LayoutDashboard, Package } from "lucide-react";
+import { Loader2, HardHat, AlertCircle, Moon, Cctv, Boxes, Store, ChevronRight, ChevronLeft, LayoutDashboard, Package, MapPin } from "lucide-react";
 import SuiviNuits from "./SuiviNuits";
 import SuiviCam from "./SuiviCam";
 import SuiviMateriel from "./SuiviMateriel";
 import SuiviDashboard from "./SuiviDashboard";
 import SuiviStock from "./SuiviStock";
+import SuiviFloorplan from "./SuiviFloorplan";
 import PhaseCategoryPicker from "./PhaseCategoryPicker";
 import { makeActions } from "./api";
 
@@ -16,12 +17,14 @@ const LS_PHASE = "suivi.terrain.lastPhase";
 const TABS_EEG = [
     { id: "dashboard", label: "Board", icon: LayoutDashboard },
     { id: "pose", label: "Nuits", icon: Moon },
+    { id: "plan", label: "Plan", icon: MapPin },
     { id: "materiel", label: "Matériel", icon: Boxes },
     { id: "stock", label: "Stock", icon: Package },
 ];
 const TABS_CAM = [
     { id: "dashboard", label: "Board", icon: LayoutDashboard },
     { id: "cam", label: "Caméras", icon: Cctv },
+    { id: "plan", label: "Plan", icon: MapPin },
     { id: "materiel", label: "Matériel", icon: Boxes },
     { id: "stock", label: "Stock", icon: Package },
 ];
@@ -162,6 +165,7 @@ export default function TerrainApp() {
                         {tab === "cam" && phaseKind === "cam" && <SuiviCam state={state} actions={actions} />}
                         {tab === "materiel" && <SuiviMateriel actions={actions} phaseKind={phaseKind} />}
                         {tab === "stock" && <SuiviStock state={state} actions={actions} phaseKind={phaseKind} />}
+                        {tab === "plan" && <SuiviFloorplan state={state} actions={actions} />}
                     </main>
                 </>
             )}
