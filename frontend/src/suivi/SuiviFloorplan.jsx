@@ -421,7 +421,7 @@ export default function SuiviFloorplan({ state, actions, readOnly = false, onOpe
                                             onMouseMove={handleSvgMouseMove}
                                             onMouseUp={handleSvgMouseUp}
                                             onClick={handleSvgClick}
-                                            style={{ width: "100%", display: "block", cursor, touchAction: "none" }}
+                                            style={{ width: "100%", height: "auto", display: "block", cursor, touchAction: "none" }}
                                         >
                                             <image
                                                 href={plan.image_data_url}
