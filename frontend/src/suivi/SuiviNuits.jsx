@@ -832,11 +832,19 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                             </div>
                             {extras.map((x, i) => (
                                 <div key={i} className="flex items-center gap-1.5">
-                                    <input value={x.designation}
+                                    <select value={x.designation}
                                         onChange={(e) => setExtras((s) => s.map((y, j) => (j === i ? { ...y, designation: e.target.value } : y)))}
-                                        placeholder="Désignation (ex: ES 1.5 blanc)"
                                         data-testid={`extra-desig-${i}`}
-                                        className="flex-1 h-8 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs placeholder:text-slate-600 focus:border-blue-600 outline-none" />
+                                        className="flex-1 h-8 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:border-blue-600 outline-none">
+                                        <option value="">— Choisir un produit du stock —</option>
+                                        {(state.stock || [])
+                                            .filter((s) => s.designation && !s.extra)
+                                            .slice()
+                                            .sort((p, q) => p.designation.localeCompare(q.designation))
+                                            .map((s) => (
+                                                <option key={s.designation} value={s.designation}>{s.designation}</option>
+                                            ))}
+                                    </select>
                                     <input type="number" min="0" inputMode="numeric" value={x.qty}
                                         onChange={(e) => setExtras((s) => s.map((y, j) => (j === i ? { ...y, qty: e.target.value } : y)))}
                                         placeholder="Qté" data-testid={`extra-qty-${i}`}

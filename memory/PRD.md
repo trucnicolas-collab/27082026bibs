@@ -1578,3 +1578,40 @@ Un test frontend automatisé (testing_agent) devrait couvrir ce cas en régressi
 - iter47 test : **3/3 verts**
 - Régression iter31 + iter42 + iter44 + iter45 : **28 passed, 7 skipped**, 0 échec
 - Aucun lint error introduit
+
+## Suite (22/02/2026 iter48e) — Cohérence stock : dropdown "produits non prévus" + onglet Excel Stock
+
+### Demande utilisateur (verbatim)
+> « Pour avoir une coherence dans le stock restant, si j'utilise du materiel non prevu il faut que ca soit precis. PJ2 je veux une liste deroulante des produit en stock pour que ca soit décompté a la place du champ libre // Dans l'export excel je veux un onglet avec le tableau stock. Recu / posé / restant / reste a poser. Si reste a poser est ok alors c'est en vert sinon en rouge »
+
+### A. Frontend — Dropdown produits stock (au lieu du champ libre)
+`frontend/src/suivi/SuiviNuits.jsx` popup "Valider l'allée > Produit non prévu" :
+- `<input placeholder="Désignation (ex: ES 1.5 blanc)">` → `<select>` peuplé depuis `state.stock` (filtré, trié alphabétiquement)
+- Placeholder par défaut : « — Choisir un produit du stock — »
+- Ainsi chaque saisie extra correspond exactement à une désignation existante → décompte stock précis
+- Validé visuellement (screenshot) : 3 produits proposés (990 mm noir, ES 1.5 noir, ES 2.1 noir) + placeholder
+
+### B. Backend — Nouvel onglet Excel "Stock"
+`backend/suivi_deploy.py` `_rapport_response` :
+- Nouveau worksheet **"Stock"** placé après "Détail produits" avant "Écart phasage vs réel"
+- Colonnes : **Désignation | Référence | Reçu | Posé | Restant | Reste à poser**
+- Reçu affiché avec suffixe « (théo.) » quand aucun bon de livraison n'est saisi (recu_theorique)
+- **Coloration ligne** :
+  - **VERT** (`C_SUCCESS_BG` #D1FAE5) si `Restant ≥ Reste à poser` (stock suffisant)
+  - **ROUGE** (`C_DANGER_BG` #FEE2E2) sinon (rupture prévue à la pose)
+- Ligne TOTAL avec sommes Reçu / Posé / Restant / Reste à poser
+- **Vue globale magasin** (toutes nuits confondues) — cohérence stock projet, pas par nuit
+
+### Tests créés
+`backend/tests/test_iter48e_stock_sheet.py` — 4 cas, 4/4 verts :
+1. Onglet "Stock" existe + headers exacts
+2. Ligne verte quand Restant ≥ Reste à poser
+3. Ligne rouge quand `recu=10` forcé + posé > reçu → rupture prévue
+4. Ligne TOTAL calculée correctement
+
+### Régression
+Suites iter31 + iter42 + iter44 + iter45 + iter47 + iter48e : **32 passed, 7 skipped, 0 échec**.
+Aucun lint error introduit.
+
+### Note pour la suite (backlog utilisateur)
+« problématique 'autre' » (produit inconnu du stock à saisir en cours de pose) → à traiter en amont dans un autre chantier ; pour l'instant le dropdown est strict.

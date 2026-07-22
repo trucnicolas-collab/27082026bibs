@@ -1987,6 +1987,66 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     ws2.write(rr, 7, dv, f_delta_ok if dv >= 0 else f_neg_soft)
                 rr += 1
 
+        # ═══════════════════════════════════════════════════════════════
+        # (iter48e) Onglet STOCK — vue globale magasin
+        # ═══════════════════════════════════════════════════════════════
+        # Colonnes : Désignation | Référence | Reçu | Posé | Restant | Reste à poser
+        # Coloration : vert si Restant ≥ Reste à poser (stock suffisant),
+        # rouge sinon (manque prévu à la pose).
+        stock_rows = state.get("stock") or []
+        if stock_rows:
+            ws_st = wb.add_worksheet("Stock")
+            ws_st.merge_range(0, 0, 0, 5,
+                              "📦 Stock global magasin — Reçu / Posé / Restant / Reste à poser",
+                              f_section)
+            ws_st.set_row(0, 26)
+            ws_st.merge_range(1, 0, 1, 5,
+                              "Vert = stock suffisant pour finir la pose.  Rouge = rupture prévue "
+                              "(le stock restant ne suffit pas au reste à poser).",
+                              f_sub)
+            row_st = 3
+            for c0, h in enumerate(["Désignation", "Référence", "Reçu", "Posé",
+                                    "Restant", "Reste à poser"]):
+                ws_st.write(row_st, c0, h, f_h)
+            ws_st.set_row(row_st, 24)
+            ws_st.set_column(0, 0, 42)
+            ws_st.set_column(1, 1, 14)
+            ws_st.set_column(2, 5, 14)
+            row_st += 1
+            tot_recu = tot_pose = tot_restant = tot_rap = 0.0
+            for s in stock_rows:
+                # Un item "extra" (posé non prévu) n'a pas de prévu — on l'inclut
+                # quand même, l'utilisateur veut voir tous les mouvements de stock.
+                recu = s.get("recu")
+                recu_val = 0.0 if recu is None else float(recu)
+                pose = float(s.get("pose") or 0)
+                restant = float(s.get("restant_stock") or 0)
+                rap = float(s.get("restant_a_poser") or 0)
+                is_ok = restant >= rap
+                fmt_line = f_delta_ok if is_ok else f_neg
+                ws_st.write(row_st, 0, s.get("designation") or "", f_cl)
+                ws_st.write(row_st, 1, s.get("reference") or "", f_c)
+                # Reçu théorique (aucun bon de livraison saisi) : affiché en italique gris via ""
+                if recu is None:
+                    ws_st.write(row_st, 2, f"{recu_val:g} (théo.)", f_c)
+                else:
+                    ws_st.write(row_st, 2, recu_val, f_c)
+                ws_st.write(row_st, 3, pose, f_c)
+                ws_st.write(row_st, 4, restant, fmt_line)
+                ws_st.write(row_st, 5, rap, fmt_line)
+                tot_recu += recu_val
+                tot_pose += pose
+                tot_restant += restant
+                tot_rap += rap
+                row_st += 1
+            # Ligne TOTAL
+            ws_st.write(row_st, 0, "TOTAL", f_tot)
+            ws_st.write(row_st, 1, "", f_tot)
+            ws_st.write(row_st, 2, _r(tot_recu), f_tot)
+            ws_st.write(row_st, 3, _r(tot_pose), f_tot)
+            ws_st.write(row_st, 4, _r(tot_restant), f_tot)
+            ws_st.write(row_st, 5, _r(tot_rap), f_tot)
+
         # Feuille 3 : Écart phasage vs réel (EEG + Caméras)
         ecart_eeg = None
         ecart_cam = None
