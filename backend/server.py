@@ -16,6 +16,7 @@ import io
 import json
 import gzip
 import math
+import asyncio
 import logging
 import uuid
 import re
@@ -1228,6 +1229,19 @@ APP_BUILD_TAG = "clic-allee-fix-2026-02-13-v11"
 @api_router.get("/version")
 async def version():
     return {"build": APP_BUILD_TAG}
+
+
+@api_router.get("/health")
+async def health():
+    """Sonde de santé légère : vérifie que l'app répond ET que MongoDB est joignable.
+    Utilisée par Kubernetes / Cloudflare pour détecter un pod "silencieusement KO"
+    et le redémarrer automatiquement. Retour 200 = OK, 503 = MongoDB down."""
+    try:
+        # Ping très léger, timeout court : ne DOIT pas bloquer plus d'1s.
+        await asyncio.wait_for(db.command("ping"), timeout=1.5)
+        return {"status": "ok", "db": "ok", "build": APP_BUILD_TAG}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"db unreachable: {type(e).__name__}")
 
 
 @api_router.post("/auth/emergency-reseed-superadmin")

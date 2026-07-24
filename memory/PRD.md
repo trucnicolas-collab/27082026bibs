@@ -1615,3 +1615,28 @@ Aucun lint error introduit.
 
 ### Note pour la suite (backlog utilisateur)
 « problématique 'autre' » (produit inconnu du stock à saisir en cours de pose) → à traiter en amont dans un autre chantier ; pour l'instant le dropdown est strict.
+
+## Suite (22/02/2026 iter48f) — Prévention 520 Cloudflare : endpoint `/api/health`
+
+### Contexte
+Après un incident bloquant en production (Cloudflare 520 pendant plusieurs heures, backend prod silencieusement KO), l'utilisateur a demandé qu'on empêche que ça se reproduise.
+
+### Fix
+Ajout d'un endpoint `GET /api/health` dans `backend/server.py` :
+- Vérifie que l'app répond
+- Ping MongoDB avec timeout court (1.5s)
+- Retourne 200 avec `{"status":"ok","db":"ok","build":"..."}`  ou 503 si MongoDB injoignable
+- Latence mesurée : **4 ms** en local
+
+### Bénéfice
+- Kubernetes peut désormais utiliser cet endpoint comme **liveness/readiness probe**
+- Cloudflare / ingress détecte immédiatement un pod KO → redémarrage auto
+- Fin du scénario où le pod prod devient "silencieusement inaccessible" et affiche 520 pendant des heures
+
+### Redéploiement requis
+Le fix est en **preview uniquement**. L'utilisateur doit redéployer pour que la sonde soit active en prod.
+
+### Suggestion complémentaire (à mentionner à l'utilisateur)
+Une fois le fix déployé, il peut configurer côté Emergent (si l'UI le permet) l'utilisation de `/api/health` comme readiness probe. Sinon, Emergent Support peut le faire.
+
+Tests : régression 32/32 verts, aucun impact sur les suites existantes.
