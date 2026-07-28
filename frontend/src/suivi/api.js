@@ -83,16 +83,17 @@ export function makeActions(base, refresh, { readOnly = false, tokenParam = "" }
                 URL.revokeObjectURL(a.href);
             } catch { toast.error("Impossible de générer le rapport"); }
         },
-        uploadPhoto: async (uid, blob) => {
+        uploadPhoto: async (uid, blob, comment) => {
             if (readOnly) return denyRO();
             try {
                 const fd = new FormData();
                 fd.append("uid", uid);
                 fd.append("file", blob, "photo.jpg");
-                await axios.post(`${base}/allee-photo`, fd);
+                if (comment) fd.append("comment", comment);
+                const res = await axios.post(`${base}/allee-photo`, fd);
                 await refresh();
                 toast.success("Photo ajoutée");
-                return true;
+                return res.data?.photo || true;
             } catch (e) {
                 toast.error(e?.response?.data?.detail || "Envoi de la photo impossible");
                 return false;
@@ -105,6 +106,18 @@ export function makeActions(base, refresh, { readOnly = false, tokenParam = "" }
                 await axios.delete(`${base}/photo/${pid}`);
                 await refresh();
             } catch { toast.error("Suppression impossible"); }
+        },
+        patchPhotoComment: async (pid, comment) => {
+            if (readOnly) return denyRO();
+            try {
+                await axios.patch(`${base}/photo/${pid}`, { comment: comment || "" });
+                await refresh();
+                toast.success("Commentaire enregistré");
+                return true;
+            } catch (e) {
+                toast.error(e?.response?.data?.detail || "Impossible d'enregistrer le commentaire");
+                return false;
+            }
         },
         replan: async (apply) => {
             if (readOnly) return denyRO();

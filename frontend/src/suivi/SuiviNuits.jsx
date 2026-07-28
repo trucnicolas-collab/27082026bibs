@@ -474,6 +474,8 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
         toast.success(v === a.nuit_plan ? `Allée ${a.allee} → nuit planifiée ${a.nuit_plan}` : `Allée ${a.allee} déplacée en nuit ${v}`);
     };
 
+    const [pendingPhoto, setPendingPhoto] = React.useState(null); // (iter48h) {id, comment}
+
     const onPhotoPick = async (e) => {
         const file = e.target.files?.[0];
         e.target.value = "";
@@ -481,9 +483,20 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
         setUploading(true);
         try {
             const blob = await compressImage(file);
-            await actions.uploadPhoto(a.uid, blob);
+            const res = await actions.uploadPhoto(a.uid, blob);
+            // (iter48h) Après upload réussi, demande un commentaire optionnel
+            if (res && typeof res === "object" && res.id) {
+                setPendingPhoto({ id: res.id, comment: "" });
+            }
         } catch { toast.error("Photo illisible"); }
         finally { setUploading(false); }
+    };
+
+    const saveCommentPending = async () => {
+        if (!pendingPhoto) return;
+        const txt = (pendingPhoto.comment || "").trim();
+        if (txt) await actions.patchPhotoComment(pendingPhoto.id, txt);
+        setPendingPhoto(null);
     };
 
     return (
@@ -630,16 +643,33 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
             {/* Photos */}
             <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3" data-testid={`allee-photos-${a.uid}`}>
                 <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Photos</div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-start gap-2 flex-wrap">
                     {(a.photos || []).map((p) => (
-                        <div key={p.id} className="relative group">
-                            <img src={actions.photoUrl(p.id)} alt="" loading="lazy"
-                                onClick={() => setZoom(p.id)}
-                                className="w-16 h-16 object-cover rounded-lg border border-slate-700 cursor-zoom-in" />
-                            {!readOnly && (
-                                <button onClick={() => actions.delPhoto(p.id)} data-testid={`photo-del-${p.id}`}
-                                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <X className="w-3 h-3" />
+                        <div key={p.id} className="relative group flex flex-col gap-1 w-32" data-testid={`allee-photo-${p.id}`}>
+                            <div className="relative">
+                                <img src={actions.photoUrl(p.id)} alt="" loading="lazy"
+                                    onClick={() => setZoom(p.id)}
+                                    className="w-32 h-24 object-cover rounded-lg border border-slate-700 cursor-zoom-in" />
+                                {!readOnly && (
+                                    <button onClick={() => actions.delPhoto(p.id)} data-testid={`photo-del-${p.id}`}
+                                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                )}
+                            </div>
+                            {/* (iter48h) Commentaire attaché à la photo */}
+                            {readOnly ? (
+                                p.comment ? (
+                                    <div className="text-[10px] text-slate-300 leading-tight px-1 italic"
+                                        data-testid={`photo-comment-${p.id}`}>💬 {p.comment}</div>
+                                ) : null
+                            ) : (
+                                <button onClick={() => setPendingPhoto({ id: p.id, comment: p.comment || "" })}
+                                    data-testid={`photo-comment-edit-${p.id}`}
+                                    className="text-[10px] text-left px-1 py-0.5 rounded hover:bg-slate-800 leading-tight italic min-h-[16px]">
+                                    {p.comment
+                                        ? <span className="text-slate-300">💬 {p.comment}</span>
+                                        : <span className="text-slate-600">+ commentaire</span>}
                                 </button>
                             )}
                         </div>
@@ -648,7 +678,7 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                         <>
                             <button onClick={() => fileRef.current?.click()} disabled={uploading}
                                 data-testid={`allee-add-photo-${a.uid}`}
-                                className="w-16 h-16 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-blue-400 hover:border-blue-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
+                                className="w-32 h-24 rounded-lg border border-dashed border-slate-600 text-slate-500 hover:text-blue-400 hover:border-blue-600 flex flex-col items-center justify-center gap-0.5 transition-colors">
                                 {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                                 <span className="text-[9px]">Photo</span>
                             </button>
@@ -660,6 +690,45 @@ function AlleeScreen({ allee: a, state, actions, onBack }) {
                     )}
                 </div>
             </div>
+
+            {/* (iter48h) Dialog commentaire après upload / édition */}
+            {pendingPhoto && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+                    data-testid="photo-comment-dialog"
+                    onClick={() => setPendingPhoto(null)}>
+                    <div onClick={(e) => e.stopPropagation()}
+                        className="bg-slate-900 border border-slate-700 rounded-2xl p-5 w-full max-w-md space-y-3">
+                        <div className="flex items-start gap-3">
+                            <img src={actions.photoUrl(pendingPhoto.id)} alt=""
+                                className="w-24 h-24 object-cover rounded-lg border border-slate-700 flex-shrink-0" />
+                            <div className="flex-1">
+                                <div className="text-sm font-semibold text-slate-100">Ajoutez un commentaire</div>
+                                <div className="text-[11px] text-slate-500 mt-0.5">
+                                    Décrivez ce que montre la photo (défaut, contexte, remarque…). Facultatif.
+                                </div>
+                            </div>
+                        </div>
+                        <textarea autoFocus rows={3} maxLength={500}
+                            value={pendingPhoto.comment}
+                            onChange={(e) => setPendingPhoto((s) => ({ ...s, comment: e.target.value }))}
+                            data-testid="photo-comment-input"
+                            placeholder="Ex : Étagère abîmée, produit posé en biais, à revoir demain…"
+                            className="w-full rounded-lg bg-slate-950 border border-slate-700 text-sm text-slate-200 p-2.5 focus:border-blue-600 outline-none resize-none" />
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setPendingPhoto(null)}
+                                data-testid="photo-comment-skip"
+                                className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-sm transition-colors">
+                                Passer
+                            </button>
+                            <button onClick={saveCommentPending}
+                                data-testid="photo-comment-save"
+                                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-colors">
+                                Enregistrer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Écart > 5% détecté (avant validation) */}
             {justifProducts.length > 0 && a.status !== "validee" && (

@@ -554,6 +554,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             eff = int(nuit_reelle) if nuit_reelle else nuit_plan
             delta = {k: (None if reel[k] is None else _r(reel[k] - plan[k])) for k in FAMILY_KEYS}
             photos = [{"id": p.get("id"), "author": p.get("author") or "",
+                       "comment": p.get("comment") or "",
                        "created_at": p.get("created_at") or ""}
                       for p in (e.get("photos") or [])]
             # === Métriques Pose vs Géoloc (indépendantes) ===
@@ -1204,7 +1205,7 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         await db.suivi_docs.update_one({"upload_id": upload_id}, {"$set": {"allees": arr}})
         return uid
 
-    async def _add_photo(upload_id: str, doc: dict, uid: str, file: UploadFile, author: str):
+    async def _add_photo(upload_id: str, doc: dict, uid: str, file: UploadFile, author: str, comment: str = ""):
         data = await file.read()
         if not data:
             raise HTTPException(status_code=400, detail="Fichier vide")
@@ -1227,10 +1228,30 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             entry = {"uid": uid}
             arr.append(entry)
         photo = {"id": pid, "path": result.get("path") or path, "content_type": ct,
-                 "author": author, "created_at": datetime.now(timezone.utc).isoformat()}
+                 "author": author, "comment": (comment or "").strip()[:500],
+                 "created_at": datetime.now(timezone.utc).isoformat()}
         entry.setdefault("photos", []).append(photo)
         await db.suivi_docs.update_one({"upload_id": upload_id}, {"$set": {"allees": arr}})
-        return {"ok": True, "photo": {"id": pid, "author": author, "created_at": photo["created_at"]}}
+        return {"ok": True, "photo": {"id": pid, "author": author,
+                                      "comment": photo["comment"],
+                                      "created_at": photo["created_at"]}}
+
+    async def _update_photo_comment(upload_id: str, doc: dict, photo_id: str, comment: str):
+        """(iter48h) Met à jour le commentaire d'une photo existante."""
+        arr = doc.get("allees") or []
+        found = False
+        for e in arr:
+            for p in (e.get("photos") or []):
+                if p.get("id") == photo_id:
+                    p["comment"] = (comment or "").strip()[:500]
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            raise HTTPException(status_code=404, detail="Photo introuvable")
+        await db.suivi_docs.update_one({"upload_id": upload_id}, {"$set": {"allees": arr}})
+        return {"ok": True}
 
     def _find_photo(doc: dict, photo_id: str):
         for e in (doc.get("allees") or []):
@@ -1330,6 +1351,12 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         f_geo_bad = wb.add_format({"border": 1, "align": "center", "bg_color": C_DANGER_BG, "font_color": C_DANGER, "bold": True})
         f_tot = wb.add_format({"bold": True, "border": 2, "align": "center", "bg_color": "#E0E7FF", "font_color": C_BLUE})
         f_kpi_l = wb.add_format({"bold": True, "font_size": 11})
+        # (iter48h) Format « caption photo » : italique gris sous chaque miniature.
+        f_photo_caption = wb.add_format({
+            "font_size": 9, "italic": True, "font_color": "#475569",
+            "bg_color": "#F8FAFC", "align": "left", "valign": "vcenter",
+            "text_wrap": True, "border": 1, "border_color": "#E2E8F0",
+        })
         # KPI cards colorées
         f_kpi_card_label = wb.add_format({"font_size": 10, "font_color": "white", "bg_color": C_BLUE,
                                           "align": "center", "valign": "vcenter", "text_wrap": True,
@@ -1671,10 +1698,15 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     ws.merge_range(row, 2, row, 11, x["geoloc_comment"], f_cl)
                     row += 1
                 # Photos (grille 4 col, sous les commentaires de la même allée)
+                # (iter48h) Chaque photo peut avoir un commentaire, affiché
+                # juste sous la miniature dans la même colonne, en italique gris.
                 if photos and PIL_OK:
                     col_starts = [0, 3, 6, 9]
                     photo_h_max = 0
                     grid_start_row = row
+                    # Pour rattacher visuellement les commentaires aux photos,
+                    # on mémorise pour chaque colonne de cette ligne : (row, col, texte)
+                    pending_captions = []  # list[(caption_row, caption_col_start, caption_col_end, text)]
                     for i, p in enumerate(photos[:16]):  # max 16 photos par allée
                         try:
                             data, _ct = _get_object(p["path"])
@@ -1683,7 +1715,14 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                             scale = min(1.0, 200.0 / float(w))
                             ci = i % 4
                             if ci == 0 and i > 0:
-                                row = grid_start_row + photo_h_max
+                                # Ligne pleine terminée : écrire les captions de la ligne
+                                caption_row = grid_start_row + photo_h_max
+                                for (cs, ce, ptxt) in pending_captions:
+                                    ws.merge_range(caption_row, cs, caption_row, ce, ptxt, f_photo_caption)
+                                pending_captions = []
+                                row = caption_row + (1 if any(True for _ in pending_captions) or True else 0)
+                                # Bump si les captions ont été écrites (row = caption_row si aucune, sinon +1)
+                                row = caption_row + 1
                                 photo_h_max = 0
                                 grid_start_row = row
                             ws.insert_image(grid_start_row, col_starts[ci], f"{p['id']}.jpg",
@@ -1692,10 +1731,22 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                                              "x_offset": 4, "y_offset": 4})
                             rows_needed = int((h * scale) / 20) + 2
                             photo_h_max = max(photo_h_max, rows_needed)
+                            # Prépare le caption sous la photo (col_starts[ci] .. +2)
+                            cap_txt = (p.get("comment") or "").strip()
+                            if cap_txt:
+                                pending_captions.append(
+                                    (col_starts[ci], col_starts[ci] + 2,
+                                     f"💬 {cap_txt}"))
                         except Exception as pe:
                             logger.warning(f"Photo embed failed ({p.get('id')}): {pe}")
                             continue
-                    row = grid_start_row + photo_h_max
+                    # Écrit la dernière rangée de captions (si présentes)
+                    caption_row = grid_start_row + photo_h_max
+                    row = caption_row
+                    if pending_captions:
+                        for (cs, ce, ptxt) in pending_captions:
+                            ws.merge_range(caption_row, cs, caption_row, ce, ptxt, f_photo_caption)
+                        row = caption_row + 1
                 # Séparateur entre allées
                 row += 1
             row += 1
@@ -3096,10 +3147,19 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
 
     @router.post("/{upload_id}/allee-photo")
     async def add_allee_photo(upload_id: str, uid: str = Form(...), file: UploadFile = File(...),
+                              comment: str = Form(""),
                               current_user: dict = Depends(get_current_user)):
         await _load(upload_id, current_user)
         doc = await _get_doc(upload_id, str(current_user["_id"]))
-        return await _add_photo(upload_id, doc, uid, file, current_user.get("email") or "")
+        return await _add_photo(upload_id, doc, uid, file, current_user.get("email") or "", comment)
+
+    @router.patch("/{upload_id}/photo/{photo_id}")
+    async def patch_allee_photo(upload_id: str, photo_id: str,
+                                payload: dict,
+                                current_user: dict = Depends(get_current_user)):
+        await _load(upload_id, current_user)
+        doc = await _get_doc(upload_id, str(current_user["_id"]))
+        return await _update_photo_comment(upload_id, doc, photo_id, payload.get("comment") or "")
 
     @router.get("/{upload_id}/photo/{photo_id}")
     async def get_allee_photo(upload_id: str, photo_id: str,
@@ -3446,9 +3506,15 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         return {"ok": True}
 
     @terrain.post("/{upload_id}/allee-photo")
-    async def terrain_add_photo(upload_id: str, uid: str = Form(...), file: UploadFile = File(...)):
+    async def terrain_add_photo(upload_id: str, uid: str = Form(...), file: UploadFile = File(...),
+                                comment: str = Form("")):
         d, doc = await _resolve_terrain(upload_id)
-        return await _add_photo(doc["upload_id"], doc, uid, file, "équipe terrain")
+        return await _add_photo(doc["upload_id"], doc, uid, file, "équipe terrain", comment)
+
+    @terrain.patch("/{upload_id}/photo/{photo_id}")
+    async def terrain_patch_photo(upload_id: str, photo_id: str, payload: dict):
+        d, doc = await _resolve_terrain(upload_id)
+        return await _update_photo_comment(doc["upload_id"], doc, photo_id, payload.get("comment") or "")
 
     @terrain.get("/{upload_id}/photo/{photo_id}")
     async def terrain_get_photo(upload_id: str, photo_id: str):

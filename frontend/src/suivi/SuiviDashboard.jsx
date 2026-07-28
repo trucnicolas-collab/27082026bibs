@@ -451,13 +451,22 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
                                     </div>
                                     <div className="grid grid-cols-4 gap-1.5">
                                         {a.photos.map((p) => (
-                                            <button key={p.id} onClick={() => setZoomPhoto(p.id)}
-                                                data-testid={`night-summary-photo-${p.id}`}
-                                                className="aspect-square rounded overflow-hidden bg-slate-900 border border-slate-700 hover:border-sky-500 transition-colors">
-                                                <img src={actions?.photoUrl(p.id)} alt=""
-                                                    loading="lazy"
-                                                    className="w-full h-full object-cover" />
-                                            </button>
+                                            <div key={p.id} className="flex flex-col gap-0.5">
+                                                <button onClick={() => setZoomPhoto(p.id)}
+                                                    data-testid={`night-summary-photo-${p.id}`}
+                                                    className="aspect-square rounded overflow-hidden bg-slate-900 border border-slate-700 hover:border-sky-500 transition-colors">
+                                                    <img src={actions?.photoUrl(p.id)} alt=""
+                                                        loading="lazy"
+                                                        className="w-full h-full object-cover" />
+                                                </button>
+                                                {p.comment && (
+                                                    <div className="text-[9px] leading-tight text-slate-300 italic line-clamp-2"
+                                                        title={p.comment}
+                                                        data-testid={`night-summary-photo-comment-${p.id}`}>
+                                                        💬 {p.comment}
+                                                    </div>
+                                                )}
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
@@ -499,16 +508,31 @@ function NightSummaryModal({ night, state, onClose, goTab, actions }) {
                         );
                     })}
                 </div>
-                {zoomPhoto && (
-                    <div className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4"
+                {zoomPhoto && (() => {
+                    // (iter48h) Retrouve la photo zoomée pour afficher son commentaire
+                    let zp = null;
+                    for (const aa of alleesAvecPhoto) {
+                        const found = (aa.photos || []).find((x) => x.id === zoomPhoto);
+                        if (found) { zp = found; break; }
+                    }
+                    return (
+                    <div className="fixed inset-0 z-[60] bg-black/95 flex flex-col items-center justify-center p-4 gap-3"
                         data-testid="night-summary-photo-zoom" onClick={() => setZoomPhoto(null)}>
-                        <img src={actions?.photoUrl(zoomPhoto)} alt="" className="max-w-full max-h-full rounded-xl" />
+                        <img src={actions?.photoUrl(zoomPhoto)} alt="" className="max-w-full max-h-[80vh] rounded-xl" />
+                        {zp?.comment && (
+                            <div className="max-w-2xl px-4 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-sm text-slate-200 text-center italic"
+                                data-testid="night-summary-photo-zoom-comment"
+                                onClick={(e) => e.stopPropagation()}>
+                                💬 {zp.comment}
+                            </div>
+                        )}
                         <button onClick={() => setZoomPhoto(null)}
                             className="absolute top-3 right-3 p-2 rounded-lg bg-black/50 hover:bg-black/80 text-white">
                             <X className="w-5 h-5" />
                         </button>
                     </div>
-                )}
+                    );
+                })()}
                 <button onClick={() => { onClose(); goTab && goTab("nuits"); }} data-testid="night-summary-open"
                     className="w-full h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center justify-center gap-2 transition-colors">
                     Ouvrir la nuit <ArrowRight className="w-4 h-4" />

@@ -1686,3 +1686,44 @@ Aucun test cassé — le bonus rail auto historique produit exactement les même
 - Il peut cocher `posé/non-posé` indépendamment (utile si les étiquettes arrivent séparément)
 - Le stock global reste inchangé : `ES 1.5 noir` inclut standard + signalétique (même SKU)
 - Les allées **déjà validées** avant ce changement sont **automatiquement rétro-compatibles** (fallback)
+
+## Suite (28/02/2026 iter48h) — Commentaire attaché à chaque photo
+
+### Demande utilisateur (verbatim)
+> « quand je prends une photo dans l'outils de suivi, tu dois demander si je veux rajouter un commentaire. Du coup il faudra adapter le board et l'export excel pour que le commentaire soit visuellement bien ratacher à la photo »
+
+### Backend `suivi_deploy.py`
+1. **Structure photo** : ajout du champ `comment: str` (max 500 caractères, tronqué côté serveur)
+2. **`_add_photo`** : accepte un form field `comment` optionnel lors de l'upload
+3. **`_update_photo_comment`** : nouveau helper pour éditer un commentaire post-upload
+4. **State exposition** : `state.allees[].photos[].comment` désormais présent
+5. **Nouveaux endpoints** :
+   - `PATCH /api/suivi/{upload_id}/photo/{photo_id}` (admin)
+   - `PATCH /api/suivi-terrain/{upload_id}/photo/{photo_id}` (équipe terrain)
+6. **Export Excel** — Résumé N{n} : chaque miniature photo a désormais une **caption** juste dessous (italique gris, format `f_photo_caption`, préfixée `💬`), rattachant visuellement le commentaire à sa photo
+
+### Frontend
+1. **`api.js`** :
+   - `uploadPhoto(uid, blob, comment)` propage le commentaire dans le FormData ; retourne l'objet photo (avec id)
+   - `patchPhotoComment(pid, comment)` — nouveau
+2. **`SuiviNuits.jsx`** :
+   - Après upload réussi, **dialog modal auto** demandant « Ajoutez un commentaire » (miniature + textarea 3 lignes + boutons "Passer" / "Enregistrer")
+   - Miniatures photos élargies (16×16 → 32×24 px) pour laisser la place à un caption sous chaque photo
+   - Bouton « + commentaire » cliquable sous chaque photo existante pour ajouter/éditer a posteriori
+3. **`SuiviDashboard.jsx`** (Board) :
+   - Sous chaque miniature de la grille photos, ligne italique `💬 <comment>` (line-clamp-2) avec tooltip title pour le texte complet
+   - Zoom modal : commentaire complet affiché sous la photo dans un carré arrondi
+
+### Tests créés
+`backend/tests/test_iter48h_photo_comment.py` — 5 cas, 5/5 verts :
+1. Upload photo avec `comment` → photo persistée avec le commentaire
+2. Upload sans comment + PATCH → commentaire édité avec succès
+3. PATCH photo inexistante → 404
+4. Commentaire > 500 chars → tronqué à 500
+5. Excel `Résumé N{n}` contient bien le texte du commentaire préfixé par `💬` (caption sous la photo)
+
+### Validation visuelle
+Smoke test Playwright (screenshot preview) : dialog modal apparaît après upload avec miniature + textarea autofocus + boutons Passer/Enregistrer. Toast "Photo ajoutée" visible.
+
+### Régression
+Suites iter31 + iter42 + iter44 + iter45 + iter47 + iter48e + iter48g + iter48h : **42 passed, 7 skipped, 0 échec**.
