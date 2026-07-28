@@ -171,6 +171,33 @@ def _rail_bonus_qty(desig: str, qty: float) -> float:
     return 0.0
 
 
+# (iter48g) Table (pattern → couleur) des rails qui génèrent un bonus ES 1.5
+# signalétique. Aligné sur `RAILS_BONUS_ES15` de server.py mais spécifie la
+# couleur pour créer la ligne « ES 1.5 signalétique (noir|blanc) » côté allée.
+_RAILS_BONUS_COLORS_MODULE = [
+    ("1187 mm (noir)", "noir"), ("1187 mm (blanc)", "blanc"),
+    ("1240 mm (noir)", "noir"), ("1320 mm (blanc)", "blanc"),
+    ("1320 mm (noir)", "noir"), ("535 mm (noir)", "noir"),
+    ("650 mm (noir)", "noir"), ("990 mm (blanc)", "blanc"),
+    ("990 mm (noir)", "noir"),
+]
+
+
+def _rail_color(desig: str) -> Optional[str]:
+    """Retourne 'noir' | 'blanc' | None selon si la désignation matche un rail
+    connu de la table bonus."""
+    dl = (desig or "").lower()
+    for pat, col in _RAILS_BONUS_COLORS_MODULE:
+        if pat in dl:
+            return col
+    return None
+
+
+def _signaletique_desig(color: str) -> str:
+    """Désignation canonique pour la ligne allée « ES 1.5 signalétique (couleur) »."""
+    return f"ES 1.5 signalétique ({color})"
+
+
 def _eeg_sum(vals: dict) -> float:
     return sum(float(vals.get(k) or 0) for k in EEG_KEYS)
 
@@ -434,6 +461,20 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             geo_fam = {k: None for k in GEO_KEYS}
             gap_fam = {k: 0.0 for k in GEO_KEYS}
             has_reel = False
+            # (iter48g) Pré-scan des rails posés par couleur : sert de fallback
+            # pour la ligne « ES 1.5 signalétique (couleur) » quand le poseur
+            # n'a pas encore saisi explicitement la signalétique (retro-compat
+            # avec l'ancien bonus rail auto : rail posé = signalétique posée).
+            _rails_posed_by_color = {"noir": None, "blanc": None}
+            for _dg in mat["totals"].keys():
+                _col = _rail_color(_dg)
+                if not _col:
+                    continue
+                _pr = (pentries.get(_dg) or {}).get("reel")
+                if _pr is None:
+                    continue
+                _rails_posed_by_color[_col] = _r(
+                    (_rails_posed_by_color[_col] or 0) + float(_pr))
             for desig in sorted(mat["totals"].keys(), key=lambda s: s.lower()):
                 pplan = _r(mat["totals"][desig])
                 typ = (mat.get("types") or {}).get(desig) or ""
@@ -462,17 +503,24 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 pgeo = pe.get("geo")
                 preel = None if preel is None else _r(preel)
                 pgeo = None if pgeo is None else _r(pgeo)
+                # (iter48g) Fallback signalétique : si le poseur n'a pas encore
+                # saisi la ligne « ES 1.5 signalétique (couleur) », on prend la
+                # quantité de rails posés de même couleur (retro-compat).
+                _signal_col = None
+                if desig.startswith("ES 1.5 signalétique ("):
+                    _signal_col = "noir" if "noir" in desig else (
+                        "blanc" if "blanc" in desig else None)
+                if _signal_col and preel is None:
+                    preel = _rails_posed_by_color.get(_signal_col)
                 if preel is not None:
                     has_reel = True
                     if fam:
                         reel_fam[fam] = _r((reel_fam[fam] or 0) + preel)
-                    # (iter35) Bonus rail → ES 1.5 : si le produit posé est un rail
-                    # de RAILS_BONUS_ES15, on incrémente automatiquement es_15 du
-                    # même montant, pour être cohérent avec la logique Phasage
-                    # qui compte "1 rail = +1 ES 1.5" dans le prévu.
-                    bonus = _rail_bonus_qty(desig, preel) if fam == "rails_es" else 0.0
-                    if bonus > 0:
-                        reel_fam["es_15"] = _r((reel_fam["es_15"] or 0) + bonus)
+                    # (iter48g) Le bonus rail auto est SUPPRIMÉ : la
+                    # signalétique est désormais une ligne allée dédiée
+                    # (« ES 1.5 signalétique (couleur) ») avec son propre
+                    # reel. Elle contribue naturellement à reel_fam["es_15"]
+                    # via le for-loop ci-dessus.
                 if pgeo is not None and is_geo:
                     geo_fam[fam] = _r((geo_fam[fam] or 0) + pgeo)
                 pgap = 0
@@ -794,16 +842,25 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         for dg in fleche_desigs:
             _merge_into(dg, target_es15_noir)
 
-        # 3) Signalétique NON-rail → ES 1.5 (couleur).
+        # 3) Signalétique → ES 1.5 (couleur).
         # (iter41) Les Rails ES (family=="rails_es") restent VISIBLES comme lignes
         # distinctes dans le stock — l'équipe terrain gère la livraison des rails
-        # séparément de celle des étiquettes ES 1.5. Une signalétique non-rail
-        # (rare) matcherait ici pour être absorbée.
+        # séparément de celle des étiquettes ES 1.5.
+        # (iter48g) Les lignes « ES 1.5 signalétique (noir|blanc) » injectées par
+        # `_materiel_par_allee` sont fusionnées ici avec ES 1.5 standard de même
+        # couleur — MÊME SKU physique (choix utilisateur Q2d).
         signal_by_color = {"noir": [], "blanc": []}
         for dg in list(prod_agg.keys()):
             fam_dg = (prod_agg[dg] or {}).get("family")
             if fam_dg == "rails_es":
                 continue  # on garde les rails ES en ligne distincte
+            # (iter48g) Nouvelle ligne dédiée « ES 1.5 signalétique (couleur) »
+            if dg.startswith("ES 1.5 signalétique ("):
+                if "noir" in dg:
+                    signal_by_color["noir"].append(dg)
+                elif "blanc" in dg:
+                    signal_by_color["blanc"].append(dg)
+                continue
             col = _signaletique_color(dg)
             if col:
                 signal_by_color[col].append(dg)
@@ -814,45 +871,13 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             for dg in desigs:
                 _merge_into(dg, target)
 
-        # 4) Bonus rails → ES 1.5 (couleur) SANS retirer les rails du stock.
-        # (iter42) Reprend EXACTEMENT la règle de l'outil de phasage (voir
-        # server.compute_phasage_summary lignes 2718-2736 + PhasageTab.jsx :
-        # `es_15_bonus_noir/blanc`). Source de vérité : tout produit dont le
-        # type est "Rail" ET dont la désignation matche RAILS_BONUS_ES15 ajoute
-        # sa quantité à l'ES 1.5 de sa couleur. Le rail reste visible sur sa
-        # propre ligne — pas de fusion. Ces deux produits physiques distincts
-        # sont livrés séparément : le rail + l'étiquette ES 1.5 posée dessus.
-        # NB : ce périmètre inclut "1187 mm (blanc)" (dans RAILS_BONUS_ES15 mais
-        # PAS dans RAILS_ES_PATTERNS) — comme dans le recap commande.
-        rail_bonus_by_color = {
-            "noir": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
-            "blanc": {"prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0},
-        }
-        for dg, g in prod_agg.items():
-            typ_g = ((g or {}).get("type") or "").strip().lower()
-            fam_g = (g or {}).get("family")
-            # Aligné phasage : rail = (type=="rail") OU family=="rails_es"
-            if typ_g != "rail" and fam_g != "rails_es":
-                continue
-            col = _signaletique_color(dg)  # utilise _RAILS_BONUS_COLORS
-            if col not in rail_bonus_by_color:
-                continue
-            rail_bonus_by_color[col]["prevu"] += float(g.get("prevu") or 0)
-            rail_bonus_by_color[col]["pose"] += float(g.get("pose") or 0)
-            rail_bonus_by_color[col]["restant_a_poser"] += float(g.get("restant_a_poser") or 0)
-        for col, bonus in rail_bonus_by_color.items():
-            if bonus["prevu"] <= 0 and bonus["pose"] <= 0:
-                continue
-            target = _find_target("es 1.5", color=col) or f"ES 1.5 ({col})"
-            tgt = prod_agg.get(target)
-            if tgt is None:
-                tgt = {"designation": target, "type": "", "family": "es_15",
-                       "reference": refs_by_desig.get(target) or "",
-                       "prevu": 0.0, "pose": 0.0, "restant_a_poser": 0.0}
-                prod_agg[target] = tgt
-            tgt["prevu"] += bonus["prevu"]
-            tgt["pose"] += bonus["pose"]
-            tgt["restant_a_poser"] += bonus["restant_a_poser"]
+        # 4) [iter48g] Bonus rails auto SUPPRIMÉ.
+        # Auparavant (iter42), chaque rail ajoutait automatiquement +1 ES 1.5
+        # (couleur) au stock. Désormais la ligne « ES 1.5 signalétique (couleur) »
+        # est explicite dans les products par allée (voir _materiel_par_allee),
+        # et sa contribution s'agrège naturellement dans prod_agg via le loop
+        # principal L654-664. La fusion avec ES 1.5 standard se fait en étape 3.
+        # Cela évite le double comptage tout en préservant la traçabilité.
 
         # 5) Bonus flèches fixe → ES 1.5 (noir) prévu uniquement.
         # (iter42) Correspond à server.FLECHE_FIXED_ES15_NOIR (=600) : réserve
@@ -2449,6 +2474,34 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     node["refs"][desig] = ref_v
             enode = node["elements"].setdefault(elem_key, {})
             enode[desig] = enode.get(desig, 0.0) + qty
+        # (iter48g) Pour chaque allée, injecte une ligne synthétique
+        # « ES 1.5 signalétique (noir/blanc) » égale au nombre total de rails
+        # correspondants dans l'allée. Cette ligne rend la signalétique
+        # POSABLE INDIVIDUELLEMENT côté suivi (dissociée de la pose du rail).
+        # SKU (référence) hérité de « ES 1.5 (couleur) » présente dans l'allée
+        # ou dans le magasin (même produit physique).
+        for _uid, node in idx.items():
+            rails_by_color = {"noir": 0.0, "blanc": 0.0}
+            for dg, q in list(node["totals"].items()):
+                col = _rail_color(dg)
+                if col and q > 0:
+                    rails_by_color[col] += float(q)
+            for col, qty_tot in rails_by_color.items():
+                if qty_tot <= 0:
+                    continue
+                new_desig = _signaletique_desig(col)
+                # Évite d'écraser une saisie manuelle éventuelle
+                if new_desig in node["totals"]:
+                    continue
+                node["totals"][new_desig] = qty_tot
+                node["types"][new_desig] = "EEG"
+                # SKU = ES 1.5 de même couleur trouvé dans l'allée (fallback vide)
+                for candidate in (f"ES 1.5 ({col})", f"ES 1.5 {col}"):
+                    if candidate in (node["refs"] or {}):
+                        node["refs"][new_desig] = node["refs"][candidate]
+                        break
+                # Élément (pour affichage) : agrégé sous une clé dédiée
+                node["elements"].setdefault("(signalétique rails)", {})[new_desig] = qty_tot
         return idx
 
     def _products_list(totals: dict, refs: dict = None) -> list:

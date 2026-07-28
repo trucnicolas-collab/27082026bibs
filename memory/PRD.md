@@ -1640,3 +1640,49 @@ Le fix est en **preview uniquement**. L'utilisateur doit redéployer pour que la
 Une fois le fix déployé, il peut configurer côté Emergent (si l'UI le permet) l'utilisation de `/api/health` comme readiness probe. Sinon, Emergent Support peut le faire.
 
 Tests : régression 32/32 verts, aucun impact sur les suites existantes.
+
+## Suite (22/02/2026 iter48g) — ES 1.5 signalétique visibles par allée dans le suivi
+
+### Demande utilisateur (verbatim)
+> « Dans l'outils de phasage nous avons rajouté les ES 1.5 de la signalétique (une 1.5 par rails avec differentiation des couleures) que je ne retrouve pas dans l'outils de suivi. il me les faut pour pouvoir dire que c'est posé ou non et donc les decompter du stock »
+
+### Choix utilisateur (confirmés)
+- **Q1a** : ligne DISTINCTE dans la saisie allée (dissociée du rail — utile si la signalétique arrive séparément du rail)
+- **Q2d** : MÊME SKU que ES 1.5 standard (fusion au niveau stock global)
+
+### Implémentation `backend/suivi_deploy.py`
+
+1. **Nouveau helper module** `_rail_color(desig)` + `_signaletique_desig(color)` : détecte la couleur d'un rail (noir/blanc) et construit la désignation canonique `"ES 1.5 signalétique (couleur)"`.
+
+2. **`_materiel_par_allee`** : après le loop principal, pour chaque allée :
+   - Compte les rails par couleur (via `_RAILS_BONUS_COLORS_MODULE`)
+   - Injecte 2 lignes synthétiques : `"ES 1.5 signalétique (noir|blanc)"` avec `plan = total_rails_couleur`
+   - `types["ES 1.5 signalétique (X)"] = "EEG"` → `classify_family` retourne `es_15`
+   - Référence produit (SKU) héritée de `ES 1.5 (couleur)` de l'allée
+
+3. **`_build_state`** — bonus rail auto **SUPPRIMÉ** :
+   - Pré-scan des rails posés par couleur pour le **fallback** rétro-compat
+   - Si `preel` de la ligne signalétique est `None` **ET** des rails de même couleur ont été posés → `preel = rails_posed` (comportement identique à l'ancien bonus auto)
+   - Si le poseur saisit explicitement la signalétique → sa valeur prévaut (pas d'addition avec le rail — évite le double comptage)
+
+4. **`_normalize_stock`** — étape 3 étendue :
+   - La ligne `ES 1.5 signalétique (couleur)` est fusionnée avec `ES 1.5 (couleur)` du stock global (même SKU)
+   - Étape 4 (bonus rail auto au niveau stock) **SUPPRIMÉE** : elle est maintenant redondante puisque la contribution vient des products des allées via l'agrégation naturelle
+
+### Tests créés
+`backend/tests/test_iter48g_signaletique_allee.py` — 5 cas, 5/5 verts :
+1. Ligne `ES 1.5 signalétique (noir)` apparaît dans les products d'une allée avec rails noirs, avec `family=es_15`
+2. Rétro-compat : rail posé sans saisie signalétique → signalétique comptée comme posée (fallback)
+3. Anti-double-comptage : saisie explicite signalétique prévaut (pas 5+3=8, mais 3)
+4. Stock global : aucune ligne `ES 1.5 signalétique` séparée (fusion réussie avec `ES 1.5 noir`)
+5. Onglet Excel Stock : idem, pas de ligne orpheline signalétique
+
+### Régression
+Suites iter31 + iter42 + iter44 + iter45 + iter47 + iter48e + iter48g : **37 passed, 7 skipped, 0 échec**.
+Aucun test cassé — le bonus rail auto historique produit exactement les mêmes totaux via le nouveau mécanisme.
+
+### Impact utilisateur
+- Le poseur voit désormais **2 lignes** dans les allées avec rails : `990 mm (noir)` et `ES 1.5 signalétique (noir)`
+- Il peut cocher `posé/non-posé` indépendamment (utile si les étiquettes arrivent séparément)
+- Le stock global reste inchangé : `ES 1.5 noir` inclut standard + signalétique (même SKU)
+- Les allées **déjà validées** avant ce changement sont **automatiquement rétro-compatibles** (fallback)
