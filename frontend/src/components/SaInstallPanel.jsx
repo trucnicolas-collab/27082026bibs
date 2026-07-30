@@ -348,8 +348,7 @@ export default function SaInstallPanel({ uploadId, breakdown, seasonalZones, ini
                             className="w-4 h-4 accent-amber-600"
                             data-testid="sa-seasonal-all"
                         />
-                        <span className="text-sm font-semibold text-gray-800">Zone(s) saisonnière(s) — posée(s) par la VT</span>
-                        <span className="text-[11px] text-gray-500">Décochez pour laisser le magasin poser</span>
+                        <span className="text-sm font-semibold text-gray-800">Zone saisonnière : décochez ce que le magasin doit poser</span>
                     </label>
                     <div className="pl-6 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {seasonalZones.map((z) => {
