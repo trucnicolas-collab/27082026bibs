@@ -5731,6 +5731,10 @@ class SaInstallConfig(BaseModel):
     selection: dict = {}
     # True une fois que l'utilisateur a répondu Oui/Non à l'écran d'intro Phasage
     answered: bool = False
+    # (iter48i) Config Zones Saisonnières (ZS1/ZS2/…) :
+    #   { "all": bool, "zones": { "ZS1": {"sa_15": bool, "sa_21": bool}, ... } }
+    # Absence → tout à True (retro-compat).
+    seasonal: dict = {}
 
 
 @api_router.patch("/dataset/{upload_id}/sa-install")
@@ -5842,12 +5846,22 @@ def compute_node_sa_install(node: dict, cfg: dict) -> dict:
     res = {"sa_15": 0.0, "sa_21": 0.0, "freezer": 0.0, "sa_42": 0.0}
     if not node:
         return res
-    # (v27) Zones Saisonnières : SA TOUJOURS installées par la VT
-    # (avant : posées par le magasin). Chaque ZS = 400 SA 1.5 + 1600 SA 2.1.
+    # (v27) Zones Saisonnières : SA installées par la VT (400 SA 1.5 + 1600 SA 2.1
+    # par zone). (iter48i) La zone entière ET/OU chaque type (SA 1.5, SA 2.1) peut
+    # être décoché via cfg.seasonal. Absence de config = tout à True (retro-compat).
     if node.get("is_seasonal"):
+        zone_id = str(node.get("uid") or node.get("allee") or "")
+        seasonal_cfg = (cfg or {}).get("seasonal") or {}
+        zones_cfg = seasonal_cfg.get("zones") or {}
+        all_flag = seasonal_cfg.get("all", True)
+        z_cfg = zones_cfg.get(zone_id) or {}
+        # Défauts par zone : True si case globale cochée, False si décochée
+        default_take = bool(all_flag)
+        take_15 = bool(z_cfg.get("sa_15", default_take))
+        take_21 = bool(z_cfg.get("sa_21", default_take))
         return {
-            "sa_15": float(node.get("sa_15") or 0),
-            "sa_21": float(node.get("sa_21_std") or node.get("sa_21") or 0),
+            "sa_15": float(node.get("sa_15") or 0) if take_15 else 0.0,
+            "sa_21": (float(node.get("sa_21_std") or node.get("sa_21") or 0)) if take_21 else 0.0,
             "freezer": 0.0, "sa_42": 0.0,
         }
     if not cfg or not cfg.get("enabled"):

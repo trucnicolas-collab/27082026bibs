@@ -472,6 +472,7 @@ export default function PhasageTab({ uploadId }) {
                     mode="intro"
                     uploadId={uploadId}
                     breakdown={summary?.sa_breakdown}
+                    seasonalZones={seasonalZones}
                     initialConfig={saInstall}
                     onSaved={(cfg) => setSaInstall(cfg)}
                     onContinue={(cfg) => { setSaInstall(cfg); setIntroDone(true); recomputeNightsForSaInstall(cfg); }}

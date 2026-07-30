@@ -1727,3 +1727,44 @@ Smoke test Playwright (screenshot preview) : dialog modal apparaît après uploa
 
 ### Régression
 Suites iter31 + iter42 + iter44 + iter45 + iter47 + iter48e + iter48g + iter48h : **42 passed, 7 skipped, 0 échec**.
+
+## Suite (30/02/2026 iter48i) — Désélection Zones Saisonnières dans « Étiquettes SA à poser »
+
+### Demande utilisateur
+> « dans l'outils de phasage au moment de la sélection de Etiquettes SA à poser, il faut que la zone saisonniere puisse etre deselectionnée »
+
+**Choix confirmé** : case globale « Zone(s) saisonnière(s) » OUI/NON + par zone (ZS1/ZS2/ZS3), sous-cases indépendantes **SA 1.5** et **SA 2.1**.
+
+### Backend `server.py`
+- `SaInstallConfig` : nouveau champ `seasonal: dict` (défaut `{}` = tout à True, retro-compat)
+- `compute_node_sa_install` : quand `node.is_seasonal`, consulte `cfg.seasonal` :
+  - `seasonal.all` (défaut True) = case globale
+  - `seasonal.zones[zoneId].sa_15` / `.sa_21` (bool) = override par zone × type
+  - Défaut retro-compat = comportement historique (ZS entière posée par VT)
+
+### Frontend
+- `SaInstallPanel.jsx` :
+  - Nouveau prop `seasonalZones` (liste `[{id, sa_15, sa_21, ...}]`)
+  - `cfg.seasonal` initialisé avec `{all: true, zones: {}}` (retro-compat)
+  - Nouveau bloc UI en haut du panneau : case globale amber + grille (2 colonnes sm+) de sous-cases par zone × 2 types, avec `indeterminate` sur la case globale quand seules certaines zones/types sont cochés
+  - Helpers `zoneTake`, `setZoneField`, `setAllZones` pour la logique
+  - Miroir JS `computeNodeSaInstall` mis à jour identique au backend
+- `PhasageTab.jsx` : passe `seasonalZones={seasonalZones}` au panneau (déjà disponible dans `summary.seasonal_zones`)
+
+### Tests
+`backend/tests/test_iter48i_seasonal_deselect.py` — 6 cas, 6/6 verts :
+1. Rétro-compat : aucune config → toutes ZS posées
+2. all=False → aucune SA ZS posée
+3. Désactivation d'une seule zone (ZS2)
+4. Désactivation d'un seul type (SA 1.5) sur ZS1, SA 2.1 gardée
+5. all=False + override partiel (ZS1 SA 1.5 remise à True)
+6. La config seasonal n'affecte PAS les nodes non-saisonniers
+
+### Validation visuelle
+Smoke test Playwright (screenshot preview `/dataset/…` → Phasage → « EEG SA à poser ») :
+- Bloc amber « Zone(s) saisonnière(s) — posée(s) par la VT » visible
+- 3 zones ZS1/ZS2/ZS3, chacune avec SA 1.5 (400) et SA 2.1 (1 600) cochables séparément
+- Toutes cochées par défaut (retro-compat)
+
+### Régression
+48/48 verts (iter31/42/44/45/47/48e/48g/48h/48i).

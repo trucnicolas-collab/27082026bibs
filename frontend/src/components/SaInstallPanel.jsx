@@ -43,11 +43,21 @@ export function computeSaToInstall(breakdown, cfg) {
 export function computeNodeSaInstall(node, cfg) {
     const res = { sa_15: 0, sa_21: 0, freezer: 0, sa_42: 0 };
     if (!node) return res;
-    // (v27) Zones Saisonnières = SA TOUJOURS installées par la VT (400 SA 1.5 + 1600 SA 2.1)
+    // (v27+iter48i) Zones Saisonnières = SA installées par la VT (400 SA 1.5 + 1600 SA 2.1).
+    // Chaque zone (ZS1/ZS2/ZS3) ET/OU chaque type (SA 1.5, SA 2.1) peut être
+    // décoché individuellement via cfg.seasonal. Absence de config = retro-compat (tout coché).
     if (node.is_seasonal) {
+        const zoneId = String(node.uid || node.allee || "");
+        const seasonalCfg = cfg?.seasonal || {};
+        const zonesCfg = seasonalCfg.zones || {};
+        const allFlag = seasonalCfg.all !== false; // default true
+        const zCfg = zonesCfg[zoneId] || {};
+        const defaultTake = allFlag;
+        const take15 = zCfg.sa_15 != null ? Boolean(zCfg.sa_15) : defaultTake;
+        const take21 = zCfg.sa_21 != null ? Boolean(zCfg.sa_21) : defaultTake;
         return {
-            sa_15: node.sa_15 || 0,
-            sa_21: node.sa_21_std != null ? node.sa_21_std : (node.sa_21 || 0),
+            sa_15: take15 ? (node.sa_15 || 0) : 0,
+            sa_21: take21 ? (node.sa_21_std != null ? node.sa_21_std : (node.sa_21 || 0)) : 0,
             freezer: 0, sa_42: 0,
         };
     }
@@ -222,7 +232,7 @@ function CascadeSelect({ breakdown, field, selected, onChange }) {
     );
 }
 
-export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onSaved, mode = "inline", onContinue }) {
+export default function SaInstallPanel({ uploadId, breakdown, seasonalZones, initialConfig, onSaved, mode = "inline", onContinue }) {
     const isIntro = mode === "intro";
     const [cfg, setCfg] = useState(() => {
         const ic = initialConfig || {};
@@ -230,6 +240,12 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
             enabled: false, toutes: false, sa_15: false, sa_21: false, freezer: false, sa_42: false, answered: false,
             ...ic,
             selection: { sa_15: [], sa_21: [], ...(ic.selection || {}) },
+            // (iter48i) Config zones saisonnières — défaut = tout coché (retro-compat)
+            seasonal: {
+                all: true,
+                zones: {},
+                ...(ic.seasonal || {}),
+            },
         };
     });
     const [saving, setSaving] = useState(false);
@@ -292,9 +308,77 @@ export default function SaInstallPanel({ uploadId, breakdown, initialConfig, onS
         }
     }, [cfg, uploadId, onSaved, onContinue]);
 
+    // (iter48i) Helpers pour la config des zones saisonnières
+    const zoneCfgFor = (zid) => (cfg.seasonal?.zones || {})[zid] || {};
+    const zoneTake = (zid, field) => {
+        const z = zoneCfgFor(zid);
+        if (z[field] != null) return Boolean(z[field]);
+        return cfg.seasonal?.all !== false;
+    };
+    const setZoneField = (zid, field, val) => {
+        setCfg((p) => {
+            const zones = { ...(p.seasonal?.zones || {}) };
+            zones[zid] = { ...(zones[zid] || {}), [field]: val };
+            return { ...p, seasonal: { ...(p.seasonal || {}), zones } };
+        });
+    };
+    const setAllZones = (checked) => {
+        // Case globale : reset zones (utilise all=checked comme défaut partout)
+        setCfg((p) => ({ ...p, seasonal: { all: checked, zones: {} } }));
+    };
+    const seasonalAllOn = !seasonalZones || seasonalZones.length === 0
+        ? true
+        : seasonalZones.every((z) => zoneTake(z.id, "sa_15") && zoneTake(z.id, "sa_21"));
+    const seasonalAllOff = seasonalZones && seasonalZones.length > 0
+        && seasonalZones.every((z) => !zoneTake(z.id, "sa_15") && !zoneTake(z.id, "sa_21"));
+    const seasonalSome = !seasonalAllOn && !seasonalAllOff;
+
     // ── Contenu commun (question Oui/Non + sélection) ──────────────────────
     const questionBlock = (
         <div className={isIntro ? "space-y-4" : "px-4 pb-3 space-y-3"}>
+            {/* (iter48i) Bloc Zones Saisonnières — toujours visible avant la question */}
+            {seasonalZones && seasonalZones.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2" data-testid="sa-seasonal-block">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={seasonalAllOn}
+                            ref={(el) => { if (el) el.indeterminate = seasonalSome; }}
+                            onChange={(e) => setAllZones(e.target.checked)}
+                            className="w-4 h-4 accent-amber-600"
+                            data-testid="sa-seasonal-all"
+                        />
+                        <span className="text-sm font-semibold text-gray-800">Zone(s) saisonnière(s) — posée(s) par la VT</span>
+                        <span className="text-[11px] text-gray-500">Décochez pour laisser le magasin poser</span>
+                    </label>
+                    <div className="pl-6 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {seasonalZones.map((z) => {
+                            const t15 = zoneTake(z.id, "sa_15");
+                            const t21 = zoneTake(z.id, "sa_21");
+                            return (
+                                <div key={z.id} className="flex items-center gap-3 text-[12px] text-gray-700 bg-white/70 rounded px-2 py-1 border border-amber-100" data-testid={`sa-seasonal-zone-${z.id}`}>
+                                    <span className="font-semibold text-gray-800 w-14">{z.id}</span>
+                                    <label className="flex items-center gap-1 cursor-pointer">
+                                        <input type="checkbox" checked={t15}
+                                            onChange={(e) => setZoneField(z.id, "sa_15", e.target.checked)}
+                                            className="w-3.5 h-3.5 accent-amber-600"
+                                            data-testid={`sa-seasonal-zone-${z.id}-15`} />
+                                        SA 1.5 <span className="text-gray-400">({fmt(z.sa_15 || 0)})</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 cursor-pointer">
+                                        <input type="checkbox" checked={t21}
+                                            onChange={(e) => setZoneField(z.id, "sa_21", e.target.checked)}
+                                            className="w-3.5 h-3.5 accent-amber-600"
+                                            data-testid={`sa-seasonal-zone-${z.id}-21`} />
+                                        SA 2.1 <span className="text-gray-400">({fmt(z.sa_21 || 0)})</span>
+                                    </label>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             <div className="flex items-center gap-4 flex-wrap">
                 <span className={isIntro ? "text-base font-medium text-gray-800" : "text-sm text-gray-700"}>
                     Devez-vous installer des EEG SA autres que celles de la zone saisonnière ?
