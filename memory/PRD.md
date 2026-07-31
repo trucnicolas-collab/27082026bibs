@@ -1803,3 +1803,34 @@ Bug identique dans 4 fichiers utilisant `nightPositionInWeek` + `WEEK_COLORS[(po
 
 ### Régression
 Suites iter31 + iter42 + iter44 + iter45 + iter47 + iter48e + iter48g + iter48h + iter48i + iter48j : **54/54 verts, 0 échec**.
+
+## Suite (31/02/2026 iter48k) — Correction règle couleurs : POSITION dans la semaine
+
+### Précision utilisateur
+> « des semaines de travails peuvent ne comporter que 2 nuits. on travails normalement 4 nuits par semaine 1ere nuit de la semaine bleu 2eme jaune etc... Mais si travails que 2 nuits dans une semaine ca fait bleu jaune semaine suivante on repasse a bleu jaune rose verts »
+
+### Correction
+La règle correcte n'était PAS un cycle absolu sur le n° de nuit mais bien la **position dans la semaine** (comme avant iter48j). Le vrai bug initial était juste que la palette avait `#DBEAFE` dupliqué en position 3 au lieu de `#DCFCE7` (vert).
+
+- **Backend** `pptx_export.py` : `_color_for_night(n, weeks)` remis à `pos_in_week(n, weeks)`
+- **Frontend** (4 fichiers) : `nightColor(n, weeks)` remis à `nightPositionInWeek(n, weeks)`
+- Palette 4 couleurs distinctes conservée : `["#DBEAFE", "#FEF3C7", "#FECACA", "#DCFCE7"]`
+
+### Comportement validé
+Exemple `weeks=[4, 4, 4, 2]` (14 nuits) :
+- Semaine 1 : N1 bleu, N2 jaune, N3 rose, N4 vert
+- Semaine 2 : N5 bleu, N6 jaune, N7 rose, N8 vert
+- Semaine 3 : N9 bleu, N10 jaune, N11 rose, N12 vert
+- Semaine 4 (partielle) : N13 bleu, N14 jaune
+
+Exemple `weeks=[2, 4]` :
+- Semaine 1 (2 nuits) : N1 bleu, N2 jaune
+- Semaine 2 : N3 bleu, N4 jaune, N5 rose, N6 vert
+
+**Aucune paire consécutive identique** (fin de semaine finit sur jaune/rose/vert, semaine suivante commence par bleu).
+
+### Tests
+`test_iter48j_pptx_logistique_nightcolors.py` mis à jour → 6/6 verts avec nouveaux cas :
+- `test_no_two_consecutive_nights_share_color_with_normal_weeks` (semaines de 4)
+- `test_partial_week_restarts_at_blue` (weeks=[2,4] redémarre à bleu)
+- `test_color_position_based` (1ère nuit d'une semaine = bleu)

@@ -88,9 +88,12 @@ const NIGHT_COLORS = [
 ];
 function nightColor(n, weeks) {
     if (!n) return null;
-    // (iter48j) Cycle strict sur n° absolu de nuit — évite les paires
-    // bleu-bleu au changement de semaine (weeks reste utile ailleurs).
-    return WEEK_COLORS[(n - 1) % WEEK_COLORS.length];
+    // (iter48k) Couleur = position dans la semaine (règle métier utilisateur).
+    // 1ère nuit = bleu, 2e = jaune, 3e = rose, 4e = vert. Semaine suivante
+    // recommence à bleu (même si la semaine précédente ne faisait que 2 nuits).
+    const pos = nightPositionInWeek(n, weeks);
+    if (!pos) return null;
+    return WEEK_COLORS[(pos - 1) % WEEK_COLORS.length];
 }
 
 export default function PhasageTab({ uploadId }) {

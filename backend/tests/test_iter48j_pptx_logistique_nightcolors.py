@@ -31,29 +31,39 @@ def test_week_colors_hex_are_all_distinct():
     assert len(WEEK_COLORS_HEX) == 4
 
 
-def test_no_two_consecutive_nights_share_color():
-    """Cycle strict, aucune paire consécutive de la même couleur."""
+def test_no_two_consecutive_nights_share_color_with_normal_weeks():
+    """Semaines normales de 4 nuits : la palette 4 couleurs distinctes garantit
+    qu'aucune paire consécutive n'a la même couleur, y compris au changement
+    de semaine (vert → bleu)."""
+    weeks = [4, 4, 4, 4]
     prev = None
-    for n in range(1, 25):  # test 24 nuits (6 semaines de 4)
-        c = _color_for_night(n, [4, 4, 4, 4, 4, 4])
+    for n in range(1, 17):
+        c = _color_for_night(n, weeks)
         if prev is not None:
             assert c != prev, f"Nuit {n-1} et Nuit {n} même couleur : {c}"
         prev = c
 
 
-def test_color_cycle_deterministic():
-    """N1=bleu, N2=jaune, N3=rose, N4=vert, N5=bleu (cycle continu)."""
-    assert _color_for_night(1, []) == "#DBEAFE"  # bleu
-    assert _color_for_night(2, []) == "#FEF3C7"  # jaune
-    assert _color_for_night(3, []) == "#FECACA"  # rose
-    assert _color_for_night(4, []) == "#DCFCE7"  # vert
-    assert _color_for_night(5, []) == "#DBEAFE"  # bleu (cycle)
+def test_partial_week_restarts_at_blue():
+    """Règle métier utilisateur : après une semaine partielle (2 nuits), la
+    semaine suivante recommence à bleu. Exemple weeks=[2, 4] :
+      N1 bleu, N2 jaune | N3 bleu, N4 jaune, N5 rose, N6 vert
+    """
+    assert _color_for_night(1, [2, 4]) == "#DBEAFE"  # bleu
+    assert _color_for_night(2, [2, 4]) == "#FEF3C7"  # jaune
+    assert _color_for_night(3, [2, 4]) == "#DBEAFE"  # bleu (redémarre)
+    assert _color_for_night(4, [2, 4]) == "#FEF3C7"  # jaune
+    assert _color_for_night(5, [2, 4]) == "#FECACA"  # rose
+    assert _color_for_night(6, [2, 4]) == "#DCFCE7"  # vert
 
 
-def test_color_independent_of_weeks_split():
-    """La couleur d'une nuit ne dépend PAS du découpage `weeks`."""
-    assert _color_for_night(5, [4, 4]) == _color_for_night(5, [3, 3, 3])
-    assert _color_for_night(5, None) == _color_for_night(5, [10])
+def test_color_position_based():
+    """Toujours 1ère nuit d'une semaine = bleu (règle utilisateur)."""
+    # Semaine unique de 4 nuits : bleu / jaune / rose / vert
+    assert _color_for_night(1, [4]) == "#DBEAFE"
+    assert _color_for_night(2, [4]) == "#FEF3C7"
+    assert _color_for_night(3, [4]) == "#FECACA"
+    assert _color_for_night(4, [4]) == "#DCFCE7"
 
 
 # ─── B. Insertion du slide « Accès et logistique » ───────────────────────────

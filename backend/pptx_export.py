@@ -63,11 +63,17 @@ def _pos_in_week(nuit: int, weeks: list | None) -> int:
 
 
 def _color_for_night(n: int, weeks: list | None) -> str:
-    # (iter48j) Cycle strict sur n° absolu de nuit → aucune 2 nuits consécutives
-    # de la même couleur, indépendamment du découpage en semaines.
+    # (iter48k) La couleur reflète la POSITION dans la semaine (règle métier
+    # utilisateur) : 1ère nuit d'une semaine = bleu, 2e = jaune, 3e = rose,
+    # 4e = vert. Une semaine peut n'avoir que 2 ou 3 nuits — dans ce cas la
+    # semaine suivante recommence à bleu. La palette a été corrigée
+    # (position 3 était bleu au lieu de vert, ce qui produisait bleu-bleu).
     if not n:
         return WHITE
-    return WEEK_COLORS_HEX[(int(n) - 1) % len(WEEK_COLORS_HEX)]
+    pos = _pos_in_week(n, weeks)
+    if not pos:
+        return WHITE
+    return WEEK_COLORS_HEX[(pos - 1) % len(WEEK_COLORS_HEX)]
 
 
 def _set_cell_text(cell, value, *, bold=False, italic=False, align="center", size=None, color=None, fill_rgb=None):
