@@ -30,8 +30,8 @@ function nightPositionInWeek(nuit, weeks) {
 }
 function nightColor(n, weeks) {
     if (!n) return null;
-    const pos = nightPositionInWeek(n, weeks);
-    return pos ? WEEK_COLORS[(pos - 1) % WEEK_COLORS.length] : null;
+    // (iter48j) Cycle strict sur n° absolu de nuit (aucune 2 nuits consécutives identiques)
+    return WEEK_COLORS[(n - 1) % WEEK_COLORS.length];
 }
 
 export default function SuiviPhasageTab({ uploadId }) {

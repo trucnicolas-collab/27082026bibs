@@ -27,15 +27,22 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
 from lxml import etree
+import logging
+
+logger = logging.getLogger(__name__)
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "cr_vt_template.pptx"
+LOGISTIQUE_SLIDE_PATH = Path(__file__).parent / "templates" / "slide_logistique.pptx"
 
 # Marqueur de version pour debug deploy — incrémenter à chaque changement majeur.
 # Visible dans le header HTTP `X-PPTX-Version` de la réponse d'export.
-__PPTX_VERSION__ = "2026-07-10-v25-strict-11cols"
+__PPTX_VERSION__ = "2026-07-31-v27-logistique+nightcolors"
 
 # Palette par position dans la semaine (alignée Excel)
-WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#DBEAFE"]
+# (iter48j) Cycle de 4 couleurs distinctes appliqué au n° absolu de la nuit
+# (bleu → jaune → rose → vert → bleu → …). Avant : DBEAFE était en position 0
+# ET position 3, ce qui produisait des paires bleu-bleu au changement de semaine.
+WEEK_COLORS_HEX = ["#DBEAFE", "#FEF3C7", "#FECACA", "#DCFCE7"]
 WHITE = "#FFFFFF"
 HEADER_BG = "#1F2937"
 SUBHEADER_BG = "#F3F4F6"
@@ -56,12 +63,11 @@ def _pos_in_week(nuit: int, weeks: list | None) -> int:
 
 
 def _color_for_night(n: int, weeks: list | None) -> str:
+    # (iter48j) Cycle strict sur n° absolu de nuit → aucune 2 nuits consécutives
+    # de la même couleur, indépendamment du découpage en semaines.
     if not n:
         return WHITE
-    pos = _pos_in_week(n, weeks)
-    if not pos:
-        return WHITE
-    return WEEK_COLORS_HEX[(pos - 1) % len(WEEK_COLORS_HEX)]
+    return WEEK_COLORS_HEX[(int(n) - 1) % len(WEEK_COLORS_HEX)]
 
 
 def _set_cell_text(cell, value, *, bold=False, italic=False, align="center", size=None, color=None, fill_rgb=None):
@@ -1237,6 +1243,55 @@ def _remove_wifi_slides(prs) -> None:
 
 
 # ===================================================================
+# (iter48j) Clonage du slide "Accès et logistique" fourni par l'utilisateur
+# ===================================================================
+def _insert_logistique_slide(prs, after_idx: int) -> bool:
+    """Insère le slide unique du fichier `slide_logistique.pptx` dans `prs`
+    juste après l'index `after_idx` (0-indexé). Copie shapes + relations
+    (images / hyperliens). Retourne True si inséré, False sinon.
+
+    NB : ne re-crée pas les slide layouts — utilise le layout blank du template
+    principal, l'apparence peut légèrement différer (bordure du tableau ok).
+    """
+    if not LOGISTIQUE_SLIDE_PATH.exists():
+        logger.warning("Slide logistique introuvable : %s", LOGISTIQUE_SLIDE_PATH)
+        return False
+    try:
+        from copy import deepcopy
+        src = Presentation(str(LOGISTIQUE_SLIDE_PATH))
+        if not src.slides:
+            return False
+        src_slide = src.slides[0]
+        # Nouveau slide vide dans la destination avec layout blank
+        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[-1]
+        new_slide = prs.slides.add_slide(blank_layout)
+        # Retire les placeholders du blank layout pour éviter les doublons
+        for sh in list(new_slide.shapes):
+            sh._element.getparent().remove(sh._element)
+        # Copie chaque shape XML du slide source (titre, table, textbox…)
+        spTree = new_slide.shapes._spTree
+        for shape in src_slide.shapes:
+            spTree.append(deepcopy(shape._element))
+        # Copie les relations (images, hyperliens, tableaux stylés)
+        for rel in list(src_slide.part.rels.values()):
+            if "notesSlide" in rel.reltype:
+                continue
+            if rel.is_external:
+                new_slide.part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
+            else:
+                new_slide.part.rels.get_or_add(rel.reltype, rel.target_part)
+        # Déplace le slide juste après after_idx (add_slide l'a mis à la fin)
+        sldIdLst = prs.slides._sldIdLst
+        new_id = sldIdLst[-1]
+        sldIdLst.remove(new_id)
+        sldIdLst.insert(after_idx + 1, new_id)
+        return True
+    except Exception as e:
+        logger.warning("Impossible d'insérer le slide logistique : %s", e)
+        return False
+
+
+# ===================================================================
 # Public entry point
 # ===================================================================
 def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None = None,
@@ -1338,6 +1393,10 @@ def build_pptx(d: dict, *, aggregate_fn, recap_rows: list, summary: dict | None 
         _compact_layout(prs)
     except Exception:
         pass
+    # (iter48j) Insertion du slide "Accès et logistique" APRÈS remplissage des
+    # autres, pour ne pas décaler les indices utilisés ci-dessus. Position finale
+    # attendue : slide 7 (index 6), juste après « Informations Magasin ».
+    _insert_logistique_slide(prs, after_idx=5)
     # Sauvegarde en bytes
     buf = BytesIO()
     prs.save(buf)

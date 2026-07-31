@@ -1768,3 +1768,38 @@ Smoke test Playwright (screenshot preview `/dataset/…` → Phasage → « EEG 
 
 ### Régression
 48/48 verts (iter31/42/44/45/47/48e/48g/48h/48i).
+
+## Suite (31/02/2026 iter48j) — PPTX : slide « Accès et logistique » + couleurs nuits
+
+### Bugs signalés
+1. **Slide manquant** : l'export PPTX ne contenait plus le slide « Accès et logistique » (supprimé lors du passage au template 20 slides).
+2. **Couleurs nuits identiques 2 jours de suite** : palette `["#DBEAFE","#FEF3C7","#FECACA","#DBEAFE"]` avec **DBEAFE dupliqué** en position 0 ET 3 → bleu-bleu au changement de semaine (Nuit 4-5, 8-9, 12-13).
+
+### Fix — `pptx_export.py`
+- **Palette 4 couleurs distinctes** : `["#DBEAFE" (bleu), "#FEF3C7" (jaune), "#FECACA" (rose), "#DCFCE7" (vert)]`
+- `_color_for_night(n)` : cycle strict sur `(n - 1) % 4`, **indépendant** du découpage par semaine → aucune 2 nuits consécutives de la même couleur, quelle que soit la longueur des semaines.
+- Nouveau helper `_insert_logistique_slide(prs, after_idx=5)` : clone shapes + relations depuis `templates/slide_logistique.pptx` (fichier user), insère en position 7 (après « Informations Magasin »).
+- Insertion **après remplissage** des 20 slides existants pour ne pas décaler les indices 7/10/11/12-15/16-19 utilisés par `_fill_slide_*`.
+- Version bumpée : `__PPTX_VERSION__ = "2026-07-31-v27-logistique+nightcolors"`.
+- Ressource : `/app/backend/templates/slide_logistique.pptx` (fourni par l'utilisateur, 11.8 MB, table + textes + numéro de diapo).
+
+### Fix — Frontend
+Bug identique dans 4 fichiers utilisant `nightPositionInWeek` + `WEEK_COLORS[(pos-1) % 4]` → 4 nuits par semaine + fin/début de semaine peuvent tomber sur la même couleur. Remplacé par **cycle absolu** `WEEK_COLORS[(n - 1) % 4]` :
+- `PhasageTab.jsx`
+- `PhasageFullTab.jsx`
+- `SuiviPhasageTab.jsx`
+- `TableauDateTab.jsx`
+
+(PhasageCamTab.jsx utilisait déjà le cycle absolu, aucun changement.)
+
+### Tests
+`backend/tests/test_iter48j_pptx_logistique_nightcolors.py` — 6/6 verts :
+1. Palette WEEK_COLORS_HEX contient 4 couleurs **toutes distinctes**
+2. Cycle sur 24 nuits (6 semaines × 4) → aucune paire consécutive identique
+3. N1=bleu, N2=jaune, N3=rose, N4=vert, N5=bleu
+4. Couleur d'une nuit indépendante du découpage `weeks`
+5. Fichier ressource `slide_logistique.pptx` présent
+6. Après insertion, slide « Accès et logistique » en position 7 du PPTX final
+
+### Régression
+Suites iter31 + iter42 + iter44 + iter45 + iter47 + iter48e + iter48g + iter48h + iter48i + iter48j : **54/54 verts, 0 échec**.
