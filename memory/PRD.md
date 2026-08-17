@@ -1834,3 +1834,25 @@ Exemple `weeks=[2, 4]` :
 - `test_no_two_consecutive_nights_share_color_with_normal_weeks` (semaines de 4)
 - `test_partial_week_restarts_at_blue` (weeks=[2,4] redémarre à bleu)
 - `test_color_position_based` (1ère nuit d'une semaine = bleu)
+
+## Suite (17/03/2026 iter48l) — Propagation de la désélection ZS dans le phasage
+
+### Bug signalé
+> « Quand je deselectionne les EEG de la zone saisonniere, elles apparaisent quand meme dans la page suivante et rentre dans les differents calculs... des que je desolectionne une case que ce soit dans la zone saisonniere ou ailleurs elles ne doivent pas apparaitre apres. »
+
+L'iter48i avait ajouté les cases de désélection dans le panneau « EEG SA à poser » MAIS le reste de PhasageTab.jsx n'appliquait pas cette config : ZS décochées apparaissaient toujours dans le dropdown allée et rentraient dans le Total EEG.
+
+### Fix `PhasageTab.jsx`
+- **`alleeIndex`** : lecture de `saInstall.seasonal` ; ZS **entièrement décochée** (sa_15=false ET sa_21=false) → **skip** (n'entre pas dans le map) ; ZS **partiellement** décochée → sa_15/sa_21 correspondants forcés à 0
+- **`alleeOptions`** : ZS entièrement décochées **exclues** du dropdown
+- **Nouveau calcul** `seasonalDeselectedTotal` = somme des SA (1.5 + 2.1) des ZS décochées ; **soustrait de** `sa21Saisonnier` avant calcul du Total EEG
+- Helper `effectiveZone(z)` : retourne les SA effectivement à installer pour une zone selon la config
+
+### Vérification visuelle (screenshot preview)
+Avec ZS3 décochée entièrement (SA 1.5=false, SA 2.1=false) :
+- Dropdown allée : **2 zones listées** (ZS1, ZS2) — ZS3 disparue ✅
+- Total EEG : **4 235** (au lieu de ~6 235) — -2 000 correspondant aux SA de ZS3 ✅
+- Total SA (info) : **100** (au lieu de 2 100) ✅
+
+### Tests
+Régression sur iter48i (compute_node_sa_install) + iter48j : 12/12 verts, comportement backend inchangé. Fix purement frontend.

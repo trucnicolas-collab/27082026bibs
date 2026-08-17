@@ -213,45 +213,55 @@ export default function PhasageTab({ uploadId }) {
     const alleeIndex = useMemo(() => {
         if (!summary) return {};
         const map = {};
-        // Clé = uid composite (allée + secteur + rayon) pour conserver les doublons.
-        // Fallback sur String(allee) si uid absent (ancien backend).
         summary.allees.forEach((a) => { map[String(a.uid || a.allee)] = a; });
-        // Ajoute les zones saisonnières (clé = ID, ex: "ZS1")
+        // Ajoute les zones saisonnières (clé = ID, ex: "ZS1") — filtrage selon
+        // saInstall.seasonal : ZS totalement décochée = skip. Partielle = 0 sur le type décoché.
+        const sCfg = saInstall?.seasonal || {};
+        const allOn = sCfg.all !== false;
         (summary.seasonal_zones || []).forEach((z) => {
-            const sa15 = Number(z.sa_15) || 0;
-            const sa21 = Number(z.sa_21) || 0;
-            const eegZ = Number(z.eeg) || (sa15 + sa21);
+            const zCfg = (sCfg.zones || {})[z.id] || {};
+            const take15 = zCfg.sa_15 != null ? Boolean(zCfg.sa_15) : allOn;
+            const take21 = zCfg.sa_21 != null ? Boolean(zCfg.sa_21) : allOn;
+            if (!take15 && !take21) return; // (iter48l) Zone entièrement décochée
+            const sa15 = take15 ? (Number(z.sa_15) || 0) : 0;
+            const sa21Raw = Number(z.sa_21) || 0;
+            const eegZraw = Number(z.eeg) || (sa15 + sa21Raw);
             // Rétrocompat : ZS sans split explicite → tout dans SA 2.1
-            const finalSa15 = sa15;
-            const finalSa21 = sa21 || (sa15 === 0 ? eegZ : 0);
+            const sa21Effective = take21 ? (sa21Raw || (sa15 === 0 && take15 ? 0 : (Number(z.sa_15) === 0 ? eegZraw : sa21Raw))) : 0;
             map[z.id] = {
                 uid: z.id,
                 allee: z.id,
                 label: z.label,
-                // (v27) ZS n'est plus de l'ES : es_15/es_21 = 0
                 es_15: 0,
                 es_21: 0,
-                // Répartition SA 1.5 + SA 2.1 (posées par la VT)
-                sa: finalSa15 + finalSa21,
-                sa_15: finalSa15,
-                sa_21: finalSa21,
-                sa_21_std: finalSa21,
+                sa: sa15 + sa21Effective,
+                sa_15: sa15,
+                sa_21: sa21Effective,
+                sa_21_std: sa21Effective,
                 rails_es: 0,
                 cameras: 0,
                 is_seasonal: true,
-                seasonal_eeg: eegZ,
+                seasonal_eeg: sa15 + sa21Effective,
             };
         });
         return map;
-    }, [summary]);
+    }, [summary, saInstall]);
 
     // Liste triée des allées dispo + zones saisonnières en fin de liste
+    // (iter48l) Les ZS entièrement décochées sont filtrées
     const alleeOptions = useMemo(() => {
         if (!summary) return [];
         const list = summary.allees.map((a) => String(a.uid || a.allee));
-        (summary.seasonal_zones || []).forEach((z) => list.push(z.id));
+        const sCfg = saInstall?.seasonal || {};
+        const allOn = sCfg.all !== false;
+        (summary.seasonal_zones || []).forEach((z) => {
+            const zCfg = (sCfg.zones || {})[z.id] || {};
+            const take15 = zCfg.sa_15 != null ? Boolean(zCfg.sa_15) : allOn;
+            const take21 = zCfg.sa_21 != null ? Boolean(zCfg.sa_21) : allOn;
+            if (take15 || take21) list.push(z.id);
+        });
         return list;
-    }, [summary]);
+    }, [summary, saInstall]);
 
     const seasonalZones = summary?.seasonal_zones || [];
 
@@ -434,10 +444,32 @@ export default function PhasageTab({ uploadId }) {
     // (elle vaudrait toujours 0 → inutile).
     const hideSaMagasin = !!(saInstall?.enabled && saInstall?.toutes);
 
+    // (iter48l) Helper : une ZS est-elle EFFECTIVEMENT à installer, selon
+    // la config `saInstall.seasonal` ? Retourne { sa_15, sa_21 } (0 si décoché).
+    const effectiveZone = (z) => {
+        const sCfg = saInstall?.seasonal || {};
+        const allOn = sCfg.all !== false;
+        const zCfg = (sCfg.zones || {})[z.id] || {};
+        const take15 = zCfg.sa_15 != null ? Boolean(zCfg.sa_15) : allOn;
+        const take21 = zCfg.sa_21 != null ? Boolean(zCfg.sa_21) : allOn;
+        return {
+            sa_15: take15 ? (Number(z.sa_15) || 0) : 0,
+            sa_21: take21 ? (Number(z.sa_21) || 0) : 0,
+        };
+    };
+    // (iter48l) Total des SA de ZS DÉSÉLECTIONNÉES → à soustraire du total EEG.
+    // Calcul inline (pas useMemo car après le early return de summary).
+    let seasonalDeselectedTotal = 0;
+    for (const z of (summary?.seasonal_zones || [])) {
+        const eff = effectiveZone(z);
+        const full = (Number(z.sa_15) || 0) + (Number(z.sa_21) || 0);
+        seasonalDeselectedTotal += full - eff.sa_15 - eff.sa_21;
+    }
+
     // SA 2.1 saisonnier (vient de la catégorie surface du magasin)
     // → désormais sélectionnable explicitement via les "Zones saisonnières"
     //   dans le dropdown des allées (pas de répartition prorata automatique).
-    const sa21Saisonnier = summary?.sa_21_saisonnier || 0;
+    const sa21Saisonnier = Math.max(0, (summary?.sa_21_saisonnier || 0) - seasonalDeselectedTotal);
     const totalESBrut = (totals.es_15 || 0) + (totals.es_21 || 0);
     // Bonus rails → ES 1.5
     //  - Magasin 1 : ajouté automatiquement par allée dans l'EEG
