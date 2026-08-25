@@ -91,3 +91,25 @@ def test_insertion_slide_in_correct_position():
                         texts.append(r.text)
     joined = " ".join(texts)
     assert "Accès et logistique" in joined, joined
+
+
+def test_insertion_does_not_corrupt_zip_no_duplicates():
+    """(iter48m) Le PPTX final ne doit contenir AUCUN nom de fichier dupliqué
+    dans le ZIP — sinon PowerPoint refuse d'ouvrir avec le message
+    « PowerPoint a détecté un problème dans le contenu ». Ce test protège
+    contre la régression où on clonait aussi slideMasters + slideLayouts."""
+    import io, warnings, zipfile
+    prs = Presentation(str(TEMPLATE_PATH))
+    _insert_logistique_slide(prs, after_idx=5)
+    buf = io.BytesIO()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        prs.save(buf)
+        dupes = [str(x.message) for x in caught if "Duplicate name" in str(x.message)]
+    assert not dupes, f"Noms dupliqués dans le ZIP : {dupes[:5]}"
+    # ZIP intègre + réouvrable
+    buf.seek(0)
+    assert zipfile.ZipFile(buf).testzip() is None
+    buf.seek(0)
+    prs2 = Presentation(buf)
+    assert len(prs2.slides) == 21

@@ -1856,3 +1856,40 @@ Avec ZS3 décochée entièrement (SA 1.5=false, SA 2.1=false) :
 
 ### Tests
 Régression sur iter48i (compute_node_sa_install) + iter48j : 12/12 verts, comportement backend inchangé. Fix purement frontend.
+
+## Suite (17/03/2026 iter48m) — Fix PPTX corrompu après insertion slide logistique
+
+### Bug signalé
+> « message d'erreur lorsque l'on veut ouvrir le power point crée : PowerPoint a détecté un probléme dans le contenu de Export... »
+
+### Cause racine identifiée
+Mon iter48j clonait TOUTES les relations du slide source (`_insert_logistique_slide`) — y compris celles vers `slideMaster1.xml`, `slideLayout13.xml` etc. Résultat : le ZIP final contenait des **noms de fichiers dupliqués** (`ppt/slideMasters/slideMaster1.xml` présent 2 fois, etc.) → PowerPoint refuse d'ouvrir.
+
+Preuve reproduite : 15+ warnings `Duplicate name` lors du `prs.save()`, taille du fichier +12 MB inutiles (51 MB au lieu de 39 MB).
+
+### Fix `pptx_export.py`
+Whitelist des reltypes clonables (`SAFE_RELTYPES`) :
+- ✅ image
+- ✅ hyperlink
+- ✅ chart
+
+Tout le reste (slideMaster, slideLayout, notesSlide…) est **ignoré** — le nouveau slide utilise le blank layout du template principal.
+
+Réécriture des références `r:embed`, `r:link`, `r:id` dans le XML copié pour pointer vers les nouveaux rId du slide destination (car les rId changent lors de `relate_to`).
+
+### Test régression ajouté
+`test_insertion_does_not_corrupt_zip_no_duplicates` — vérifie :
+1. Aucun warning `Duplicate name` lors du save
+2. ZIP intègre (`testzip() is None`)
+3. Le PPTX est **réouvrable** par python-pptx (21 slides)
+
+Ce test aurait attrapé l'iter48j dès le premier passage.
+
+### Résultat vérifié
+- 0 duplicate warning (contre 15+ avant)
+- Taille : 39 MB (contre 51 MB avant)
+- Slide 7 « Accès et logistique » toujours présent avec ses textes
+- Régression totale iter48j : **7/7 verts**
+
+### À faire côté toi
+Redéploie et régénère un PPTX — il doit s'ouvrir dans PowerPoint sans le message d'erreur.

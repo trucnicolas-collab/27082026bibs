@@ -1278,14 +1278,33 @@ def _insert_logistique_slide(prs, after_idx: int) -> bool:
         spTree = new_slide.shapes._spTree
         for shape in src_slide.shapes:
             spTree.append(deepcopy(shape._element))
-        # Copie les relations (images, hyperliens, tableaux stylés)
-        for rel in list(src_slide.part.rels.values()):
-            if "notesSlide" in rel.reltype:
+        # Copie les relations UTILES uniquement (images, hyperliens) — surtout
+        # PAS les slideLayout ni slideMaster, sinon on obtient des fichiers ZIP
+        # dupliqués (slideMaster1.xml, slideLayout13.xml, image14.jpeg…) qui
+        # cassent l'ouverture PowerPoint. (iter48m)
+        SAFE_RELTYPES = (
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+        )
+        old_rid_to_new = {}
+        for old_rid, rel in list(src_slide.part.rels.items()):
+            if rel.reltype not in SAFE_RELTYPES:
                 continue
             if rel.is_external:
-                new_slide.part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
+                new_rel = new_slide.part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
             else:
-                new_slide.part.rels.get_or_add(rel.reltype, rel.target_part)
+                new_rel = new_slide.part.relate_to(rel.target_part, rel.reltype)
+            old_rid_to_new[old_rid] = new_rel
+        # Réécrit les références r:embed / r:link / r:id dans le XML copié pour
+        # pointer vers les nouveaux rId (ceux du slide destination).
+        if old_rid_to_new:
+            R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+            for attr in ("embed", "link", "id"):
+                for el in spTree.iter():
+                    v = el.get(R_NS + attr)
+                    if v and v in old_rid_to_new:
+                        el.set(R_NS + attr, old_rid_to_new[v])
         # Déplace le slide juste après after_idx (add_slide l'a mis à la fin)
         sldIdLst = prs.slides._sldIdLst
         new_id = sldIdLst[-1]
