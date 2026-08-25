@@ -1893,3 +1893,21 @@ Ce test aurait attrapé l'iter48j dès le premier passage.
 
 ### À faire côté toi
 Redéploie et régénère un PPTX — il doit s'ouvrir dans PowerPoint sans le message d'erreur.
+
+## Suite (17/03/2026 iter48n) — Fix fond slide « Accès et logistique »
+
+### Bug
+Le slide 7 « Accès et logistique » (iter48j) affichait un **fond noir avec étoile jaune** au lieu du fond crème clair des slides adjacents (« Informations Magasin », « Plan wifi magasin »).
+
+### Cause
+J'utilisais `prs.slide_layouts[6]` (= `'TITLE - Customer First'`, un layout sombre) au lieu du bon layout de contenu.
+
+### Fix
+Recherche du layout par NOM : `"CONTENT 1 Column - Color"` (celui utilisé par les slides 6, 7, 8 du template). Fallback = layout du slide « Informations Magasin » (index 5). Slide 7 hérite donc du même fond que les slides voisins.
+
+### Vérifié
+- Slide 7 layout = `CONTENT 1 Column - Color` ✅
+- 0 duplicate, 39 MB, réouvrable ✅
+- 7/7 tests iter48j verts ✅
+
+À faire côté toi : redéploie et regénère l'export — le slide 7 doit avoir le fond crème clair comme le slide 8.

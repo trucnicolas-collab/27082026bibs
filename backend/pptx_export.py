@@ -1268,9 +1268,22 @@ def _insert_logistique_slide(prs, after_idx: int) -> bool:
         if not src.slides:
             return False
         src_slide = src.slides[0]
-        # Nouveau slide vide dans la destination avec layout blank
-        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[-1]
-        new_slide = prs.slides.add_slide(blank_layout)
+        # (iter48n) Utilise le MÊME layout que les slides 6/7/8 du template
+        # principal (« Informations Magasin » / « Plan wifi magasin » —
+        # fond crème clair `CONTENT 1 Column - Color`), sinon on hérite d'un
+        # layout sombre par défaut avec fond noir + étoile jaune.
+        target_layout = None
+        for lay in prs.slide_layouts:
+            if lay.name == "CONTENT 1 Column - Color":
+                target_layout = lay
+                break
+        if target_layout is None:
+            # Fallback : le layout du slide 6 (Informations Magasin) du template
+            if len(prs.slides) > 5:
+                target_layout = prs.slides[5].slide_layout
+            else:
+                target_layout = prs.slide_layouts[-1]
+        new_slide = prs.slides.add_slide(target_layout)
         # Retire les placeholders du blank layout pour éviter les doublons
         for sh in list(new_slide.shapes):
             sh._element.getparent().remove(sh._element)
