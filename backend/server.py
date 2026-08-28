@@ -2622,10 +2622,8 @@ def compute_phasage_summary(d: dict) -> dict:
     secteur_col = next((c for c in ["Secteur"] if c in columns), None)
     rayon_col = next((c for c in ["Rayon"] if c in columns), None)
     allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in columns), None)
-    # Détection robuste (insensible casse + variantes Élément/Gondole + fallback positionnel colonne G)
-    elem_col = _detect_element_col(columns)
-    if elem_col is None and len(columns) >= 7:
-        elem_col = columns[6]
+    # Détection robuste : nom + fallback positionnel colonne G validé numériquement
+    elem_col = _resolve_element_col(columns, raw_records)
     type_col = next((c for c in ["Type"] if c in columns), None)
     desig_col = next((c for c in ["Désignation", "Designation"] if c in columns), None)
     qty_col = next((c for c in ["Quantité", "Quantite"] if c in columns), None)
@@ -3840,6 +3838,39 @@ def _detect_element_col(columns: list[str]) -> Optional[str]:
     return None
 
 
+def _resolve_element_col(columns: list[str], raw_records: list[dict]) -> Optional[str]:
+    """Renvoie la colonne 'N° élément' fiablement.
+
+    1) Recherche par nom (via _detect_element_col).
+    2) Fallback positionnel colonne G (index 6) UNIQUEMENT si ses valeurs
+       non vides sont majoritairement numériques (>= 60%). Sinon renvoie None
+       pour éviter d'injecter des noms de rayons dans le détail caméras.
+    """
+    named = _detect_element_col(columns)
+    if named is not None:
+        return named
+    if len(columns) < 7:
+        return None
+    cand = columns[6]
+    numeric = 0
+    total = 0
+    for r in raw_records[:200]:  # échantillon suffisant
+        v = r.get(cand)
+        if v is None or v == "":
+            continue
+        if isinstance(v, float) and math.isnan(v):
+            continue
+        total += 1
+        try:
+            float(str(v).replace(",", "."))
+            numeric += 1
+        except (ValueError, TypeError):
+            pass
+    if total == 0:
+        return None
+    return cand if (numeric / total) >= 0.6 else None
+
+
 def _allee_sort_key(v):
     """Trie les allées numériquement quand possible."""
     if v is None or v == "":
@@ -4990,9 +5021,7 @@ def _write_par_secteur_sheets(workbook, writer, d, fmt_header, fmt_cell, fmt_tot
         "quantite": next((c for c in ["Quantité", "Quantite"] if c in columns), None),
     }
     # "Élément" = colonne G du fichier d'origine = identifiant unique de la gondole
-    element_col = _detect_element_col(columns)
-    if element_col is None and len(columns) >= 7:
-        element_col = columns[6]  # fallback colonne G
+    element_col = _resolve_element_col(columns, raw_records)
 
     def _s(v):
         if v is None:

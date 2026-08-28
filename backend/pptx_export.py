@@ -16,7 +16,6 @@ Style : couleurs par position de la nuit dans la semaine (cf. night_color_hex).
 from __future__ import annotations
 import copy
 import re
-import copy
 from datetime import datetime
 from pathlib import Path
 from io import BytesIO
