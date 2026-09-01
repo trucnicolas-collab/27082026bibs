@@ -382,3 +382,25 @@ async def setup_auth(db):
             if updates:
                 await db.users.update_one({"email": super_email}, {"$set": updates})
                 logger.info(f"Superadmin refreshed: {super_email}")
+
+    # Co-superadmins : promotion automatique au démarrage (accès à TOUTES les
+    # sessions de tous les utilisateurs). Utile quand la promotion manuelle via
+    # l'UI ne fonctionne pas côté prod. Ne crée PAS le compte s'il n'existe pas
+    # encore (l'utilisateur doit d'abord s'inscrire), mais force le rôle.
+    COSUPER_EMAILS = [
+        "smaille.haouari@vusion.com",
+    ]
+    for co_email_raw in COSUPER_EMAILS:
+        co_email = _normalize_email(co_email_raw)
+        if not co_email:
+            continue
+        existing_co = await db.users.find_one({"email": co_email})
+        if existing_co is None:
+            logger.info(f"Co-superadmin non trouvé (attend inscription) : {co_email}")
+            continue
+        if existing_co.get("role") != "superadmin":
+            await db.users.update_one(
+                {"email": co_email},
+                {"$set": {"role": "superadmin"}},
+            )
+            logger.info(f"Co-superadmin promu : {co_email}")
