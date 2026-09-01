@@ -1250,6 +1250,51 @@ def _remove_wifi_slides(prs) -> None:
 # ===================================================================
 # (iter48j) Clonage du slide "Accès et logistique" fourni par l'utilisateur
 # ===================================================================
+def _add_slide_safe_partname(prs, layout):
+    """Ajoute un slide en garantissant un partname UNIQUE dans le package.
+
+    Bug python-pptx : `_next_slide_partname` renvoie
+    `/ppt/slides/slide{len(sldIdLst)+1}.xml`. Après une suppression de slide
+    en milieu de deck, le compteur peut retomber sur un partname EXISTANT
+    (ex : template=20 slides, on en supprime 3 → next=slide18 → collision
+    avec le slide18 déjà présent). Résultat = ZIP avec entrée dupliquée →
+    PowerPoint refuse d'ouvrir le fichier.
+
+    Cette fonction :
+    1. Ajoute le slide via l'API standard python-pptx.
+    2. Si le partname alloué existe déjà, le renomme immédiatement pour
+       pointer vers le plus petit index libre (>= len(sldIdLst)+1, sinon
+       incrément jusqu'à trouver un slot vacant).
+    """
+    new_slide = prs.slides.add_slide(layout)
+    new_part = new_slide.part
+    # Collecte les partnames slide existants dans le package
+    used = set()
+    for part in prs.part.package.iter_parts():
+        pn = str(part.partname)
+        if pn.startswith("/ppt/slides/slide") and pn.endswith(".xml"):
+            used.add(pn)
+    current = str(new_part.partname)
+    # Compte les occurrences du partname courant : s'il apparaît >= 2 fois,
+    # collision → renomme le nouveau slide.
+    same_name = [p for p in prs.part.package.iter_parts()
+                 if str(p.partname) == current]
+    if len(same_name) >= 2:
+        # Trouve le plus petit numéro libre
+        from pptx.opc.package import PackURI
+        i = 1
+        while True:
+            candidate = f"/ppt/slides/slide{i}.xml"
+            if candidate not in used or candidate == current:
+                # Si candidate == current on doit continuer (déjà pris)
+                if candidate != current:
+                    break
+            i += 1
+        new_part.partname = PackURI(candidate)
+        # Renomme aussi le .rels associé implicitement (partname pilote le nom)
+    return new_slide
+
+
 def _insert_logistique_slide(prs, after_idx: int) -> bool:
     """Insère le slide unique du fichier `slide_logistique.pptx` dans `prs`
     juste après l'index `after_idx` (0-indexé). Copie shapes + relations
@@ -1282,7 +1327,7 @@ def _insert_logistique_slide(prs, after_idx: int) -> bool:
                 target_layout = prs.slides[5].slide_layout
             else:
                 target_layout = prs.slide_layouts[-1]
-        new_slide = prs.slides.add_slide(target_layout)
+        new_slide = _add_slide_safe_partname(prs, target_layout)
         # Retire les placeholders du blank layout pour éviter les doublons
         for sh in list(new_slide.shapes):
             sh._element.getparent().remove(sh._element)
@@ -1445,7 +1490,7 @@ def _duplicate_slide(prs, src_index: int, dest_index: int):
     position `dest_index`. Utilisé pour créer une 5e slide "semaine" quand le
     phasage dépasse 4 semaines (jusqu'à 20 nuits = 5 semaines de 4)."""
     src = prs.slides[src_index]
-    new_slide = prs.slides.add_slide(src.slide_layout)
+    new_slide = _add_slide_safe_partname(prs, src.slide_layout)
     # Retire les placeholders hérités du layout
     for shp in list(new_slide.shapes):
         shp._element.getparent().remove(shp._element)
