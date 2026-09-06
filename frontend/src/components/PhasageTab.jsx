@@ -247,6 +247,42 @@ export default function PhasageTab({ uploadId }) {
         return map;
     }, [summary, saInstall]);
 
+    // (fix 01/09/2026) Auto-nettoyage : quand la config SA change (ex : l'utilisateur
+    // décoche une allée dans la sélection SA 1.5 / SA 2.1), les allées qui n'ont
+    // plus AUCUN élément à installer sont retirées automatiquement de la liste
+    // "Allées à phaser". Sans ça, elles ré-apparaissaient en 0 EEG / 0 SA / — / —.
+    useEffect(() => {
+        if (!summary || !saInstall) return;
+        setRows((prev) => {
+            const cleaned = prev.filter((r) => {
+                // Garde les lignes non renseignées (l'utilisateur va choisir)
+                if (!r.allee) return true;
+                const node = alleeIndex[String(r.allee)];
+                // Node absent = allée non trouvée dans alleeIndex → soit une
+                // ZS saisonnière décochée (filtrée dans alleeIndex), soit une
+                // référence obsolète. Dans les 2 cas, on retire la ligne.
+                if (!node) return false;
+                // Zones saisonnières : le filtrage est géré par alleeIndex (ZS
+                // décochée = supprimée de la map). Si node existe encore, elle
+                // est encore active.
+                if (node.is_seasonal) return true;
+                // Total ES 1.5 + ES 2.1 (+ bonus rails mag1 + flèches + SA 1.5 mag2)
+                const isMag2 = (summary.store_mode || "magasin_1") === "magasin_2";
+                const es = (node.es_15 || 0) + (node.es_21 || 0)
+                    + (isMag2 ? (node.sa_15 || 0) : ((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0)))
+                    + (node.fleches || 0);
+                const rails = node.rails_es || 0;
+                // SA à installer selon la config actuelle
+                const inst = computeNodeSaInstall(node, saInstall);
+                const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0) + (inst.sa_42 || 0);
+                // Rien à faire dans cette allée → retire la ligne
+                return (es + rails + instTotal) > 0;
+            });
+            // N'appelle setRows que si le contenu a changé (évite loops de re-render)
+            return cleaned.length === prev.length ? prev : cleaned;
+        });
+    }, [saInstall, alleeIndex, summary]);
+
     // Liste triée des allées dispo + zones saisonnières en fin de liste
     // (iter48l) Les ZS entièrement décochées sont filtrées
     const alleeOptions = useMemo(() => {
