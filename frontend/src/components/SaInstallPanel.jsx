@@ -278,6 +278,13 @@ export default function SaInstallPanel({ uploadId, breakdown, seasonalZones, ini
         sa_42: cfg.enabled && (cfg.toutes ? false : cfg.sa_42),
         selection: { sa_15: cfg.selection?.sa_15 || [], sa_21: cfg.selection?.sa_21 || [] },
         answered: markAnswered || !!cfg.answered,
+        // (fix 01/09/2026) Persister la config zones saisonnières — sinon
+        // les cases décochées par l'utilisateur sont perdues au save et les
+        // zones ré-apparaissent dans les allées à phaser au refresh.
+        seasonal: {
+            all: cfg.seasonal?.all !== false,
+            zones: cfg.seasonal?.zones || {},
+        },
     });
 
     const save = useCallback(async () => {
