@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Users, X, Loader2, RefreshCw, KeyRound, Unlock, Trash2, Shield, User as UserIcon, Crown, Copy, Check } from "lucide-react";
+import { Users, X, Loader2, RefreshCw, KeyRound, Unlock, Trash2, Shield, User as UserIcon, Crown, Copy, Check, Mail } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -26,12 +26,18 @@ export default function AdminUsersPanel({ currentUser, onClose }) {
     const [loading, setLoading] = useState(true);
     const [tempPassword, setTempPassword] = useState(null); // { email, temp_password }
     const [copied, setCopied] = useState(false);
+    // (fix 07/09/2026) Demandes de reset en attente (Mot de passe oublié)
+    const [resetRequests, setResetRequests] = useState([]);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await axios.get(`${API}/admin/users`, { withCredentials: true });
-            setUsers(res.data.users || []);
+            const [rU, rR] = await Promise.all([
+                axios.get(`${API}/admin/users`, { withCredentials: true }),
+                axios.get(`${API}/admin/reset-requests`, { withCredentials: true }).catch(() => ({ data: { requests: [] } })),
+            ]);
+            setUsers(rU.data.users || []);
+            setResetRequests(rR.data.requests || []);
         } catch (err) {
             toast.error("Erreur chargement utilisateurs : " + (err.response?.data?.detail || err.message));
         } finally {
@@ -95,6 +101,31 @@ export default function AdminUsersPanel({ currentUser, onClose }) {
         setTimeout(() => setCopied(false), 2000);
     };
 
+    // (fix 07/09/2026) Ouvre le client mail du superadmin (Outlook, Gmail, etc.)
+    // avec destinataire, objet et corps pré-remplis contenant le mot de passe.
+    // Aucun service tiers, aucune clé API : le mail part depuis le compte
+    // Vusion de l'admin qui clique.
+    const sendPwdByMail = () => {
+        if (!tempPassword) return;
+        const appUrl = window.location.origin;
+        const subject = "Votre nouveau mot de passe — Phasage Carrefour";
+        const body = [
+            "Bonjour,",
+            "",
+            "Un mot de passe temporaire a été généré pour votre compte sur l'outil de phasage Carrefour.",
+            "",
+            `URL     : ${appUrl}`,
+            `Email   : ${tempPassword.email}`,
+            `Mot de passe : ${tempPassword.temp_password}`,
+            "",
+            "Merci de vous connecter, puis d'utiliser \"Mot de passe oublié ?\" pour choisir votre propre mot de passe.",
+            "",
+            "Bonne journée.",
+        ].join("\n");
+        const url = `mailto:${encodeURIComponent(tempPassword.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.location.href = url;
+    };
+
     return (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-start sm:items-center justify-center p-4 overflow-y-auto"
             data-testid="admin-users-panel" onClick={onClose}>
@@ -130,12 +161,63 @@ export default function AdminUsersPanel({ currentUser, onClose }) {
                                 className="px-3 py-2 bg-amber-600 text-white text-sm font-semibold rounded hover:bg-amber-700 flex items-center gap-1.5">
                                 {copied ? <><Check className="w-4 h-4" /> Copié</> : <><Copy className="w-4 h-4" /> Copier</>}
                             </button>
+                            <button onClick={sendPwdByMail} data-testid="temp-password-mail"
+                                className="px-3 py-2 bg-[#005BAB] text-white text-sm font-semibold rounded hover:bg-[#004A8A] flex items-center gap-1.5"
+                                title="Ouvre ton client mail (Outlook, Gmail…) avec un message pré-rempli">
+                                <Mail className="w-4 h-4" /> Envoyer
+                            </button>
                             <button onClick={() => setTempPassword(null)}
                                 className="px-2 py-2 text-amber-700 hover:bg-amber-100 rounded"><X className="w-4 h-4" /></button>
                         </div>
                         <p className="text-[11px] text-amber-800 mt-1.5">
-                            Transmettez ce mot de passe à l&apos;utilisateur par un canal sûr. Il ne sera plus affiché après fermeture.
+                            "Envoyer" ouvre ton client mail avec un message pré-rempli. Il ne sera plus affiché après fermeture.
                         </p>
+                    </div>
+                )}
+
+                {resetRequests.length > 0 && (
+                    <div className="mx-5 mt-3 p-3 rounded-lg bg-rose-50 border border-rose-300" data-testid="reset-requests-banner">
+                        <div className="text-xs font-semibold text-rose-900 mb-2 flex items-center gap-2">
+                            <KeyRound className="w-4 h-4" />
+                            {resetRequests.length} demande{resetRequests.length > 1 ? "s" : ""} de réinitialisation en attente
+                        </div>
+                        <div className="space-y-1.5">
+                            {resetRequests.map((r) => (
+                                <div key={r.reset_link} data-testid={`reset-request-${r.email}`}
+                                    className="flex items-center gap-2 bg-white border border-rose-200 rounded px-2 py-1.5">
+                                    <span className="flex-1 text-xs font-mono text-gray-800 truncate" title={r.email}>{r.email}</span>
+                                    <span className="text-[10px] text-rose-700 whitespace-nowrap">{fmt(r.created_at)}</span>
+                                    <button
+                                        onClick={() => {
+                                            const subject = "Votre lien de réinitialisation — Phasage Carrefour";
+                                            const body = [
+                                                "Bonjour,",
+                                                "",
+                                                "Suite à votre demande, voici votre lien de réinitialisation de mot de passe (valable 1h) :",
+                                                "",
+                                                r.reset_link,
+                                                "",
+                                                "Cliquez sur le lien et choisissez votre nouveau mot de passe.",
+                                                "",
+                                                "Bonne journée.",
+                                            ].join("\n");
+                                            const url = `mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                                            window.location.href = url;
+                                        }}
+                                        data-testid={`reset-request-mail-${r.email}`}
+                                        className="px-2 py-1 bg-[#005BAB] text-white text-[11px] font-semibold rounded hover:bg-[#004A8A] flex items-center gap-1"
+                                        title="Ouvre ton client mail avec le lien pré-rempli">
+                                        <Mail className="w-3 h-3" /> Envoyer
+                                    </button>
+                                    <button
+                                        onClick={() => { navigator.clipboard.writeText(r.reset_link); toast.success("Lien copié"); }}
+                                        className="px-2 py-1 bg-gray-100 text-gray-700 text-[11px] rounded hover:bg-gray-200 flex items-center gap-1"
+                                        title="Copier le lien">
+                                        <Copy className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 

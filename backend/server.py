@@ -1451,6 +1451,35 @@ async def admin_list_users(current_user: dict = Depends(get_current_user)):
     return {"users": out}
 
 
+@api_router.get("/admin/reset-requests")
+async def admin_reset_requests(current_user: dict = Depends(get_current_user)):
+    """Liste les demandes de réinitialisation de mot de passe encore actives
+    (non utilisées, non expirées). Utilisé pour que le superadmin transmette
+    le lien à l'utilisateur via son propre client mail (Outlook, Gmail…).
+    """
+    _require_super(current_user)
+    now = datetime.now(timezone.utc)
+    base = (os.environ.get("FRONTEND_URL", "") or "").rstrip("/")
+    out = []
+    try:
+        cur = db.password_reset_tokens.find(
+            {"used": False, "expires_at": {"$gt": now}},
+            {"token": 1, "email": 1, "created_at": 1, "expires_at": 1, "user_id": 1},
+        ).sort("created_at", -1).limit(50)
+        async for r in cur:
+            token = r.get("token") or ""
+            link = f"{base}/reset-password?token={token}" if base else f"/reset-password?token={token}"
+            out.append({
+                "email": r.get("email") or "",
+                "created_at": r.get("created_at").isoformat() if isinstance(r.get("created_at"), datetime) else None,
+                "expires_at": r.get("expires_at").isoformat() if isinstance(r.get("expires_at"), datetime) else None,
+                "reset_link": link,
+            })
+    except Exception as e:
+        logger.warning(f"admin_reset_requests: {e}")
+    return {"requests": out}
+
+
 class AdminResetPasswordPayload(BaseModel):
     length: int = Field(default=14, ge=8, le=64)
 
