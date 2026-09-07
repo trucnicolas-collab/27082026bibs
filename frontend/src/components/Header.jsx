@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation, ClipboardList, Users } from "lucide-react";
+import { Download, RotateCcw, Search, FileSpreadsheet, LogOut, Loader2, Presentation, ClipboardList, Users, KeyRound } from "lucide-react";
 import SessionsMenu from "./SessionsMenu";
 import ActivityPanel from "./ActivityPanel";
 import AdminUsersPanel from "./AdminUsersPanel";
+import ChangePasswordDialog from "./ChangePasswordDialog";
 
 export default function Header({
     dataset,
@@ -22,6 +23,7 @@ export default function Header({
     onLogout,
 }) {
     const [showAdmin, setShowAdmin] = useState(false);
+    const [showChangePwd, setShowChangePwd] = useState(false);
     return (
         <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-gray-50 flex-shrink-0">
             <div className="flex items-center gap-3 min-w-0">
@@ -106,6 +108,14 @@ export default function Header({
                             <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{user.email}</span>
                         </div>
                         <button
+                            onClick={() => setShowChangePwd(true)}
+                            data-testid="change-password-button"
+                            title="Changer mon mot de passe"
+                            className="h-8 px-2.5 bg-white border border-gray-300 text-gray-600 text-sm rounded hover:bg-blue-50 hover:text-[#005BAB] hover:border-blue-200 flex items-center gap-1.5 transition-colors"
+                        >
+                            <KeyRound className="w-4 h-4" />
+                        </button>
+                        <button
                             onClick={onLogout}
                             data-testid="logout-button"
                             title="Se déconnecter"
@@ -117,6 +127,7 @@ export default function Header({
                 )}
             </div>
             {showAdmin && <AdminUsersPanel currentUser={user} onClose={() => setShowAdmin(false)} />}
+            {showChangePwd && <ChangePasswordDialog onClose={() => setShowChangePwd(false)} />}
         </header>
     );
 }

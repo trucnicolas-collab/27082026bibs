@@ -33,7 +33,12 @@ export default function ForgotPasswordScreen({ onBack }) {
                         </h2>
                         <p className="text-sm text-gray-600 leading-relaxed">
                             Pour réinitialiser votre mot de passe, merci de contacter directement l&apos;administrateur de l&apos;outil.
-                            Il pourra vous générer un nouveau mot de passe temporaire.
+                            Il pourra vous générer un nouveau mot de passe.
+                        </p>
+                        <p className="text-xs text-gray-500 mt-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded">
+                            💡 Une fois connecté avec le mot de passe fourni par l&apos;admin, vous pourrez le changer via l&apos;icône
+                            <span className="inline-block mx-1 px-1.5 py-0.5 bg-white border border-gray-300 rounded text-[10px] font-mono">clé</span>
+                            en haut à droite de l&apos;application.
                         </p>
                     </div>
                 </div>

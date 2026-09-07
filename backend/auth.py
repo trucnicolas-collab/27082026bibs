@@ -231,6 +231,30 @@ def build_auth_router(db) -> APIRouter:
     async def me(user=Depends(get_current_user)):
         return _user_to_public(user)
 
+    # ---- Changement de mot de passe (utilisateur connecté) --------------
+    class ChangePasswordPayload(BaseModel):
+        current_password: str
+        new_password: str = Field(..., min_length=6, max_length=200)
+
+    @router.post("/change-password")
+    async def change_password(payload: ChangePasswordPayload,
+                              user=Depends(get_current_user)):
+        """L'utilisateur connecté change son propre mot de passe.
+        Vérifie l'ancien mot de passe avant d'appliquer le nouveau."""
+        current_hash = user.get("password_hash") or ""
+        if not verify_password(payload.current_password, current_hash):
+            raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+        if payload.current_password == payload.new_password:
+            raise HTTPException(status_code=400, detail="Le nouveau mot de passe doit être différent")
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {
+                "password_hash": hash_password(payload.new_password),
+                "must_change_password": False,
+            }},
+        )
+        return {"ok": True, "message": "Mot de passe changé avec succès"}
+
     @router.post("/refresh")
     async def refresh(request: Request, response: Response):
         token = request.cookies.get("refresh_token")
