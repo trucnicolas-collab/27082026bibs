@@ -297,6 +297,13 @@ def build_auth_router(db) -> APIRouter:
                 f"   (Valable 1h, à transmettre manuellement à l'utilisateur)\n"
                 + "=" * 60
             )
+            # Envoi automatique par email (Resend). Si non configuré ou erreur,
+            # le lien reste disponible dans les logs ci-dessus (fallback).
+            try:
+                from email_service import send_password_reset_email
+                await send_password_reset_email(email, reset_link, user_name=user.get("name") or "")
+            except Exception as _e_mail:
+                logger.warning(f"forgot_password: envoi email a échoué (fallback logs) : {_e_mail}")
         return {"ok": True, "message": "Si un compte existe pour cet email, un lien de réinitialisation a été généré."}
 
     @router.post("/reset-password")

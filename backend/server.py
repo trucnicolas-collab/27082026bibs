@@ -1479,7 +1479,18 @@ async def admin_reset_password(user_id: str, payload: AdminResetPasswordPayload 
     )
     # Nettoie les tentatives échouées
     await db.login_attempts.delete_many({"identifier": {"$regex": f".*{user['email']}$"}})
+    # Envoi email automatique du nouveau mot de passe (Resend). Fallback silencieux.
+    email_sent = False
+    try:
+        from email_service import send_admin_password_reset_email, is_configured
+        if is_configured():
+            email_sent = await send_admin_password_reset_email(
+                user["email"], new_pwd, user_name=user.get("name") or ""
+            )
+    except Exception as _e_mail:
+        logger.warning(f"admin_reset_password: envoi email a échoué : {_e_mail}")
     return {"ok": True, "email": user["email"], "temp_password": new_pwd,
+            "email_sent": email_sent,
             "note": "À transmettre à l'utilisateur par un canal sûr. Ce mot de passe ne sera plus jamais affiché."}
 
 

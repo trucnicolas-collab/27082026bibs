@@ -21,6 +21,7 @@ ecdsa==0.19.2
 email-validator==2.3.0
 emergentintegrations==0.1.0
 et_xmlfile==2.0.0
+execnet==2.1.2
 fastapi==0.110.1
 fastuuid==0.14.0
 filelock==3.29.0
@@ -54,7 +55,7 @@ jq==1.11.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 librt==0.11.0
-litellm==1.80.0
+litellm @ https://customer-assets.emergentagent.com/internal-asset/library/litellm-1.80.0-py3-none-any.whl#sha256=adf398c513273de9341f61822296c6b2145f7f2dc4a69daf3ac04829f5bde3f8
 lxml==6.1.1
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
@@ -90,6 +91,7 @@ PyJWT==2.12.1
 pymongo==4.5.0
 pyparsing==3.3.2
 pytest==9.0.3
+pytest-xdist==3.8.0
 python-calamine==0.6.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
@@ -102,6 +104,7 @@ referencing==0.37.0
 regex==2026.5.9
 requests==2.34.2
 requests-oauthlib==2.0.0
+resend==2.43.0
 rich==15.0.0
 rpds-py==0.30.0
 rsa==4.9.1
