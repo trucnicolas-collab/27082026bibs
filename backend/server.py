@@ -1420,25 +1420,34 @@ async def admin_list_users(current_user: dict = Depends(get_current_user)):
     # Comptes de datasets par owner (une seule requête d'agrégation)
     pipeline = [{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}]
     counts = {str(x["_id"]): x["n"] async for x in db.datasets.aggregate(pipeline)}
-    # Statut de brute-force par email
+    # Statut de brute-force par email (robuste : ignore les entrées corrompues)
     attempts_by_email = {}
-    async for a in db.login_attempts.find({}, {"identifier": 1, "attempts": 1, "locked_until": 1}):
-        ident = a.get("identifier") or ""
-        if ":" in ident:
-            _, email = ident.split(":", 1)
-            existing = attempts_by_email.get(email, {"attempts": 0, "locked": False})
-            existing["attempts"] += int(a.get("attempts") or 0)
-            lu = a.get("locked_until")
-            if isinstance(lu, datetime) and lu > datetime.now(timezone.utc):
-                existing["locked"] = True
-            attempts_by_email[email] = existing
+    try:
+        async for a in db.login_attempts.find({}, {"identifier": 1, "attempts": 1, "locked_until": 1}):
+            try:
+                ident = a.get("identifier") or ""
+                if ":" in ident:
+                    _, email = ident.split(":", 1)
+                    existing = attempts_by_email.get(email, {"attempts": 0, "locked": False})
+                    existing["attempts"] += int(a.get("attempts") or 0)
+                    lu = a.get("locked_until")
+                    if isinstance(lu, datetime) and lu > datetime.now(timezone.utc):
+                        existing["locked"] = True
+                    attempts_by_email[email] = existing
+            except Exception as _e_att:
+                logger.warning(f"admin_list_users: entrée login_attempts ignorée: {_e_att}")
+    except Exception as _e_lc:
+        logger.warning(f"admin_list_users: lecture login_attempts échouée: {_e_lc}")
     out = []
     for u in users:
-        s = _user_summary(u, dataset_count=counts.get(str(u["_id"]), 0))
-        att = attempts_by_email.get(s["email"], {})
-        s["failed_attempts"] = att.get("attempts", 0)
-        s["locked"] = att.get("locked", False)
-        out.append(s)
+        try:
+            s = _user_summary(u, dataset_count=counts.get(str(u["_id"]), 0))
+            att = attempts_by_email.get(s["email"], {})
+            s["failed_attempts"] = att.get("attempts", 0)
+            s["locked"] = att.get("locked", False)
+            out.append(s)
+        except Exception as _e_u:
+            logger.warning(f"admin_list_users: user {u.get('_id')} ignoré: {_e_u}")
     return {"users": out}
 
 
