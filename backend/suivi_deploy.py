@@ -97,6 +97,37 @@ def is_cam_side_product(desig: str, typ: str) -> bool:
         return True
     return False
 
+
+def is_sa_support_fixation(desig: str, typ: str) -> bool:
+    """True si le produit est un support ou une fixation destiné aux SA
+    (donc à retirer si l'allée n'a plus d'EEG SA à poser).
+
+    Règle métier (07/09/2026) : si aucune SA (1.5, 2.1, freezer, 4.2) n'est
+    à installer dans l'allée, alors les supports/fixations qui vont avec ne
+    seront pas posés non plus → on les masque dans le suivi.
+
+    Reconnaît :
+    - "Support individuel alu SA" et variantes contenant "support ... sa"
+    - Rails SA adhésifs : "rail minimal adhésif …", "rail no easylock …"
+    - "Vis fixation SA" et similaires (fixation contenant " sa ")
+    - Exclut explicitement les fixations caméra (Captana).
+    """
+    d = (desig or "").strip().lower()
+    t = (typ or "").strip().lower()
+    if is_cam_side_product(desig, typ):
+        return False
+    # Support individuel alu SA (et variantes)
+    if "support" in d and (" sa" in f" {d} " or d.endswith(" sa") or "alu sa" in d):
+        return True
+    # Rails SA (adhésif minimal / no easylock)
+    if d.startswith("rail ") and ("minimal adh" in d or "no easylock" in d):
+        return True
+    # Vis / fixation SA — le Type est souvent "Fixation" mais peut manquer
+    if ("fixation" in t or "fixation" in d) and (" sa" in f" {d} " or "adh" in d):
+        # ex : "Vis fixation SA", "Fixation adhésive SA"
+        return True
+    return False
+
 # ---------------------------------------------------------------- Object storage
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 APP_PREFIX = "phasage-crf"
@@ -455,6 +486,12 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
             # Neutralise aussi les caméras côté EEG (elles ont leur propre suivi).
             if "cameras" in plan:
                 plan["cameras"] = 0.0
+            # (fix 07/09/2026) Règle : si l'allée n'a AUCUN EEG SA à poser
+            # (toutes les familles SA sont filtrées ou à 0), alors les
+            # supports & fixations SA (Rail minimal adhésif, Support alu SA…)
+            # ne servent à rien dans cette allée → on les masque.
+            _has_sa_eeg = (float(plan.get("sa_15") or 0) + float(plan.get("sa_21_std") or 0)
+                           + float(plan.get("sa_21_freezer") or 0) + float(plan.get("sa_42") or 0)) > 0
             pentries = {str(p.get("designation")): p for p in (e.get("products") or [])}
             products = []
             reel_fam = {k: None for k in FAMILY_KEYS}
@@ -489,6 +526,11 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     continue
                 # (I) Filtrer les SA marquées « à ne pas poser » dans le phasage
                 if fam in sa_off:
+                    continue
+                # (fix 07/09/2026) Si l'allée n'a AUCUN EEG SA à poser, on
+                # retire aussi les supports & fixations SA (Rail minimal
+                # adhésif, Support alu SA, etc.) — ils ne seront pas posés.
+                if not _has_sa_eeg and is_sa_support_fixation(desig, typ):
                     continue
                 # Filtrer les produits avec quantité prévue = 0 (aucun à poser)
                 if pplan <= 0:
@@ -2601,6 +2643,20 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         totals = node.get("totals") or {}
         allee_node = by_uid.get(uid) or {}
         sa_off = _sa_families_off_for(allee_node, cfg_sa) if mode == "eeg" else set()
+        # (fix 07/09/2026) Détermine si l'allée a un EEG SA à poser
+        # après application du filtre sa_off. Si NON → on masque aussi les
+        # supports & fixations SA (Rail minimal adhésif, Support alu SA…).
+        has_sa_eeg = False
+        if mode == "eeg":
+            for _fam in ("sa_15", "sa_21_std", "sa_21_freezer", "sa_42"):
+                if _fam in sa_off:
+                    continue
+                _val = allee_node.get(_fam)
+                if _fam == "sa_21_std" and (_val is None or float(_val or 0) == 0):
+                    _val = allee_node.get("sa_21")
+                if float(_val or 0) > 0:
+                    has_sa_eeg = True
+                    break
         new_totals = {}
         new_elems = {}
         for desig, qty in totals.items():
@@ -2613,6 +2669,9 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                     continue
                 fam = classify_family(typ, desig)
                 if fam == "cameras" or fam in sa_off:
+                    continue
+                # Aucun EEG SA à poser → retire supports & fixations SA
+                if not has_sa_eeg and is_sa_support_fixation(desig, typ):
                     continue
             else:  # mode == "cam"
                 if not cam_side:
