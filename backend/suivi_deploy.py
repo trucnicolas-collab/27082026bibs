@@ -2666,19 +2666,32 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
         """Retourne (by_uid, cfg_sa) pour un dataset : nécessaire aux filtres SA.
 
         Inclut les Zones Saisonnières (v27) via `full_allee_index` (source de
-        vérité du Phasage — voir server._full_allee_index)."""
-        ph = normalize_phasage(d.get("phasage"))
-        by_uid = {str(a.get("id")): a for a in (ph.get("es") or {}).get("rows") or []}
-        # (v27) Injecte les ZS depuis la source de vérité du Phasage.
-        if full_allee_index is not None:
-            try:
-                summary = compute_phasage_summary(d)
+        vérité du Phasage — voir server._full_allee_index).
+
+        (fix 07/09/2026) by_uid DOIT être construit depuis summary.allees et
+        NON phasage.es.rows : les rows ne contiennent que {id, allee, nuit}
+        sans les quantités SA (sa_15, sa_21_std, sa_21_freezer, sa_42). Sans
+        ces quantités, _sa_families_off_for renvoyait toujours un set() vide
+        (car `float(a.get("sa_21_freezer") or 0) > 0` était toujours False)
+        → les SA décochées apparaissaient quand même dans le stock/matériel.
+        """
+        by_uid = {}
+        try:
+            summary = compute_phasage_summary(d)
+            for a in (summary.get("allees") or []):
+                key = str(a.get("uid") or a.get("allee"))
+                if key:
+                    by_uid[key] = a
+            # (v27) Injecte les ZS depuis la source de vérité du Phasage.
+            if full_allee_index is not None:
                 for zid, node in full_allee_index(summary).items():
                     if node.get("is_seasonal"):
-                        # `id` est utilisé par _sa_families_off_for qui lit `is_seasonal`
                         by_uid[zid] = {**node, "id": zid}
-            except Exception as e:
-                logger.warning(f"_materiel_context: seasonal_zones inject failed: {e}")
+        except Exception as e:
+            logger.warning(f"_materiel_context: build by_uid failed: {e}")
+            # Fallback ancien comportement (mieux vaut ne pas planter)
+            ph = normalize_phasage(d.get("phasage"))
+            by_uid = {str(a.get("id")): a for a in (ph.get("es") or {}).get("rows") or []}
         cfg_sa = d.get("sa_install") or {}
         return by_uid, cfg_sa
 
