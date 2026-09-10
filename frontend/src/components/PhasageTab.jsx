@@ -3,6 +3,8 @@ import axios from "axios";
 import { Plus, Trash2, Download, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import SaInstallPanel, { computeSaToInstall, computeNodeSaInstall, nodeSaTotal } from "./SaInstallPanel";
+import { useAutoSave } from "../hooks/useAutoSave";
+import { SaveStatusBanner, RecoveryPrompt, SaveIndicator } from "./SaveStatusBanner";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -104,11 +106,9 @@ export default function PhasageTab({ uploadId }) {
     const [rows, setRows] = useState([]);
     const [weeks, setWeeks] = useState([]); // ex: [5,3,6] ou [] (pas de découpage)
     const [saving, setSaving] = useState(false);
-    // (iter6) État précis de la sauvegarde pour éviter les pertes silencieuses :
-    // "idle" | "saving" | "saved" | "error". L'utilisateur voit toujours le statut.
-    const [saveStatus, setSaveStatus] = useState("idle");
-    const [lastSavedAt, setLastSavedAt] = useState(null);
-    const [saveError, setSaveError] = useState("");
+    // (iter52) Le statut de sauvegarde est désormais géré par le hook useAutoSave
+    // → saveStatus, saveErrMsg, autoSavedAt viennent du hook (voir bloc ci-dessous).
+    // Les états locaux sont conservés uniquement pour les setters manuels (init).
     const [dates, setDates] = useState({}); // {"1": "2026-02-15", ...} (lecture seule ici)
     // Méta-infos magasin / VT
     const [vtStartDate, setVtStartDate] = useState("");
@@ -182,33 +182,58 @@ export default function PhasageTab({ uploadId }) {
         return () => { mounted = false; };
     }, [uploadId]);
 
-    // Auto-save (debounce) — préserve cam et suivi en relisant le phasage complet
-    useEffect(() => {
-        if (!summary || !uploadId) return;
-        const t = setTimeout(() => {
-            setSaving(true);
-            setSaveStatus("saving");
-            const ph = summary.phasage || {};
-            axios.patch(`${API}/dataset/${uploadId}/phasage`, {
-                es: {
-                    nb_nuits: nbNuits,
-                    rows: rows.map((r) => ({ id: r.id, allee: r.allee, nuit: r.nuit })),
-                    weeks: weeks.length > 0 ? weeks : null,
-                },
-                cam: ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 },
-                suivi: ph.suivi || { rows: [] },
-            }).then(() => {
-                setSaveStatus("saved");
-                setLastSavedAt(new Date());
-                setSaveError("");
-            }).catch((e) => {
-                console.error("Save phasage failed:", e);
-                setSaveStatus("error");
-                setSaveError(e?.response?.data?.detail || e?.message || "Erreur inconnue");
-            }).finally(() => setSaving(false));
-        }, 600);
-        return () => clearTimeout(t);
-    }, [nbNuits, rows, weeks, uploadId, summary]);
+    // (v52) Auto-save robuste : banner rouge visible si échec + backup local
+    // + retry auto avec back-off + prompt de récupération au chargement.
+    // Voir /app/frontend/src/hooks/useAutoSave.js pour la logique complète.
+    const _ph = summary?.phasage || {};
+    const _phasagePayload = useMemo(() => ({
+        es: {
+            nb_nuits: nbNuits,
+            rows: rows.map((r) => ({ id: r.id, allee: r.allee, nuit: r.nuit })),
+            weeks: weeks.length > 0 ? weeks : null,
+        },
+        cam: _ph.cam || { nb_nuits: 3, rows: [], start_at_nuit: 5 },
+        suivi: _ph.suivi || { rows: [] },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [nbNuits, rows, weeks, _ph.cam, _ph.suivi]);
+
+    const {
+        saveStatus, errorMessage: saveErrMsg, retryCount, retryNow,
+        lastSavedAt: autoSavedAt,
+        pendingRecovery, dismissRecovery, applyRecovery,
+    } = useAutoSave({
+        data: _phasagePayload,
+        key: uploadId ? `phasage_backup:${uploadId}` : null,
+        url: uploadId ? `${API}/dataset/${uploadId}/phasage` : null,
+        debounceMs: 600,
+        enabled: Boolean(summary && uploadId),
+        method: "patch",
+    });
+
+    // Synchronise `saving` (utilisé par les autres appels PATCH manuels)
+    useEffect(() => { setSaving(saveStatus === "saving"); }, [saveStatus]);
+
+    // Restauration du backup local si l'utilisateur clique "Restaurer"
+    const handleApplyRecovery = useCallback(() => {
+        const recovered = applyRecovery();
+        if (!recovered) return;
+        try {
+            if (recovered.es) {
+                if (typeof recovered.es.nb_nuits === "number") setNbNuits(recovered.es.nb_nuits);
+                if (Array.isArray(recovered.es.rows)) {
+                    setRows(recovered.es.rows.map((r) => ({
+                        id: r.id || newRowId(),
+                        allee: r.allee || "",
+                        nuit: r.nuit || null,
+                    })));
+                }
+                if (Array.isArray(recovered.es.weeks)) setWeeks(recovered.es.weeks);
+            }
+            toast.success("Sauvegarde locale restaurée");
+        } catch (e) {
+            toast.error("Échec de restauration : " + (e?.message || "inconnue"));
+        }
+    }, [applyRecovery]);
 
     const alleeIndex = useMemo(() => {
         if (!summary) return {};
@@ -554,6 +579,20 @@ export default function PhasageTab({ uploadId }) {
 
     return (
         <div className="h-full flex flex-col bg-white" data-testid="phasage-tab">
+            {/* (v52) Banner de sauvegarde en HAUT — invisible sauf en cas d'erreur ou retry */}
+            <SaveStatusBanner
+                saveStatus={saveStatus}
+                errorMessage={saveErrMsg}
+                retryCount={retryCount}
+                retryNow={retryNow}
+                lastSavedAt={autoSavedAt}
+            />
+            {/* Prompt de récupération locale (une seule fois au chargement si backup détecté) */}
+            <RecoveryPrompt
+                pendingRecovery={pendingRecovery}
+                onApply={handleApplyRecovery}
+                onDismiss={dismissRecovery}
+            />
             {/* Barre supérieure : nb nuits + moyenne + export */}
             <div className="border-b border-gray-200 px-3 py-2 flex items-center gap-3 bg-gray-50 flex-shrink-0">
                 <label className="text-xs font-medium text-gray-700 whitespace-nowrap">
@@ -583,17 +622,17 @@ export default function PhasageTab({ uploadId }) {
                     EEG SA à poser
                 </button>
                 {saving && <span className="text-xs text-gray-500" data-testid="phasage-save-saving">Sauvegarde…</span>}
-                {!saving && saveStatus === "saved" && lastSavedAt && (
+                {!saving && saveStatus === "saved" && autoSavedAt && (
                     <span className="text-xs text-green-700 flex items-center gap-1" data-testid="phasage-save-ok"
-                        title={`Dernière sauvegarde à ${lastSavedAt.toLocaleTimeString("fr-FR")}`}>
-                        ✓ Sauvegardé à {lastSavedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                        title={`Dernière sauvegarde à ${autoSavedAt.toLocaleTimeString("fr-FR")}`}>
+                        ✓ Sauvegardé à {autoSavedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                 )}
                 {!saving && saveStatus === "error" && (
                     <span className="text-xs text-red-700 font-bold flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded"
                         data-testid="phasage-save-error"
-                        title={`ERREUR SAUVEGARDE : ${saveError}. Vos modifications ne sont PAS enregistrées. Reconnectez-vous et réessayez.`}>
-                        ⚠️ NON SAUVEGARDÉ — {saveError.length > 40 ? saveError.slice(0, 40) + "…" : saveError}
+                        title={`ERREUR SAUVEGARDE : ${saveErrMsg}. Vos modifications ne sont PAS enregistrées. Voir le banner rouge en haut de l'écran.`}>
+                        ⚠️ NON SAUVEGARDÉ — {(saveErrMsg || "").length > 40 ? (saveErrMsg || "").slice(0, 40) + "…" : saveErrMsg}
                     </span>
                 )}
             </div>
