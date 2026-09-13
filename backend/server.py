@@ -6531,19 +6531,38 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
     cam_rows = cam_plan.get("rows") or []
     cfg_sa = d.get("sa_install") or {}
 
-    # Index rapide (allee -> nuit) pour ES et CAM (nuit ABSOLUE)
-    es_night_by_allee: dict[str, int] = {}
+    # Index rapide (allee UID -> nuit) pour ES et CAM (nuit ABSOLUE).
+    # ⚠️ phasage.es.rows[i].allee peut être :
+    #   - Un UID composé : "1__A__R1", "5__PGC__PLS"
+    #   - Une zone saisonnière : "ZS1", "ZS2", "ZS3"
+    #   - Un simple n° d'allée (ancien format) : "1", "2"
+    # raw_records n'a QUE le n° d'allée brut → on doit construire toutes les
+    # variantes possibles pour matcher.
+    es_night_by_key: dict[str, int] = {}
     for r in es_rows:
         a = str(r.get("allee") or "").strip()
         n = r.get("nuit")
         if a and n:
-            es_night_by_allee[a] = int(n)
-    cam_night_by_allee: dict[str, int] = {}
+            es_night_by_key[a] = int(n)
+    cam_night_by_key: dict[str, int] = {}
     for r in cam_rows:
         a = str(r.get("allee") or "").strip()
         n = r.get("nuit")
         if a and n:
-            cam_night_by_allee[a] = cam_start + int(n) - 1
+            cam_night_by_key[a] = cam_start + int(n) - 1
+
+    def _resolve_night(a_raw: str, secteur: str, rayon: str, kind: str) -> Optional[int]:
+        """Cherche la nuit dans es_night_by_key ou cam_night_by_key.
+        Essaie plusieurs variantes de clé (composée, ZS, numérique)."""
+        table = es_night_by_key if kind == "es" else cam_night_by_key
+        for key in (
+            f"{a_raw}__{secteur}__{rayon}",
+            f"{a_raw}__{secteur.upper()}__{rayon.upper()}",
+            a_raw,
+        ):
+            if key in table:
+                return table[key]
+        return None
 
     # Index des nœuds allée pour connaître les quantités SA par allée
     summary = compute_phasage_summary(d)
@@ -6607,12 +6626,13 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
         if qty <= 0 or not desig:
             continue
 
+        # Extrait secteur/rayon (utile pour l'UID composé)
+        sec = str(row.get(secteur_col) or "").strip() if secteur_col else ""
+        ray = str(row.get(rayon_col) or "").strip() if rayon_col else ""
+
         # Résolution du nœud allée (essaie uid brut, sinon composé)
         node = _node_for(allee)
         if not node:
-            # Essaie clé composée secteur|rayon|allee
-            sec = str(row.get(secteur_col) or "").strip() if secteur_col else ""
-            ray = str(row.get(rayon_col) or "").strip() if rayon_col else ""
             for uid_try in (f"{allee}__{sec}__{ray}", allee):
                 if uid_try in idx:
                     node = idx[uid_try]
@@ -6623,7 +6643,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
 
         # Caméras et fixations caméras → suivent le phasage CAMERA
         if is_cam_side_product(desig, typ) or fam == "cameras":
-            nuit_cam = cam_night_by_allee.get(allee)
+            nuit_cam = _resolve_night(allee, sec, ray, "cam")
             if nuit_cam:
                 b = vusion_by_nuit.setdefault(nuit_cam, {})
                 _add(b, ref, desig, qty)
@@ -6631,8 +6651,8 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
                 _add(carrefour_agg, ref, desig, qty)
             continue
 
-        # Nuit ES pour cette allée (peut être 0 si pas dans le phasage)
-        nuit_es = es_night_by_allee.get(allee)
+        # Nuit ES pour cette allée (peut être None si pas dans le phasage)
+        nuit_es = _resolve_night(allee, sec, ray, "es")
         sa_off_set = _sa_off_for(node) if node else set()
         has_sa = _has_sa_eeg_in_allee(node) if node else False
 
