@@ -37,6 +37,16 @@ def test_support_broche_3_positions_is_sa_support():
     assert is_sa_support_fixation("Support broche 3 positions", "") is True
 
 
+def test_pic_a_glace_is_sa_support():
+    assert is_sa_support_fixation("Pic à glace", "") is True
+    assert is_sa_support_fixation("Pic a glace", "") is True  # sans accent
+
+
+def test_plaque_pour_pic_a_glace_is_sa_support():
+    assert is_sa_support_fixation("Plaque pour pic à glace", "") is True
+    assert is_sa_support_fixation("Plaque pour pic a glace", "") is True
+
+
 def test_clip_vertical_is_sa_support():
     assert is_sa_support_fixation("Clip vertical", "") is True
 

@@ -138,6 +138,10 @@ def is_sa_support_fixation(desig: str, typ: str) -> bool:
         "crochet suspension",
         "support broche 3 positions",
         "support individuel tablette verre",
+        "pic à glace",
+        "pic a glace",
+        "plaque pour pic à glace",
+        "plaque pour pic a glace",
     }
     if d in SA_SUPPORT_LABELS:
         return True
