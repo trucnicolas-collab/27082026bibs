@@ -6487,6 +6487,283 @@ app.add_middleware(
 )
 
 
+# =============================================================================
+# Export "Matériel Vusion / Carrefour" — nouveau document Excel à 2 onglets
+# (07/09/2026, demande utilisateur) :
+#   - "Matériel Vusion"    : matériel à poser par la VT, ventilé par nuit
+#   - "Matériel Carrefour" : matériel qui reste chez Carrefour (SA non
+#                            sélectionnées + leurs supports & fixations)
+# Applique les MÊMES règles que le Suivi :
+#   - EEG SA (sa_15/sa_21/freezer/sa_42) → Vusion UNIQUEMENT si sélectionné
+#     dans le phasage (sa_install)
+#   - Supports & fixations SA (Rail minimal adhésif, Support alu SA…) →
+#     Vusion UNIQUEMENT si l'allée a du SA à poser
+#   - Caméras : suivent le phasage caméra (cam.rows)
+# =============================================================================
+
+def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
+    """Renvoie (vusion_by_nuit, carrefour_agg, colonnes) où :
+    - vusion_by_nuit = {nuit: {(ref, desig): qty}}  matériel à poser par la VT
+    - carrefour_agg  = {(ref, desig): qty}          matériel restant chez Carrefour
+    - colonnes       = liste des N° de nuits présentes (triée)
+    Utilise raw_records + phasage + sa_install.
+    """
+    from suivi_deploy import is_sa_support_fixation, is_cam_side_product
+
+    raw = d.get("raw_records") or []
+    if not raw:
+        return {}, {}, []
+    cols = list(raw[0].keys())
+    secteur_col = next((c for c in ["Secteur"] if c in cols), None)
+    rayon_col = next((c for c in ["Rayon"] if c in cols), None)
+    allee_col = next((c for c in ["N° allée", "N° allee", "Allée", "Allee"] if c in cols), None)
+    type_col = next((c for c in ["Type"] if c in cols), None)
+    ref_col = next((c for c in ["Référence", "Reference"] if c in cols), None)
+    desig_col = next((c for c in ["Désignation", "Designation"] if c in cols), None)
+    qty_col = next((c for c in ["Quantité", "Quantite"] if c in cols), None)
+    if not (allee_col and desig_col and qty_col):
+        return {}, {}, []
+
+    phasage = _normalize_phasage(d.get("phasage"))
+    es_rows = (phasage.get("es") or {}).get("rows") or []
+    cam_plan = phasage.get("cam") or {}
+    cam_start = int(cam_plan.get("start_at_nuit") or 5)
+    cam_rows = cam_plan.get("rows") or []
+    cfg_sa = d.get("sa_install") or {}
+
+    # Index rapide (allee -> nuit) pour ES et CAM (nuit ABSOLUE)
+    es_night_by_allee: dict[str, int] = {}
+    for r in es_rows:
+        a = str(r.get("allee") or "").strip()
+        n = r.get("nuit")
+        if a and n:
+            es_night_by_allee[a] = int(n)
+    cam_night_by_allee: dict[str, int] = {}
+    for r in cam_rows:
+        a = str(r.get("allee") or "").strip()
+        n = r.get("nuit")
+        if a and n:
+            cam_night_by_allee[a] = cam_start + int(n) - 1
+
+    # Index des nœuds allée pour connaître les quantités SA par allée
+    summary = compute_phasage_summary(d)
+    idx = _full_allee_index(summary)
+
+    def _node_for(a_uid: str) -> dict:
+        return _resolve_idx_node(a_uid, idx) or {}
+
+    def _has_sa_eeg_in_allee(node: dict) -> bool:
+        """L'allée a-t-elle du SA à installer après filtrage sa_install ?"""
+        inst = compute_node_sa_install(node, cfg_sa) if node else {}
+        return (float(inst.get("sa_15") or 0)
+                + float(inst.get("sa_21") or 0)
+                + float(inst.get("freezer") or 0)
+                + float(inst.get("sa_42") or 0)) > 0
+
+    def _sa_off_for(node: dict) -> set:
+        """Ensemble des familles SA à ne PAS poser pour cette allée."""
+        if not node or node.get("is_seasonal"):
+            return set()  # ZS toujours posées par VT
+        answered = bool(cfg_sa.get("answered"))
+        enabled = bool(cfg_sa.get("enabled"))
+        off = set()
+        if answered and not enabled:
+            for fam in ("sa_15", "sa_21_std", "sa_21_freezer", "sa_42"):
+                val = node.get(fam)
+                if fam == "sa_21_std" and (val is None or float(val or 0) == 0):
+                    val = node.get("sa_21")
+                if float(val or 0) > 0:
+                    off.add(fam)
+            return off
+        if not enabled:
+            return off
+        inst = compute_node_sa_install(node, cfg_sa) or {}
+        if not inst.get("sa_15") and float(node.get("sa_15") or 0) > 0:
+            off.add("sa_15")
+        if not inst.get("sa_21") and float(node.get("sa_21_std") or node.get("sa_21") or 0) > 0:
+            off.add("sa_21_std")
+        if not inst.get("freezer") and float(node.get("sa_21_freezer") or 0) > 0:
+            off.add("sa_21_freezer")
+        if not inst.get("sa_42") and float(node.get("sa_42") or 0) > 0:
+            off.add("sa_42")
+        return off
+
+    vusion_by_nuit: dict[int, dict] = {}
+    carrefour_agg: dict = {}
+
+    def _add(bucket: dict, ref: str, desig: str, qty: float):
+        key = (ref or "", desig or "")
+        bucket[key] = float(bucket.get(key) or 0) + float(qty or 0)
+
+    for row in raw:
+        allee = str(row.get(allee_col) or "").strip()
+        desig = str(row.get(desig_col) or "").strip()
+        typ = str(row.get(type_col) or "").strip() if type_col else ""
+        ref = str(row.get(ref_col) or "").strip() if ref_col else ""
+        try:
+            qty = float(row.get(qty_col) or 0)
+        except (ValueError, TypeError):
+            qty = 0
+        if qty <= 0 or not desig:
+            continue
+
+        # Résolution du nœud allée (essaie uid brut, sinon composé)
+        node = _node_for(allee)
+        if not node:
+            # Essaie clé composée secteur|rayon|allee
+            sec = str(row.get(secteur_col) or "").strip() if secteur_col else ""
+            ray = str(row.get(rayon_col) or "").strip() if rayon_col else ""
+            for uid_try in (f"{allee}__{sec}__{ray}", allee):
+                if uid_try in idx:
+                    node = idx[uid_try]
+                    break
+
+        # Détermine le destinataire
+        fam = classify_family(typ, desig)
+
+        # Caméras et fixations caméras → suivent le phasage CAMERA
+        if is_cam_side_product(desig, typ) or fam == "cameras":
+            nuit_cam = cam_night_by_allee.get(allee)
+            if nuit_cam:
+                b = vusion_by_nuit.setdefault(nuit_cam, {})
+                _add(b, ref, desig, qty)
+            else:
+                _add(carrefour_agg, ref, desig, qty)
+            continue
+
+        # Nuit ES pour cette allée (peut être 0 si pas dans le phasage)
+        nuit_es = es_night_by_allee.get(allee)
+        sa_off_set = _sa_off_for(node) if node else set()
+        has_sa = _has_sa_eeg_in_allee(node) if node else False
+
+        # Règles SA / supports
+        is_sa_eeg = fam in ("sa_15", "sa_21_std", "sa_21_freezer", "sa_42")
+        is_sa_support = is_sa_support_fixation(desig, typ)
+
+        goes_carrefour = False
+        if is_sa_eeg and fam in sa_off_set:
+            goes_carrefour = True
+        elif is_sa_support and not has_sa:
+            goes_carrefour = True
+        elif not nuit_es:
+            # Allée non planifiée dans le phasage ES → matériel restant Carrefour
+            goes_carrefour = True
+
+        if goes_carrefour:
+            _add(carrefour_agg, ref, desig, qty)
+        else:
+            b = vusion_by_nuit.setdefault(int(nuit_es), {})
+            _add(b, ref, desig, qty)
+
+    nuits = sorted(vusion_by_nuit.keys())
+    return vusion_by_nuit, carrefour_agg, nuits
+
+
+@api_router.get("/export-materiel-vusion-carrefour/{upload_id}")
+async def export_materiel_vusion_carrefour(upload_id: str,
+                                            current_user: dict = Depends(get_current_user)):
+    """Export Excel 2 onglets : matériel à poser par Vusion (ventilé par nuit)
+    + matériel restant chez Carrefour."""
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+
+    vusion_by_nuit, carrefour_agg, nuits = _split_materiel_by_recipient(d)
+
+    import xlsxwriter
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    fmt_night_header = workbook.add_format({
+        "bold": True, "bg_color": "#005BAB", "font_color": "white",
+        "align": "center", "valign": "vcenter", "border": 1, "font_size": 11,
+    })
+    fmt_col_header = workbook.add_format({
+        "bold": True, "bg_color": "#E5E7EB", "align": "center",
+        "valign": "vcenter", "border": 1, "font_size": 10,
+    })
+    fmt_cell = workbook.add_format({"border": 1, "valign": "vcenter"})
+    fmt_qty = workbook.add_format({"border": 1, "align": "right",
+                                    "num_format": "#,##0", "valign": "vcenter"})
+    fmt_total = workbook.add_format({
+        "bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "right",
+        "num_format": "#,##0", "valign": "vcenter",
+    })
+    fmt_total_lbl = workbook.add_format({
+        "bold": True, "bg_color": "#F3F4F6", "border": 1, "valign": "vcenter",
+    })
+
+    # ─── Feuille 1 : Matériel Vusion ────────────────────────────────────
+    ws1 = workbook.add_worksheet("Matériel Vusion")
+    ws1.set_column(0, 0, 12)  # Référence
+    ws1.set_column(1, 1, 45)  # Désignation
+    ws1.set_column(2, 2, 10)  # Quantité
+
+    row_i = 0
+    if not nuits:
+        ws1.write(0, 0, "Aucune nuit configurée dans le phasage.", fmt_cell)
+    for nuit in nuits:
+        # Ligne titre "Nuit X"
+        ws1.merge_range(row_i, 0, row_i, 2, f"Nuit {nuit}", fmt_night_header)
+        ws1.set_row(row_i, 22)
+        row_i += 1
+        # En-tête colonnes
+        ws1.write(row_i, 0, "Référence", fmt_col_header)
+        ws1.write(row_i, 1, "Désignation", fmt_col_header)
+        ws1.write(row_i, 2, "Quantité", fmt_col_header)
+        row_i += 1
+        items = vusion_by_nuit.get(nuit) or {}
+        # Tri : Référence croissante puis Désignation
+        sorted_items = sorted(items.items(), key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
+        night_total = 0.0
+        for (ref, desig), qty in sorted_items:
+            ws1.write(row_i, 0, ref or "", fmt_cell)
+            ws1.write(row_i, 1, desig, fmt_cell)
+            ws1.write_number(row_i, 2, qty, fmt_qty)
+            night_total += float(qty)
+            row_i += 1
+        # Total nuit
+        ws1.write(row_i, 0, "", fmt_total_lbl)
+        ws1.write(row_i, 1, f"Total nuit {nuit}", fmt_total_lbl)
+        ws1.write_number(row_i, 2, night_total, fmt_total)
+        row_i += 2  # ligne vide entre nuits
+
+    # ─── Feuille 2 : Matériel Carrefour ─────────────────────────────────
+    ws2 = workbook.add_worksheet("Matériel Carrefour")
+    ws2.set_column(0, 0, 12)  # Référence
+    ws2.set_column(1, 1, 45)  # Désignation
+    ws2.set_column(2, 2, 10)  # Quantité
+    ws2.merge_range(0, 0, 0, 2, "Matériel restant chez Carrefour (non posé par Vusion)", fmt_night_header)
+    ws2.set_row(0, 22)
+    ws2.write(1, 0, "Référence", fmt_col_header)
+    ws2.write(1, 1, "Désignation", fmt_col_header)
+    ws2.write(1, 2, "Quantité", fmt_col_header)
+    row_i = 2
+    sorted_carrefour = sorted(carrefour_agg.items(),
+                              key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
+    carrefour_total = 0.0
+    for (ref, desig), qty in sorted_carrefour:
+        ws2.write(row_i, 0, ref or "", fmt_cell)
+        ws2.write(row_i, 1, desig, fmt_cell)
+        ws2.write_number(row_i, 2, qty, fmt_qty)
+        carrefour_total += float(qty)
+        row_i += 1
+    if sorted_carrefour:
+        ws2.write(row_i, 0, "", fmt_total_lbl)
+        ws2.write(row_i, 1, "Total Carrefour", fmt_total_lbl)
+        ws2.write_number(row_i, 2, carrefour_total, fmt_total)
+        ws2.autofilter(1, 0, row_i - 1, 2)
+        ws2.freeze_panes(2, 0)
+
+    workbook.close()
+    output.seek(0)
+    filename = f"{_export_basename(d)}_Materiel_Vusion_Carrefour.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()

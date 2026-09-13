@@ -347,6 +347,33 @@ function MainApp() {
         }
     }, [dataset, exportingCarrefour, exportBase]);
 
+    // (07/09/2026) Nouvel export : Matériel Vusion / Matériel Carrefour
+    const [exportingMatVC, setExportingMatVC] = useState(false);
+    const handleExportMaterielVC = useCallback(async () => {
+        if (!dataset?.upload_id || exportingMatVC) return;
+        setExportingMatVC(true);
+        try {
+            toast.loading("Génération du fichier matériel Vusion/Carrefour…", { id: "matvc-export" });
+            const res = await axios.get(`${API}/export-materiel-vusion-carrefour/${dataset.upload_id}`, {
+                responseType: "blob",
+                timeout: 120000,
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement("a");
+            link.href = url;
+            link.setAttribute("download", `${exportBase()}_Materiel_Vusion_Carrefour.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast.success("Export matériel Vusion/Carrefour téléchargé", { id: "matvc-export" });
+        } catch (err) {
+            const msg = err.response?.data?.detail || err.message;
+            toast.error(`Erreur d'export matériel : ${msg}`, { id: "matvc-export" });
+        } finally {
+            setExportingMatVC(false);
+        }
+    }, [dataset, exportingMatVC, exportBase]);
+
     const handleExportPPTX = useCallback(async () => {
         if (!dataset?.upload_id || exportingPPTX) return;
         setExportingPPTX(true);
@@ -760,7 +787,7 @@ function MainApp() {
                                             <h3 className="text-sm font-semibold text-gray-800">Exports</h3>
                                             <p className="text-xs text-gray-500 mt-1">Générez les livrables finaux.</p>
                                         </div>
-                                        <div className="grid sm:grid-cols-3 gap-3">
+                                        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                             <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-rtr">
                                                 <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: "#005BAB" }}>
                                                     {exportingRTR && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Excel RTR
@@ -772,6 +799,12 @@ function MainApp() {
                                                     {exportingCarrefour && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Excel Carrefour
                                                 </span>
                                                 <span className="text-xs text-gray-500">Format Carrefour</span>
+                                            </button>
+                                            <button onClick={handleExportMaterielVC} disabled={exportingMatVC} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-materiel-vc">
+                                                <span className="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
+                                                    {exportingMatVC && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Matériel Vusion / Carrefour
+                                                </span>
+                                                <span className="text-xs text-gray-500">Matériel à poser par nuit + reste chez Carrefour</span>
                                             </button>
                                             <button onClick={handleExportPPTX} disabled={exportingPPTX} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-pptx">
                                                 <span className="text-sm font-semibold text-purple-700 flex items-center gap-1.5">
