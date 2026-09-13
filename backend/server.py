@@ -6659,7 +6659,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
     return vusion_by_nuit, carrefour_agg, nuits
 
 
-@api_router.get("/export-materiel-vusion-carrefour/{upload_id}")
+@app.get("/api/export-materiel-vusion-carrefour/{upload_id}")
 async def export_materiel_vusion_carrefour(upload_id: str,
                                             current_user: dict = Depends(get_current_user)):
     """Export Excel 2 onglets : matériel à poser par Vusion (ventilé par nuit)
