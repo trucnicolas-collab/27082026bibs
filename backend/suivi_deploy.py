@@ -102,14 +102,19 @@ def is_sa_support_fixation(desig: str, typ: str) -> bool:
     """True si le produit est un support ou une fixation destiné aux SA
     (donc à retirer si l'allée n'a plus d'EEG SA à poser).
 
-    Règle métier (07/09/2026) : si aucune SA (1.5, 2.1, freezer, 4.2) n'est
-    à installer dans l'allée, alors les supports/fixations qui vont avec ne
-    seront pas posés non plus → on les masque dans le suivi.
+    Règle métier (07/09/2026, complétée 10/09/2026) : si aucune SA
+    (1.5, 2.1, freezer, 4.2) n'est à installer dans l'allée (ou la zone
+    saisonnière), alors les supports/fixations qui vont avec ne seront pas
+    posés non plus → on les masque dans le suivi ET dans l'export matériel.
 
     Reconnaît :
     - "Support individuel alu SA" et variantes contenant "support ... sa"
     - Rails SA adhésifs : "rail minimal adhésif …", "rail no easylock …"
     - "Vis fixation SA" et similaires (fixation contenant " sa ")
+    - "Clip vertical"
+    - "Crochet suspension"
+    - "Support broche 3 positions"
+    - "Support individuel tablette verre"
     - Exclut explicitement les fixations caméra (Captana).
     """
     d = (desig or "").strip().lower()
@@ -124,7 +129,17 @@ def is_sa_support_fixation(desig: str, typ: str) -> bool:
         return True
     # Vis / fixation SA — le Type est souvent "Fixation" mais peut manquer
     if ("fixation" in t or "fixation" in d) and (" sa" in f" {d} " or "adh" in d):
-        # ex : "Vis fixation SA", "Fixation adhésive SA"
+        return True
+    # Supports/fixations spécifiques SA reconnus par leur libellé exact
+    # (liste à compléter au besoin — l'important est qu'ils soient tous
+    # côté « accessoires SA » à masquer si aucun SA n'est posé)
+    SA_SUPPORT_LABELS = {
+        "clip vertical",
+        "crochet suspension",
+        "support broche 3 positions",
+        "support individuel tablette verre",
+    }
+    if d in SA_SUPPORT_LABELS:
         return True
     return False
 
@@ -434,11 +449,23 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                compute_node_sa_install pour déterminer les familles à exclure.
              - Sinon (question non répondue) : pas de filtrage (comportement legacy)."""
             a = by_uid.get(node_uid) or {}
-            # (v27) Les Zones Saisonnières sont TOUJOURS posées par la VT (SA 1.5
-            # + SA 2.1). Elles ne sont pas affectées par le choix « SA hors
-            # saisonnier » du panneau sa_install.
+            # (v52) Zones Saisonnières : lecture de compute_node_sa_install
+            # qui applique cfg.seasonal.zones. Si la ZS est décochée →
+            # ses SA sont retirées.
             if a.get("is_seasonal"):
-                return set()
+                if not compute_node_sa_install:
+                    return set()
+                inst = compute_node_sa_install(a, cfg_sa) or {}
+                off = set()
+                if not inst.get("sa_15") and float(a.get("sa_15") or 0) > 0:
+                    off.add("sa_15")
+                if not inst.get("sa_21") and float(a.get("sa_21_std") or a.get("sa_21") or 0) > 0:
+                    off.add("sa_21_std")
+                if not inst.get("freezer") and float(a.get("sa_21_freezer") or 0) > 0:
+                    off.add("sa_21_freezer")
+                if not inst.get("sa_42") and float(a.get("sa_42") or 0) > 0:
+                    off.add("sa_42")
+                return off
             answered = bool(cfg_sa.get("answered"))
             enabled = bool(cfg_sa.get("enabled"))
             off = set()
@@ -2603,10 +2630,27 @@ def build_suivi_router(db, load_dataset, get_current_user, compute_phasage_summa
                 for k, v in sorted(totals.items(), key=lambda t: t[0].lower())]
 
     def _sa_families_off_for(a: dict, cfg_sa: dict) -> set:
-        """Version standalone de _sa_families_off (utilisée hors _build_state)."""
-        # (v27) Les Zones Saisonnières sont TOUJOURS posées par la VT.
-        if (a or {}).get("is_seasonal"):
-            return set()
+        """Version standalone de _sa_families_off (utilisée hors _build_state).
+
+        (v52) Zones Saisonnières : au lieu de retourner toujours set(),
+        on lit compute_node_sa_install qui applique cfg.seasonal.zones →
+        une ZS décochée voit ses SA retirées du suivi.
+        """
+        a = a or {}
+        if a.get("is_seasonal"):
+            if not compute_node_sa_install:
+                return set()
+            inst = compute_node_sa_install(a, cfg_sa) or {}
+            off = set()
+            if not inst.get("sa_15") and float(a.get("sa_15") or 0) > 0:
+                off.add("sa_15")
+            if not inst.get("sa_21") and float(a.get("sa_21_std") or a.get("sa_21") or 0) > 0:
+                off.add("sa_21_std")
+            if not inst.get("freezer") and float(a.get("sa_21_freezer") or 0) > 0:
+                off.add("sa_21_freezer")
+            if not inst.get("sa_42") and float(a.get("sa_42") or 0) > 0:
+                off.add("sa_42")
+            return off
         answered = bool((cfg_sa or {}).get("answered"))
         enabled = bool((cfg_sa or {}).get("enabled"))
         off = set()

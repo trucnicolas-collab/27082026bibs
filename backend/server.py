@@ -6580,9 +6580,28 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
                 + float(inst.get("sa_42") or 0)) > 0
 
     def _sa_off_for(node: dict) -> set:
-        """Ensemble des familles SA à ne PAS poser pour cette allée."""
-        if not node or node.get("is_seasonal"):
-            return set()  # ZS toujours posées par VT
+        """Ensemble des familles SA à ne PAS poser pour cette allée / ZS.
+
+        Pour les zones saisonnières : détermine le off à partir du résultat
+        de compute_node_sa_install (qui applique déjà cfg.seasonal). Si la ZS
+        est totalement décochée dans cfg.seasonal.zones → toutes les SA vont
+        chez Carrefour.
+        """
+        if not node:
+            return set()
+        # ZS : lit compute_node_sa_install (gère cfg.seasonal.zones)
+        if node.get("is_seasonal"):
+            inst = compute_node_sa_install(node, cfg_sa) or {}
+            off = set()
+            if not inst.get("sa_15") and float(node.get("sa_15") or 0) > 0:
+                off.add("sa_15")
+            if not inst.get("sa_21") and float(node.get("sa_21_std") or node.get("sa_21") or 0) > 0:
+                off.add("sa_21_std")
+            if not inst.get("freezer") and float(node.get("sa_21_freezer") or 0) > 0:
+                off.add("sa_21_freezer")
+            if not inst.get("sa_42") and float(node.get("sa_42") or 0) > 0:
+                off.add("sa_42")
+            return off
         answered = bool(cfg_sa.get("answered"))
         enabled = bool(cfg_sa.get("enabled"))
         off = set()

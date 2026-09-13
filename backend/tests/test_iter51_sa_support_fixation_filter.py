@@ -33,6 +33,27 @@ def test_vis_fixation_sa():
     assert is_sa_support_fixation("Vis fixation SA", "Fixation") is True
 
 
+def test_support_broche_3_positions_is_sa_support():
+    assert is_sa_support_fixation("Support broche 3 positions", "") is True
+
+
+def test_clip_vertical_is_sa_support():
+    assert is_sa_support_fixation("Clip vertical", "") is True
+
+
+def test_crochet_suspension_is_sa_support():
+    assert is_sa_support_fixation("Crochet suspension", "") is True
+
+
+def test_support_individuel_tablette_verre_is_sa_support():
+    assert is_sa_support_fixation("Support individuel tablette verre", "") is True
+
+
+def test_support_labels_are_case_insensitive():
+    assert is_sa_support_fixation("CLIP VERTICAL", "") is True
+    assert is_sa_support_fixation("  Crochet Suspension  ", "") is True
+
+
 def test_rail_edgesense_is_not_sa_support():
     """Les rails EdgeSense (ES) ne doivent PAS être filtrés."""
     assert is_sa_support_fixation("Rail 900 mm noir", "Rail") is False
