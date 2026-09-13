@@ -6645,6 +6645,12 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
         if qty <= 0 or not desig:
             continue
 
+        # (07/09/2026) Exclusion totale des produits Captana / caméras :
+        # ils sont commandés & suivis dans le flux Caméras dédié (« Commande
+        # Captana ») → ne doivent apparaître ni dans Vusion ni dans Carrefour.
+        if is_cam_side_product(desig, typ):
+            continue
+
         # Extrait secteur/rayon (utile pour l'UID composé)
         sec = str(row.get(secteur_col) or "").strip() if secteur_col else ""
         ray = str(row.get(rayon_col) or "").strip() if rayon_col else ""
@@ -6659,16 +6665,6 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
 
         # Détermine le destinataire
         fam = classify_family(typ, desig)
-
-        # Caméras et fixations caméras → suivent le phasage CAMERA
-        if is_cam_side_product(desig, typ) or fam == "cameras":
-            nuit_cam = _resolve_night(allee, sec, ray, "cam")
-            if nuit_cam:
-                b = vusion_by_nuit.setdefault(nuit_cam, {})
-                _add(b, ref, desig, qty)
-            else:
-                _add(carrefour_agg, ref, desig, qty)
-            continue
 
         # Nuit ES pour cette allée (peut être None si pas dans le phasage)
         nuit_es = _resolve_night(allee, sec, ray, "es")

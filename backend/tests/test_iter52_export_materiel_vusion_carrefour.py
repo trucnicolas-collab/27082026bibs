@@ -97,18 +97,36 @@ def test_allee_hors_phasage_va_dans_carrefour():
         assert ("R099", "ES 2.1 noir") not in nuit_bucket
 
 
-def test_camera_va_dans_vusion_nuit_camera():
-    """Caméra planifiée → Vusion nuit = start_at_nuit + n - 1."""
+def test_camera_skipped_completely():
+    """Caméras (Captana) → EXCLUES des 2 onglets (suivies dans le flux dédié)."""
     d = _minimal_dataset()
     d["raw_records"].append({
         "Secteur": "PGC", "Rayon": "PLS", "N° allée": 2, "Type": "Caméra",
         "Référence": "R010", "Désignation": "Caméra noir", "Quantité": 10,
     })
     d["phasage"]["cam"] = {"nb_nuits": 1, "rows": [{"id": "c1", "allee": "2", "nuit": 1}], "start_at_nuit": 5}
-    v, _, nuits = _split_materiel_by_recipient(d)
-    # start_at_nuit=5 + n=1 - 1 = 5
-    assert 5 in nuits
-    assert ("R010", "Caméra noir") in v[5]
+    v, c, _ = _split_materiel_by_recipient(d)
+    # Ne doit apparaître nulle part
+    assert ("R010", "Caméra noir") not in c
+    for nuit_bucket in v.values():
+        assert ("R010", "Caméra noir") not in nuit_bucket
+
+
+def test_captana_support_skipped():
+    """Les supports Captana (Support mobilier, Support ajustable) → exclus aussi."""
+    d = _minimal_dataset()
+    d["raw_records"].extend([
+        {"Secteur": "PGC", "Rayon": "PLS", "N° allée": 1, "Type": "",
+         "Référence": "R100", "Désignation": "Support mobilier captana (blanc)", "Quantité": 3},
+        {"Secteur": "PGC", "Rayon": "PLS", "N° allée": 1, "Type": "Fixation",
+         "Référence": "R101", "Désignation": "Support ajustable adhésif captana", "Quantité": 2},
+    ])
+    v, c, _ = _split_materiel_by_recipient(d)
+    for key in [("R100", "Support mobilier captana (blanc)"),
+                 ("R101", "Support ajustable adhésif captana")]:
+        assert key not in c, f"{key} devrait être exclu de Carrefour"
+        for nuit_bucket in v.values():
+            assert key not in nuit_bucket, f"{key} devrait être exclu de Vusion"
 
 
 def test_aggregation_meme_reference_desig():
