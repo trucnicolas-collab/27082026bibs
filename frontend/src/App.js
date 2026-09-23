@@ -347,32 +347,53 @@ function MainApp() {
         }
     }, [dataset, exportingCarrefour, exportBase]);
 
-    // (07/09/2026) Nouvel export : Matériel Vusion / Matériel Carrefour
-    const [exportingMatVC, setExportingMatVC] = useState(false);
-    const handleExportMaterielVC = useCallback(async () => {
-        if (!dataset?.upload_id || exportingMatVC) return;
-        setExportingMatVC(true);
+    // (07/09/2026) Nouveaux exports séparés : Planning, Préparation palette, Commande
+    const [exportingPlanning, setExportingPlanning] = useState(false);
+    const [exportingPrepPalette, setExportingPrepPalette] = useState(false);
+    const [exportingCommande, setExportingCommande] = useState(false);
+
+    const _downloadExport = useCallback(async (endpoint, filenameSuffix, toastId) => {
+        if (!dataset?.upload_id) return;
         try {
-            toast.loading("Génération du fichier matériel Vusion/Carrefour…", { id: "matvc-export" });
-            const res = await axios.get(`${API}/export-materiel-vusion-carrefour/${dataset.upload_id}`, {
+            toast.loading(`Génération ${filenameSuffix}…`, { id: toastId });
+            const res = await axios.get(`${API}/${endpoint}/${dataset.upload_id}`, {
                 responseType: "blob",
                 timeout: 120000,
             });
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement("a");
             link.href = url;
-            link.setAttribute("download", `${exportBase()}_Materiel_Vusion_Carrefour.xlsx`);
+            link.setAttribute("download", `${exportBase()}_${filenameSuffix}.xlsx`);
             document.body.appendChild(link);
             link.click();
             link.remove();
-            toast.success("Export matériel Vusion/Carrefour téléchargé", { id: "matvc-export" });
+            toast.success(`Fichier ${filenameSuffix} téléchargé`, { id: toastId });
         } catch (err) {
             const msg = err.response?.data?.detail || err.message;
-            toast.error(`Erreur d'export matériel : ${msg}`, { id: "matvc-export" });
-        } finally {
-            setExportingMatVC(false);
+            toast.error(`Erreur : ${msg}`, { id: toastId });
         }
-    }, [dataset, exportingMatVC, exportBase]);
+    }, [dataset, exportBase]);
+
+    const handleExportPlanning = useCallback(async () => {
+        if (exportingPlanning) return;
+        setExportingPlanning(true);
+        try { await _downloadExport("export-planning", "Planning", "planning-export"); }
+        finally { setExportingPlanning(false); }
+    }, [exportingPlanning, _downloadExport]);
+
+    const handleExportPrepPalette = useCallback(async () => {
+        if (exportingPrepPalette) return;
+        setExportingPrepPalette(true);
+        try { await _downloadExport("export-preparation-palette-carrefour", "Preparation_Palette_Carrefour", "prep-palette-export"); }
+        finally { setExportingPrepPalette(false); }
+    }, [exportingPrepPalette, _downloadExport]);
+
+    const handleExportCommande = useCallback(async () => {
+        if (exportingCommande) return;
+        setExportingCommande(true);
+        try { await _downloadExport("export-commande", "Commande", "commande-export"); }
+        finally { setExportingCommande(false); }
+    }, [exportingCommande, _downloadExport]);
 
     const handleExportPPTX = useCallback(async () => {
         if (!dataset?.upload_id || exportingPPTX) return;
@@ -787,7 +808,7 @@ function MainApp() {
                                             <h3 className="text-sm font-semibold text-gray-800">Exports</h3>
                                             <p className="text-xs text-gray-500 mt-1">Générez les livrables finaux.</p>
                                         </div>
-                                        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                             <button onClick={handleExport} disabled={exportingRTR} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-rtr">
                                                 <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: "#005BAB" }}>
                                                     {exportingRTR && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Excel RTR
@@ -800,17 +821,29 @@ function MainApp() {
                                                 </span>
                                                 <span className="text-xs text-gray-500">Format Carrefour</span>
                                             </button>
-                                            <button onClick={handleExportMaterielVC} disabled={exportingMatVC} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-materiel-vc">
-                                                <span className="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
-                                                    {exportingMatVC && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Matériel Vusion / Carrefour
-                                                </span>
-                                                <span className="text-xs text-gray-500">Matériel à poser par nuit + reste chez Carrefour</span>
-                                            </button>
                                             <button onClick={handleExportPPTX} disabled={exportingPPTX} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-pptx">
                                                 <span className="text-sm font-semibold text-purple-700 flex items-center gap-1.5">
                                                     {exportingPPTX && <Loader2 className="w-3.5 h-3.5 animate-spin" />}PowerPoint
                                                 </span>
                                                 <span className="text-xs text-gray-500">CR VT</span>
+                                            </button>
+                                            <button onClick={handleExportPlanning} disabled={exportingPlanning} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-planning">
+                                                <span className="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
+                                                    {exportingPlanning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Planning
+                                                </span>
+                                                <span className="text-xs text-gray-500">Matériel Vusion par nuit (date + allées + Captana)</span>
+                                            </button>
+                                            <button onClick={handleExportPrepPalette} disabled={exportingPrepPalette} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-prep-palette">
+                                                <span className="text-sm font-semibold text-orange-700 flex items-center gap-1.5">
+                                                    {exportingPrepPalette && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Préparation palette Carrefour
+                                                </span>
+                                                <span className="text-xs text-gray-500">Matériel non posé par Vusion</span>
+                                            </button>
+                                            <button onClick={handleExportCommande} disabled={exportingCommande} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-commande">
+                                                <span className="text-sm font-semibold text-indigo-700 flex items-center gap-1.5">
+                                                    {exportingCommande && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Commande
+                                                </span>
+                                                <span className="text-xs text-gray-500">Tableau Commandes uniquement</span>
                                             </button>
                                         </div>
                                     </div>

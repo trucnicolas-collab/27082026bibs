@@ -6501,18 +6501,19 @@ app.add_middleware(
 #   - Caméras : suivent le phasage caméra (cam.rows)
 # =============================================================================
 
-def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
-    """Renvoie (vusion_by_nuit, carrefour_agg, colonnes) où :
+def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
+    """Renvoie (vusion_by_nuit, carrefour_agg, colonnes, night_meta) où :
     - vusion_by_nuit = {nuit: {(ref, desig): qty}}  matériel à poser par la VT
     - carrefour_agg  = {(ref, desig): qty}          matériel restant chez Carrefour
     - colonnes       = liste des N° de nuits présentes (triée)
+    - night_meta     = {nuit: {"date": str, "aisles": [str,...], "kind": "es"|"cam"}}
     Utilise raw_records + phasage + sa_install.
     """
     from suivi_deploy import is_sa_support_fixation, is_cam_side_product
 
     raw = d.get("raw_records") or []
     if not raw:
-        return {}, {}, []
+        return {}, {}, [], {}
     cols = list(raw[0].keys())
     secteur_col = next((c for c in ["Secteur"] if c in cols), None)
     rayon_col = next((c for c in ["Rayon"] if c in cols), None)
@@ -6522,13 +6523,14 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
     desig_col = next((c for c in ["Désignation", "Designation"] if c in cols), None)
     qty_col = next((c for c in ["Quantité", "Quantite"] if c in cols), None)
     if not (allee_col and desig_col and qty_col):
-        return {}, {}, []
+        return {}, {}, [], {}
 
     phasage = _normalize_phasage(d.get("phasage"))
     es_rows = (phasage.get("es") or {}).get("rows") or []
     cam_plan = phasage.get("cam") or {}
     cam_start = int(cam_plan.get("start_at_nuit") or 5)
     cam_rows = cam_plan.get("rows") or []
+    dates_map = phasage.get("dates") or {}
     cfg_sa = d.get("sa_install") or {}
 
     # Index rapide (allee UID -> nuit) pour ES et CAM (nuit ABSOLUE).
@@ -6645,15 +6647,21 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
         if qty <= 0 or not desig:
             continue
 
-        # (07/09/2026) Exclusion totale des produits Captana / caméras :
-        # ils sont commandés & suivis dans le flux Caméras dédié (« Commande
-        # Captana ») → ne doivent apparaître ni dans Vusion ni dans Carrefour.
-        if is_cam_side_product(desig, typ):
-            continue
-
         # Extrait secteur/rayon (utile pour l'UID composé)
         sec = str(row.get(secteur_col) or "").strip() if secteur_col else ""
         ray = str(row.get(rayon_col) or "").strip() if rayon_col else ""
+
+        # (10/09/2026) Captana → doivent apparaître dans le PLANNING dans la
+        # nuit caméra correspondante (déterminée par cam_night_by_key).
+        # Le bouton "Commande" gère la commande séparément.
+        if is_cam_side_product(desig, typ):
+            nuit_cam = _resolve_night(allee, sec, ray, "cam")
+            if nuit_cam:
+                b = vusion_by_nuit.setdefault(nuit_cam, {})
+                _add(b, ref, desig, qty)
+            else:
+                _add(carrefour_agg, ref, desig, qty)
+            continue
 
         # Résolution du nœud allée (essaie uid brut, sinon composé)
         node = _node_for(allee)
@@ -6691,7 +6699,42 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list]:
             _add(b, ref, desig, qty)
 
     nuits = sorted(vusion_by_nuit.keys())
-    return vusion_by_nuit, carrefour_agg, nuits
+    # Métadonnées par nuit : date + liste des allées + type (es/cam)
+    def _fmt_date(iso: str) -> str:
+        try:
+            dt = datetime.fromisoformat((iso or "").split("T")[0])
+            return dt.strftime("%d/%m/%Y")
+        except Exception:
+            return iso or ""
+    night_meta: dict = {}
+    for n in nuits:
+        aisles = []
+        for k, nn in es_night_by_key.items():
+            if nn == n:
+                # Extrait le n° d'allée du UID composé (ex: "5__PGC__PLS" → "5")
+                aisles.append(k.split("__")[0])
+        # Nuits caméra : pas d'allée ES → mais peut avoir des allées cam
+        kind = "es" if aisles else "cam"
+        for k, nn in cam_night_by_key.items():
+            if nn == n:
+                aisles.append(k.split("__")[0])
+                if not kind:
+                    kind = "cam"
+        # Dédup + tri numérique quand possible
+        def _sort_key(a):
+            try:
+                return (0, int(a))
+            except (ValueError, TypeError):
+                return (1, str(a))
+        aisles = sorted(set(aisles), key=_sort_key)
+        # Date : soit stockée en phasage.dates soit rien
+        raw_date = dates_map.get(str(n)) or ""
+        night_meta[n] = {
+            "date": _fmt_date(raw_date),
+            "aisles": aisles,
+            "kind": kind,
+        }
+    return vusion_by_nuit, carrefour_agg, nuits, night_meta
 
 
 @app.get("/api/export-materiel-vusion-carrefour/{upload_id}")
@@ -6727,76 +6770,167 @@ async def export_materiel_vusion_carrefour(upload_id: str,
         "bold": True, "bg_color": "#F3F4F6", "border": 1, "valign": "vcenter",
     })
 
-    # ─── Feuille 1 : Matériel Vusion ────────────────────────────────────
-    ws1 = workbook.add_worksheet("Matériel Vusion")
-    ws1.set_column(0, 0, 12)  # Référence
-    ws1.set_column(1, 1, 45)  # Désignation
-    ws1.set_column(2, 2, 10)  # Quantité
+@app.get("/api/export-planning/{upload_id}")
+async def export_planning(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Export Excel « Planning » : matériel à poser par la VT, ventilé par nuit
+    avec date + liste des allées. Inclut ES, SA sélectionnées, supports SA
+    (uniquement si l'allée a du SA à poser) et matériel Captana (dans les
+    nuits caméras correspondantes)."""
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    vusion_by_nuit, _, nuits, night_meta = _split_materiel_by_recipient(d)
+
+    import xlsxwriter
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    fmt_night_header = workbook.add_format({
+        "bold": True, "bg_color": "#005BAB", "font_color": "white",
+        "align": "center", "valign": "vcenter", "border": 1, "font_size": 12,
+    })
+    fmt_meta = workbook.add_format({
+        "italic": True, "bg_color": "#E7EDF3", "align": "left",
+        "valign": "vcenter", "border": 1, "font_size": 10,
+    })
+    fmt_col_header = workbook.add_format({
+        "bold": True, "bg_color": "#E5E7EB", "align": "center",
+        "valign": "vcenter", "border": 1, "font_size": 10,
+    })
+    fmt_cell = workbook.add_format({"border": 1, "valign": "vcenter"})
+    fmt_qty = workbook.add_format({"border": 1, "align": "right",
+                                    "num_format": "#,##0", "valign": "vcenter"})
+    fmt_total = workbook.add_format({
+        "bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "right",
+        "num_format": "#,##0", "valign": "vcenter",
+    })
+    fmt_total_lbl = workbook.add_format({
+        "bold": True, "bg_color": "#F3F4F6", "border": 1, "valign": "vcenter",
+    })
+
+    ws = workbook.add_worksheet("Planning")
+    ws.set_column(0, 0, 12)  # Référence
+    ws.set_column(1, 1, 50)  # Désignation
+    ws.set_column(2, 2, 10)  # Quantité
 
     row_i = 0
     if not nuits:
-        ws1.write(0, 0, "Aucune nuit configurée dans le phasage.", fmt_cell)
+        ws.write(0, 0, "Aucune nuit configurée dans le phasage.", fmt_cell)
     for nuit in nuits:
-        # Ligne titre "Nuit X"
-        ws1.merge_range(row_i, 0, row_i, 2, f"Nuit {nuit}", fmt_night_header)
-        ws1.set_row(row_i, 22)
+        meta = night_meta.get(nuit) or {}
+        # Ligne titre "Nuit X — Date"
+        title = f"Nuit {nuit}"
+        if meta.get("date"):
+            title += f" — {meta['date']}"
+        ws.merge_range(row_i, 0, row_i, 2, title, fmt_night_header)
+        ws.set_row(row_i, 24)
+        row_i += 1
+        # Ligne allées
+        aisles = meta.get("aisles") or []
+        aisles_txt = "Allées : " + (", ".join(aisles) if aisles else "—")
+        ws.merge_range(row_i, 0, row_i, 2, aisles_txt, fmt_meta)
         row_i += 1
         # En-tête colonnes
-        ws1.write(row_i, 0, "Référence", fmt_col_header)
-        ws1.write(row_i, 1, "Désignation", fmt_col_header)
-        ws1.write(row_i, 2, "Quantité", fmt_col_header)
+        ws.write(row_i, 0, "Référence", fmt_col_header)
+        ws.write(row_i, 1, "Désignation", fmt_col_header)
+        ws.write(row_i, 2, "Quantité", fmt_col_header)
         row_i += 1
         items = vusion_by_nuit.get(nuit) or {}
-        # Tri : Référence croissante puis Désignation
         sorted_items = sorted(items.items(), key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
         night_total = 0.0
         for (ref, desig), qty in sorted_items:
-            ws1.write(row_i, 0, ref or "", fmt_cell)
-            ws1.write(row_i, 1, desig, fmt_cell)
-            ws1.write_number(row_i, 2, qty, fmt_qty)
+            ws.write(row_i, 0, ref or "", fmt_cell)
+            ws.write(row_i, 1, desig, fmt_cell)
+            ws.write_number(row_i, 2, qty, fmt_qty)
             night_total += float(qty)
             row_i += 1
-        # Total nuit
-        ws1.write(row_i, 0, "", fmt_total_lbl)
-        ws1.write(row_i, 1, f"Total nuit {nuit}", fmt_total_lbl)
-        ws1.write_number(row_i, 2, night_total, fmt_total)
-        row_i += 2  # ligne vide entre nuits
-
-    # ─── Feuille 2 : Matériel Carrefour ─────────────────────────────────
-    ws2 = workbook.add_worksheet("Matériel Carrefour")
-    ws2.set_column(0, 0, 12)  # Référence
-    ws2.set_column(1, 1, 45)  # Désignation
-    ws2.set_column(2, 2, 10)  # Quantité
-    ws2.merge_range(0, 0, 0, 2, "Matériel restant chez Carrefour (non posé par Vusion)", fmt_night_header)
-    ws2.set_row(0, 22)
-    ws2.write(1, 0, "Référence", fmt_col_header)
-    ws2.write(1, 1, "Désignation", fmt_col_header)
-    ws2.write(1, 2, "Quantité", fmt_col_header)
-    row_i = 2
-    sorted_carrefour = sorted(carrefour_agg.items(),
-                              key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
-    carrefour_total = 0.0
-    for (ref, desig), qty in sorted_carrefour:
-        ws2.write(row_i, 0, ref or "", fmt_cell)
-        ws2.write(row_i, 1, desig, fmt_cell)
-        ws2.write_number(row_i, 2, qty, fmt_qty)
-        carrefour_total += float(qty)
-        row_i += 1
-    if sorted_carrefour:
-        ws2.write(row_i, 0, "", fmt_total_lbl)
-        ws2.write(row_i, 1, "Total Carrefour", fmt_total_lbl)
-        ws2.write_number(row_i, 2, carrefour_total, fmt_total)
-        ws2.autofilter(1, 0, row_i - 1, 2)
-        ws2.freeze_panes(2, 0)
+        ws.write(row_i, 0, "", fmt_total_lbl)
+        ws.write(row_i, 1, f"Total nuit {nuit}", fmt_total_lbl)
+        ws.write_number(row_i, 2, night_total, fmt_total)
+        row_i += 2
 
     workbook.close()
     output.seek(0)
-    filename = f"{_export_basename(d)}_Materiel_Vusion_Carrefour.xlsx"
+    filename = f"{_export_basename(d)}_Planning.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/export-preparation-palette-carrefour/{upload_id}")
+async def export_preparation_palette_carrefour(upload_id: str,
+                                                current_user: dict = Depends(get_current_user)):
+    """Export Excel « Préparation palette Carrefour » : matériel qui n'est pas
+    posé par la VT (SA non sélectionnées, supports SA sans SA, allées non
+    phaseées, Captana non phaseés)."""
+    d = await load_dataset(upload_id, user_id=_scope(current_user))
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset introuvable")
+    _, carrefour_agg, _, _ = _split_materiel_by_recipient(d)
+
+    import xlsxwriter
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    fmt_title = workbook.add_format({
+        "bold": True, "bg_color": "#B91C1C", "font_color": "white",
+        "align": "center", "valign": "vcenter", "border": 1, "font_size": 12,
+    })
+    fmt_col_header = workbook.add_format({
+        "bold": True, "bg_color": "#E5E7EB", "align": "center",
+        "valign": "vcenter", "border": 1, "font_size": 10,
+    })
+    fmt_cell = workbook.add_format({"border": 1, "valign": "vcenter"})
+    fmt_qty = workbook.add_format({"border": 1, "align": "right",
+                                    "num_format": "#,##0", "valign": "vcenter"})
+    fmt_total = workbook.add_format({
+        "bold": True, "bg_color": "#FEE2E2", "border": 1, "align": "right",
+        "num_format": "#,##0", "valign": "vcenter",
+    })
+    fmt_total_lbl = workbook.add_format({
+        "bold": True, "bg_color": "#FEE2E2", "border": 1, "valign": "vcenter",
+    })
+    ws = workbook.add_worksheet("Préparation palette")
+    ws.set_column(0, 0, 12)
+    ws.set_column(1, 1, 50)
+    ws.set_column(2, 2, 10)
+    ws.merge_range(0, 0, 0, 2, "Préparation palette Carrefour", fmt_title)
+    ws.set_row(0, 24)
+    ws.write(1, 0, "Référence", fmt_col_header)
+    ws.write(1, 1, "Désignation", fmt_col_header)
+    ws.write(1, 2, "Quantité", fmt_col_header)
+    row_i = 2
+    sorted_c = sorted(carrefour_agg.items(),
+                      key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
+    total = 0.0
+    for (ref, desig), qty in sorted_c:
+        ws.write(row_i, 0, ref or "", fmt_cell)
+        ws.write(row_i, 1, desig, fmt_cell)
+        ws.write_number(row_i, 2, qty, fmt_qty)
+        total += float(qty)
+        row_i += 1
+    if sorted_c:
+        ws.write(row_i, 0, "", fmt_total_lbl)
+        ws.write(row_i, 1, "Total palette Carrefour", fmt_total_lbl)
+        ws.write_number(row_i, 2, total, fmt_total)
+        ws.autofilter(1, 0, row_i - 1, 2)
+        ws.freeze_panes(2, 0)
+
+    workbook.close()
+    output.seek(0)
+    filename = f"{_export_basename(d)}_Preparation_Palette_Carrefour.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/export-commande/{upload_id}")
+async def export_commande(upload_id: str, current_user: dict = Depends(get_current_user)):
+    """Export Excel « Commande » : réutilise l'onglet Commandes de l'export
+    RTR, dans un fichier autonome."""
+    return await export_excel(upload_id, sheet="recap", current_user=current_user)
 
 
 @app.on_event("shutdown")
