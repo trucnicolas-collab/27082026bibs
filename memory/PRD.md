@@ -1,5 +1,27 @@
 # PRD - Application Inventaire EEG (Étiquettes Électroniques)
 
+## Changelog Feb 2026 (v29 iter53 — Export Planning par allée)
+
+### Demande utilisateur
+« Dans le fichier planning, il faut au final que tu élève la précision par allée. Par exemple Nuit 1 allée 2 matériel, allée 4 matériel etc. »
+
+### Fix appliqué
+**Backend (`server.py`)**
+- `_split_materiel_by_recipient` renvoie désormais un 5-tuple avec un nouveau `vusion_by_nuit_by_allee = {nuit: {allee_num: {(ref, desig): qty}}}`.
+- Endpoint `/api/export-planning/{upload_id}` refondu : à l'intérieur de chaque nuit, un bloc « Allée X » distinct par allée avec (Référence / Désignation / Quantité). Plus de total nuit (choix utilisateur : « pas de total pour le moment »).
+- Matériel Captana ratatché à son allée dans la nuit caméra correspondante.
+- Callers mis à jour (endpoints dead + prep-palette).
+
+**Frontend (`App.js`)**
+- Sous-titre du bouton Planning : « Matériel Vusion par nuit et par allée (Captana inclus) ».
+
+### Validation
+- Nouveau fichier `tests/test_iter53_export_planning_par_allee.py` (3 tests) : ventilation 2 allées / même nuit, isolation entre nuits, Captana ratatché, intégrité XLSX (ZIP sans duplication).
+- Tests iter52 régressés (5→5-tuple) : 10/10 OK.
+- Total : 13/13 tests OK.
+
+
+
 ## Changelog 19/02/2026 (v29 iter33 — Mode Lecture Seule client)
 
 ### Demande utilisateur

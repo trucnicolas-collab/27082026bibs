@@ -6501,19 +6501,22 @@ app.add_middleware(
 #   - Caméras : suivent le phasage caméra (cam.rows)
 # =============================================================================
 
-def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
-    """Renvoie (vusion_by_nuit, carrefour_agg, colonnes, night_meta) où :
+def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict, dict]:
+    """Renvoie (vusion_by_nuit, carrefour_agg, colonnes, night_meta,
+    vusion_by_nuit_by_allee) où :
     - vusion_by_nuit = {nuit: {(ref, desig): qty}}  matériel à poser par la VT
     - carrefour_agg  = {(ref, desig): qty}          matériel restant chez Carrefour
     - colonnes       = liste des N° de nuits présentes (triée)
     - night_meta     = {nuit: {"date": str, "aisles": [str,...], "kind": "es"|"cam"}}
+    - vusion_by_nuit_by_allee = {nuit: {allee_num: {(ref, desig): qty}}}
+      Ventilation fine par allée pour l'export « Planning ».
     Utilise raw_records + phasage + sa_install.
     """
     from suivi_deploy import is_sa_support_fixation, is_cam_side_product
 
     raw = d.get("raw_records") or []
     if not raw:
-        return {}, {}, [], {}
+        return {}, {}, [], {}, {}
     cols = list(raw[0].keys())
     secteur_col = next((c for c in ["Secteur"] if c in cols), None)
     rayon_col = next((c for c in ["Rayon"] if c in cols), None)
@@ -6523,7 +6526,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
     desig_col = next((c for c in ["Désignation", "Designation"] if c in cols), None)
     qty_col = next((c for c in ["Quantité", "Quantite"] if c in cols), None)
     if not (allee_col and desig_col and qty_col):
-        return {}, {}, [], {}
+        return {}, {}, [], {}, {}
 
     phasage = _normalize_phasage(d.get("phasage"))
     es_rows = (phasage.get("es") or {}).get("rows") or []
@@ -6629,11 +6632,17 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
         return off
 
     vusion_by_nuit: dict[int, dict] = {}
+    vusion_by_nuit_by_allee: dict[int, dict[str, dict]] = {}
     carrefour_agg: dict = {}
 
     def _add(bucket: dict, ref: str, desig: str, qty: float):
         key = (ref or "", desig or "")
         bucket[key] = float(bucket.get(key) or 0) + float(qty or 0)
+
+    def _add_allee(nuit: int, allee_num: str, ref: str, desig: str, qty: float):
+        by_a = vusion_by_nuit_by_allee.setdefault(int(nuit), {})
+        b = by_a.setdefault(str(allee_num or ""), {})
+        _add(b, ref, desig, qty)
 
     for row in raw:
         allee = str(row.get(allee_col) or "").strip()
@@ -6659,6 +6668,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
             if nuit_cam:
                 b = vusion_by_nuit.setdefault(nuit_cam, {})
                 _add(b, ref, desig, qty)
+                _add_allee(nuit_cam, allee, ref, desig, qty)
             else:
                 _add(carrefour_agg, ref, desig, qty)
             continue
@@ -6697,6 +6707,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
         else:
             b = vusion_by_nuit.setdefault(int(nuit_es), {})
             _add(b, ref, desig, qty)
+            _add_allee(int(nuit_es), allee, ref, desig, qty)
 
     nuits = sorted(vusion_by_nuit.keys())
     # Métadonnées par nuit : date + liste des allées + type (es/cam)
@@ -6734,7 +6745,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict]:
             "aisles": aisles,
             "kind": kind,
         }
-    return vusion_by_nuit, carrefour_agg, nuits, night_meta
+    return vusion_by_nuit, carrefour_agg, nuits, night_meta, vusion_by_nuit_by_allee
 
 
 @app.get("/api/export-materiel-vusion-carrefour/{upload_id}")
@@ -6746,7 +6757,7 @@ async def export_materiel_vusion_carrefour(upload_id: str,
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
 
-    vusion_by_nuit, carrefour_agg, nuits = _split_materiel_by_recipient(d)
+    vusion_by_nuit, carrefour_agg, nuits, _, _ = _split_materiel_by_recipient(d)
 
     import xlsxwriter
     output = io.BytesIO()
@@ -6779,7 +6790,7 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
     d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    vusion_by_nuit, _, nuits, night_meta = _split_materiel_by_recipient(d)
+    vusion_by_nuit, _, nuits, night_meta, vusion_by_nuit_by_allee = _split_materiel_by_recipient(d)
 
     import xlsxwriter
     output = io.BytesIO()
@@ -6792,6 +6803,10 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
         "italic": True, "bg_color": "#E7EDF3", "align": "left",
         "valign": "vcenter", "border": 1, "font_size": 10,
     })
+    fmt_allee_header = workbook.add_format({
+        "bold": True, "bg_color": "#0EA5E9", "font_color": "white",
+        "align": "left", "valign": "vcenter", "border": 1, "font_size": 11,
+    })
     fmt_col_header = workbook.add_format({
         "bold": True, "bg_color": "#E5E7EB", "align": "center",
         "valign": "vcenter", "border": 1, "font_size": 10,
@@ -6799,18 +6814,17 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
     fmt_cell = workbook.add_format({"border": 1, "valign": "vcenter"})
     fmt_qty = workbook.add_format({"border": 1, "align": "right",
                                     "num_format": "#,##0", "valign": "vcenter"})
-    fmt_total = workbook.add_format({
-        "bold": True, "bg_color": "#F3F4F6", "border": 1, "align": "right",
-        "num_format": "#,##0", "valign": "vcenter",
-    })
-    fmt_total_lbl = workbook.add_format({
-        "bold": True, "bg_color": "#F3F4F6", "border": 1, "valign": "vcenter",
-    })
 
     ws = workbook.add_worksheet("Planning")
     ws.set_column(0, 0, 12)  # Référence
     ws.set_column(1, 1, 50)  # Désignation
     ws.set_column(2, 2, 10)  # Quantité
+
+    def _sort_allee_key(a: str):
+        try:
+            return (0, int(a))
+        except (ValueError, TypeError):
+            return (1, str(a))
 
     row_i = 0
     if not nuits:
@@ -6824,29 +6838,43 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
         ws.merge_range(row_i, 0, row_i, 2, title, fmt_night_header)
         ws.set_row(row_i, 24)
         row_i += 1
-        # Ligne allées
+        # Ligne récap allées de la nuit
         aisles = meta.get("aisles") or []
         aisles_txt = "Allées : " + (", ".join(aisles) if aisles else "—")
         ws.merge_range(row_i, 0, row_i, 2, aisles_txt, fmt_meta)
         row_i += 1
-        # En-tête colonnes
-        ws.write(row_i, 0, "Référence", fmt_col_header)
-        ws.write(row_i, 1, "Désignation", fmt_col_header)
-        ws.write(row_i, 2, "Quantité", fmt_col_header)
-        row_i += 1
-        items = vusion_by_nuit.get(nuit) or {}
-        sorted_items = sorted(items.items(), key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
-        night_total = 0.0
-        for (ref, desig), qty in sorted_items:
-            ws.write(row_i, 0, ref or "", fmt_cell)
-            ws.write(row_i, 1, desig, fmt_cell)
-            ws.write_number(row_i, 2, qty, fmt_qty)
-            night_total += float(qty)
+
+        # Ventilation par allée
+        by_allee = vusion_by_nuit_by_allee.get(nuit) or {}
+        allees_sorted = sorted(by_allee.keys(), key=_sort_allee_key)
+        if not allees_sorted:
+            ws.merge_range(row_i, 0, row_i, 2,
+                           "Aucun matériel à poser pour cette nuit.", fmt_cell)
+            row_i += 2
+            continue
+
+        for allee in allees_sorted:
+            # Titre allée
+            ws.merge_range(row_i, 0, row_i, 2, f"Allée {allee}", fmt_allee_header)
+            ws.set_row(row_i, 20)
             row_i += 1
-        ws.write(row_i, 0, "", fmt_total_lbl)
-        ws.write(row_i, 1, f"Total nuit {nuit}", fmt_total_lbl)
-        ws.write_number(row_i, 2, night_total, fmt_total)
-        row_i += 2
+            # En-tête colonnes
+            ws.write(row_i, 0, "Référence", fmt_col_header)
+            ws.write(row_i, 1, "Désignation", fmt_col_header)
+            ws.write(row_i, 2, "Quantité", fmt_col_header)
+            row_i += 1
+            items = by_allee.get(allee) or {}
+            sorted_items = sorted(items.items(),
+                                  key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
+            for (ref, desig), qty in sorted_items:
+                ws.write(row_i, 0, ref or "", fmt_cell)
+                ws.write(row_i, 1, desig, fmt_cell)
+                ws.write_number(row_i, 2, qty, fmt_qty)
+                row_i += 1
+            # Ligne vide entre allées
+            row_i += 1
+        # Ligne vide entre nuits
+        row_i += 1
 
     workbook.close()
     output.seek(0)
@@ -6867,7 +6895,7 @@ async def export_preparation_palette_carrefour(upload_id: str,
     d = await load_dataset(upload_id, user_id=_scope(current_user))
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset introuvable")
-    _, carrefour_agg, _, _ = _split_materiel_by_recipient(d)
+    _, carrefour_agg, _, _, _ = _split_materiel_by_recipient(d)
 
     import xlsxwriter
     output = io.BytesIO()
