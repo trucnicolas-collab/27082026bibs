@@ -6632,6 +6632,8 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict, dict]
         return off
 
     vusion_by_nuit: dict[int, dict] = {}
+    # Ventilation par allée : key = "allee|sec|ray", value = {"allee": str,
+    # "secteur": str, "rayon": str, "kind": "es"|"cam", "items": {(ref,desig): qty}}
     vusion_by_nuit_by_allee: dict[int, dict[str, dict]] = {}
     carrefour_agg: dict = {}
 
@@ -6639,10 +6641,21 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict, dict]
         key = (ref or "", desig or "")
         bucket[key] = float(bucket.get(key) or 0) + float(qty or 0)
 
-    def _add_allee(nuit: int, allee_num: str, ref: str, desig: str, qty: float):
+    def _add_allee(nuit: int, allee_num: str, sec: str, ray: str,
+                    kind: str, ref: str, desig: str, qty: float):
         by_a = vusion_by_nuit_by_allee.setdefault(int(nuit), {})
-        b = by_a.setdefault(str(allee_num or ""), {})
-        _add(b, ref, desig, qty)
+        key = f"{allee_num or ''}|{sec or ''}|{ray or ''}"
+        entry = by_a.get(key)
+        if entry is None:
+            entry = {
+                "allee": str(allee_num or ""),
+                "secteur": sec or "",
+                "rayon": ray or "",
+                "kind": kind,
+                "items": {},
+            }
+            by_a[key] = entry
+        _add(entry["items"], ref, desig, qty)
 
     for row in raw:
         allee = str(row.get(allee_col) or "").strip()
@@ -6668,7 +6681,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict, dict]
             if nuit_cam:
                 b = vusion_by_nuit.setdefault(nuit_cam, {})
                 _add(b, ref, desig, qty)
-                _add_allee(nuit_cam, allee, ref, desig, qty)
+                _add_allee(nuit_cam, allee, sec, ray, "cam", ref, desig, qty)
             else:
                 _add(carrefour_agg, ref, desig, qty)
             continue
@@ -6707,7 +6720,7 @@ def _split_materiel_by_recipient(d: dict) -> tuple[dict, dict, list, dict, dict]
         else:
             b = vusion_by_nuit.setdefault(int(nuit_es), {})
             _add(b, ref, desig, qty)
-            _add_allee(int(nuit_es), allee, ref, desig, qty)
+            _add_allee(int(nuit_es), allee, sec, ray, "es", ref, desig, qty)
 
     nuits = sorted(vusion_by_nuit.keys())
     # Métadonnées par nuit : date + liste des allées + type (es/cam)
@@ -6820,11 +6833,24 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
     ws.set_column(1, 1, 50)  # Désignation
     ws.set_column(2, 2, 10)  # Quantité
 
-    def _sort_allee_key(a: str):
+    def _sort_allee_key(entry: dict):
+        """Tri : n° allée numérique croissant, puis secteur/rayon."""
+        a = entry.get("allee") or ""
         try:
-            return (0, int(a))
+            a_key = (0, int(a))
         except (ValueError, TypeError):
-            return (1, str(a))
+            a_key = (1, str(a))
+        return (a_key, entry.get("secteur") or "", entry.get("rayon") or "")
+
+    def _allee_label(entry: dict) -> str:
+        """« Allée 2 — PGC / PLS » ou « Allée 2 — Saisonnier » selon dispo."""
+        base = f"Allée {entry.get('allee') or '?'}"
+        sec = (entry.get("secteur") or "").strip()
+        ray = (entry.get("rayon") or "").strip()
+        parts = [p for p in (sec, ray) if p]
+        if parts:
+            return f"{base} — {' / '.join(parts)}"
+        return base
 
     row_i = 0
     if not nuits:
@@ -6844,18 +6870,18 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
         ws.merge_range(row_i, 0, row_i, 2, aisles_txt, fmt_meta)
         row_i += 1
 
-        # Ventilation par allée
+        # Ventilation par allée (chaque entry = {allee, secteur, rayon, items})
         by_allee = vusion_by_nuit_by_allee.get(nuit) or {}
-        allees_sorted = sorted(by_allee.keys(), key=_sort_allee_key)
-        if not allees_sorted:
+        entries_sorted = sorted(by_allee.values(), key=_sort_allee_key)
+        if not entries_sorted:
             ws.merge_range(row_i, 0, row_i, 2,
                            "Aucun matériel à poser pour cette nuit.", fmt_cell)
             row_i += 2
             continue
 
-        for allee in allees_sorted:
-            # Titre allée
-            ws.merge_range(row_i, 0, row_i, 2, f"Allée {allee}", fmt_allee_header)
+        for entry in entries_sorted:
+            # Titre allée + contexte (secteur/rayon)
+            ws.merge_range(row_i, 0, row_i, 2, _allee_label(entry), fmt_allee_header)
             ws.set_row(row_i, 20)
             row_i += 1
             # En-tête colonnes
@@ -6863,7 +6889,7 @@ async def export_planning(upload_id: str, current_user: dict = Depends(get_curre
             ws.write(row_i, 1, "Désignation", fmt_col_header)
             ws.write(row_i, 2, "Quantité", fmt_col_header)
             row_i += 1
-            items = by_allee.get(allee) or {}
+            items = entry.get("items") or {}
             sorted_items = sorted(items.items(),
                                   key=lambda kv: (kv[0][0] or "\uffff", kv[0][1].lower()))
             for (ref, desig), qty in sorted_items:
