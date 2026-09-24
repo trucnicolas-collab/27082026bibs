@@ -831,7 +831,7 @@ function MainApp() {
                                                 <span className="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
                                                     {exportingPlanning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Planning
                                                 </span>
-                                                <span className="text-xs text-gray-500">Matériel Vusion par nuit et par allée (Captana inclus)</span>
+                                                <span className="text-xs text-gray-500">2 onglets : matériel VT par nuit/allée + SA à faire poser par le magasin</span>
                                             </button>
                                             <button onClick={handleExportPrepPalette} disabled={exportingPrepPalette} className="flex flex-col items-start gap-1 p-4 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 text-left" data-testid="export-prep-palette">
                                                 <span className="text-sm font-semibold text-orange-700 flex items-center gap-1.5">

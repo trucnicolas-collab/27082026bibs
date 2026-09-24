@@ -54,7 +54,7 @@ def _entry_by_allee(by_allee: dict, allee: str, sec: str = "", ray: str = ""):
 
 
 def test_ventilation_par_allee_dans_meme_nuit():
-    _, _, nuits, _, by_nuit = _split_materiel_by_recipient(
+    _, _, nuits, _, by_nuit, _ = _split_materiel_by_recipient(
         _dataset_deux_allees_meme_nuit())
     assert 1 in nuits
     assert 1 in by_nuit
@@ -91,7 +91,7 @@ def test_meme_numero_allee_dans_secteurs_differents_sont_separes():
         "sa_install": {"enabled": False, "answered": True,
                        "seasonal": {"all": True, "zones": {}}},
     }
-    _, _, _, _, by_nuit = _split_materiel_by_recipient(d)
+    _, _, _, _, by_nuit, _ = _split_materiel_by_recipient(d)
     assert 1 in by_nuit
     entries = list(by_nuit[1].values())
     # 2 entrées distinctes pour allée 5
@@ -117,7 +117,7 @@ def test_captana_ratache_a_son_allee_dans_nuit_camera():
         "sa_install": {"enabled": False, "answered": True,
                        "seasonal": {"all": True, "zones": {}}},
     }
-    _, _, nuits, _, by_nuit = _split_materiel_by_recipient(d)
+    _, _, nuits, _, by_nuit, _ = _split_materiel_by_recipient(d)
     assert 5 in nuits and 5 in by_nuit
     e = _entry_by_allee(by_nuit[5], "3", "PGC", "PLS")
     assert e is not None
@@ -135,7 +135,7 @@ def test_export_planning_endpoint_produces_valid_xlsx():
     import xlsxwriter
 
     d = _dataset_deux_allees_meme_nuit()
-    _, _, nuits, _, by_nuit = _split_materiel_by_recipient(d)
+    _, _, nuits, _, by_nuit, _ = _split_materiel_by_recipient(d)
 
     output = io.BytesIO()
     wb = xlsxwriter.Workbook(output, {"in_memory": True})
