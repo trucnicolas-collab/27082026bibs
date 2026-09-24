@@ -297,11 +297,15 @@ export default function PhasageTab({ uploadId }) {
                     + (isMag2 ? (node.sa_15 || 0) : ((node.es_15_bonus_noir || 0) + (node.es_15_bonus_blanc || 0)))
                     + (node.fleches || 0);
                 const rails = node.rails_es || 0;
-                // SA à installer selon la config actuelle
-                const inst = computeNodeSaInstall(node, saInstall);
-                const instTotal = (inst.sa_15 || 0) + (inst.sa_21 || 0) + (inst.freezer || 0) + (inst.sa_42 || 0);
-                // Rien à faire dans cette allée → retire la ligne
-                return (es + rails + instTotal) > 0;
+                // SA brutes présentes dans l'allée (qu'elles soient posées par
+                // la VT ou par le magasin). On veut permettre de phaser une
+                // allée même si 100% de ses SA sont "à poser par le magasin".
+                const rawSa = (node.sa_15 || 0)
+                    + (node.sa_21_std || node.sa_21 || 0)
+                    + (node.sa_21_freezer || 0)
+                    + (node.sa_42 || 0);
+                // Rien du tout dans cette allée (ni VT ni magasin) → retire
+                return (es + rails + rawSa) > 0;
             });
             // N'appelle setRows que si le contenu a changé (évite loops de re-render)
             return cleaned.length === prev.length ? prev : cleaned;
