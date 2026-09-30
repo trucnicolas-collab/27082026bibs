@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
-import { History, FolderOpen, Trash2, Loader2, Pencil, Check, X, Share2, Copy, Link as LinkIcon } from "lucide-react";
+import { History, FolderOpen, Trash2, Loader2, Pencil, Check, X, Share2, Copy, Link as LinkIcon, UserPlus, Users, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -139,7 +139,186 @@ function ShareDialog({ session, onClose, onUpdate }) {
     );
 }
 
-function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletingId }) {
+function UserShareDialog({ session, currentUserEmail, onClose }) {
+    const [emailDraft, setEmailDraft] = useState("");
+    const [shares, setShares] = useState([]);
+    const [loadingList, setLoadingList] = useState(false);
+    const [adding, setAdding] = useState(false);
+    const [removingEmail, setRemovingEmail] = useState(null);
+    const isOwner = !session.is_shared_with_me;
+
+    const fetchShares = useCallback(async () => {
+        if (!isOwner) return;
+        setLoadingList(true);
+        try {
+            const res = await axios.get(`${API}/dataset/${session.upload_id}/user-shares`);
+            setShares(res.data.shares || []);
+        } catch (err) {
+            toast.error(`Impossible de charger les partages : ${err.response?.data?.detail || err.message}`);
+        } finally {
+            setLoadingList(false);
+        }
+    }, [session.upload_id, isOwner]);
+
+    useEffect(() => { fetchShares(); }, [fetchShares]);
+
+    const add = async () => {
+        const email = emailDraft.trim().toLowerCase();
+        if (!email) return;
+        setAdding(true);
+        try {
+            const res = await axios.post(`${API}/dataset/${session.upload_id}/share-with-user`,
+                                          { email });
+            setShares((arr) => [...arr, res.data.shared_with]);
+            setEmailDraft("");
+            toast.success(`Session partagée avec ${email}`);
+        } catch (err) {
+            toast.error(err.response?.data?.detail || err.message);
+        } finally {
+            setAdding(false);
+        }
+    };
+
+    const remove = async (email) => {
+        setRemovingEmail(email);
+        try {
+            await axios.delete(`${API}/dataset/${session.upload_id}/share-with-user`,
+                                { params: { email } });
+            setShares((arr) => arr.filter((s) => s.email !== email));
+            toast.success(`${email} retiré du partage`);
+        } catch (err) {
+            toast.error(err.response?.data?.detail || err.message);
+        } finally {
+            setRemovingEmail(null);
+        }
+    };
+
+    const removeMyself = async () => {
+        if (!window.confirm("Retirer votre accès à cette session ?\nVous ne la verrez plus dans votre liste.")) return;
+        setRemovingEmail(currentUserEmail);
+        try {
+            await axios.delete(`${API}/dataset/${session.upload_id}/share-with-user`,
+                                { params: { email: currentUserEmail } });
+            toast.success("Votre accès a été retiré");
+            onClose(true);
+        } catch (err) {
+            toast.error(err.response?.data?.detail || err.message);
+        } finally {
+            setRemovingEmail(null);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4"
+             onClick={() => onClose(false)}>
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-md"
+                 onClick={(e) => e.stopPropagation()}
+                 data-testid="user-share-dialog">
+                <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-indigo-600" />
+                        Partager avec un utilisateur
+                    </h3>
+                    <button onClick={() => onClose(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                            data-testid="user-share-close">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div className="p-5 space-y-4">
+                    <div className="text-xs text-gray-500 truncate">
+                        Session : <span className="font-medium text-gray-800">{session.label || session.filename}</span>
+                    </div>
+
+                    {isOwner ? (
+                        <>
+                            <div className="flex gap-2">
+                                <input
+                                    type="email"
+                                    placeholder="email@carrefour.com"
+                                    value={emailDraft}
+                                    onChange={(e) => setEmailDraft(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+                                    data-testid="user-share-email-input"
+                                    className="flex-1 h-9 px-3 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                />
+                                <button
+                                    onClick={add}
+                                    disabled={adding || !emailDraft.trim()}
+                                    data-testid="user-share-add-button"
+                                    className="h-9 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                                    Ajouter
+                                </button>
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold text-gray-500 mb-1.5">
+                                    Personnes ayant accès ({shares.length})
+                                </div>
+                                {loadingList ? (
+                                    <div className="text-sm text-gray-400 flex items-center gap-2 py-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" /> Chargement…
+                                    </div>
+                                ) : shares.length === 0 ? (
+                                    <div className="text-sm text-gray-400 italic py-2"
+                                         data-testid="user-share-empty">
+                                        Aucun partage. Entrez un email ci-dessus pour partager.
+                                    </div>
+                                ) : (
+                                    <ul className="divide-y divide-gray-100 border border-gray-100 rounded">
+                                        {shares.map((sh) => (
+                                            <li key={sh.user_id}
+                                                data-testid={`user-share-row-${sh.email}`}
+                                                className="px-3 py-2 flex items-center gap-2 hover:bg-gray-50">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-sm text-gray-900 truncate">{sh.email}</div>
+                                                    {sh.name && <div className="text-xs text-gray-500 truncate">{sh.name}</div>}
+                                                </div>
+                                                <button
+                                                    onClick={() => remove(sh.email)}
+                                                    disabled={removingEmail === sh.email}
+                                                    data-testid={`user-share-remove-${sh.email}`}
+                                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                                                    title="Retirer l'accès"
+                                                >
+                                                    {removingEmail === sh.email ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            <div className="text-xs text-gray-500 border-t border-gray-100 pt-2">
+                                Édition complète : chaque personne peut voir et modifier cette session comme vous.
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                                Cette session est partagée avec vous par
+                                <span className="font-semibold ml-1">{session.shared_from_email || "un autre utilisateur"}</span>.
+                            </div>
+                            <button
+                                onClick={removeMyself}
+                                disabled={!!removingEmail}
+                                data-testid="user-share-remove-myself"
+                                className="w-full h-10 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {removingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
+                                Retirer mon accès
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+
+function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, onUserShare, deletingId }) {
     const [editing, setEditing] = useState(false);
     const [labelDraft, setLabelDraft] = useState(s.label || "");
     const [saving, setSaving] = useState(false);
@@ -226,17 +405,24 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                                         · par {s.owner_email}
                                     </span>
                                 )}
+                                {s.is_shared_with_me && s.shared_from_email && (
+                                    <span className="ml-1.5 text-indigo-700 font-medium" data-testid={`session-shared-from-${s.upload_id}`}>
+                                        · partagée par {s.shared_from_email}
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </button>
                     <button
                         onClick={() => { setLabelDraft(s.label || ""); setEditing(true); }}
                         data-testid={`session-rename-${s.upload_id}`}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                        title="Renommer"
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-30 disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+                        title={s.is_shared_with_me ? "Renommer (réservé au propriétaire)" : "Renommer"}
+                        disabled={s.is_shared_with_me}
                     >
                         <Pencil className="w-4 h-4" />
                     </button>
+                    {!s.is_shared_with_me && (
                     <button
                         onClick={() => onShare(s)}
                         data-testid={`session-share-${s.upload_id}`}
@@ -249,12 +435,23 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
                     >
                         <Share2 className="w-4 h-4" />
                     </button>
+                    )}
+                    <button
+                        onClick={() => onUserShare(s)}
+                        data-testid={`session-user-share-${s.upload_id}`}
+                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                        title={s.is_shared_with_me
+                            ? `Partagée par ${s.shared_from_email || "un autre utilisateur"}`
+                            : "Partager avec un utilisateur (édition)"}
+                    >
+                        <UserPlus className="w-4 h-4" />
+                    </button>
                     <button
                         onClick={() => onDelete(s.upload_id, displayName)}
-                        disabled={deletingId === s.upload_id}
+                        disabled={deletingId === s.upload_id || s.is_shared_with_me}
                         data-testid={`session-delete-${s.upload_id}`}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                        title="Supprimer cette session"
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-30 disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+                        title={s.is_shared_with_me ? "Suppression réservée au propriétaire" : "Supprimer cette session"}
                     >
                         {deletingId === s.upload_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                     </button>
@@ -264,12 +461,13 @@ function SessionRow({ s, isCurrent, onOpen, onDelete, onRename, onShare, deletin
     );
 }
 
-export default function SessionsMenu({ currentUploadId, onOpen, onDeleted }) {
+export default function SessionsMenu({ currentUploadId, currentUserEmail, onOpen, onDeleted }) {
     const [open, setOpen] = useState(false);
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
     const [shareTarget, setShareTarget] = useState(null);
+    const [userShareTarget, setUserShareTarget] = useState(null);
     const ref = useRef(null);
 
     const fetchSessions = useCallback(async () => {
@@ -289,13 +487,13 @@ export default function SessionsMenu({ currentUploadId, onOpen, onDeleted }) {
     }, [open, fetchSessions]);
 
     useEffect(() => {
-        if (!open || shareTarget) return;
+        if (!open || shareTarget || userShareTarget) return;
         const onClick = (e) => {
             if (ref.current && !ref.current.contains(e.target)) setOpen(false);
         };
         document.addEventListener("mousedown", onClick);
         return () => document.removeEventListener("mousedown", onClick);
-    }, [open, shareTarget]);
+    }, [open, shareTarget, userShareTarget]);
 
     const handleDelete = async (uploadId, displayName) => {
         if (!window.confirm(`Supprimer définitivement « ${displayName} » ?\nCette action libère l'espace serveur et est irréversible.`)) return;
@@ -375,6 +573,7 @@ export default function SessionsMenu({ currentUploadId, onOpen, onDeleted }) {
                                         onDelete={handleDelete}
                                         onRename={handleRename}
                                         onShare={setShareTarget}
+                                        onUserShare={setUserShareTarget}
                                         deletingId={deletingId}
                                     />
                                 ))}
@@ -393,6 +592,17 @@ export default function SessionsMenu({ currentUploadId, onOpen, onDeleted }) {
                     session={shareTarget}
                     onClose={() => setShareTarget(null)}
                     onUpdate={handleShareUpdate}
+                />
+            )}
+
+            {userShareTarget && (
+                <UserShareDialog
+                    session={userShareTarget}
+                    currentUserEmail={currentUserEmail || ""}
+                    onClose={(shouldRefresh) => {
+                        setUserShareTarget(null);
+                        if (shouldRefresh) fetchSessions();
+                    }}
                 />
             )}
         </div>

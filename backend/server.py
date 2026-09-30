@@ -122,12 +122,14 @@ def _scope(user: Optional[dict]) -> Optional[str]:
 
 
 def _owner_filter(user_id: Optional[str], include_legacy: bool = False) -> dict:
-    """Fragment de filtre Mongo par owner. Pour superadmin (user_id=None) → {} (pas de restriction)."""
+    """Fragment de filtre Mongo par owner OU utilisateur avec qui le dataset
+    a été partagé. Pour superadmin (user_id=None) → {} (pas de restriction)."""
     if user_id is None:
         return {}
+    clauses = [{"user_id": user_id}, {"shared_with": user_id}]
     if include_legacy:
-        return {"$or": [{"user_id": user_id}, {"user_id": {"$exists": False}}]}
-    return {"user_id": user_id}
+        clauses.append({"user_id": {"$exists": False}})
+    return {"$or": clauses}
 
 
 async def save_phasage_snapshot(upload_id: str, user: Optional[dict],
@@ -282,7 +284,7 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
     # cohérence sans recharger le gros payload gzippé (raw_records).
     _EDITABLE_FLAT_FIELDS = (
         "recap_rows", "comment_table", "phasage", "surface_category",
-        "dongles_quantity", "sa_install", "user_id",
+        "dongles_quantity", "sa_install", "user_id", "shared_with",
         "vt_start_date", "vt_end_date", "store_name", "store_city",
         "store_code", "store_address", "participants",
         "responsable_magasin", "responsable_vusion",
@@ -305,13 +307,19 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
             logger.warning(f"load_dataset refresh flat fields failed: {e}")
         if user_id is not None:
             owner = cached.get("user_id")
-            if owner is not None and owner != user_id:
+            shared = cached.get("shared_with") or []
+            if owner is not None and owner != user_id and user_id not in shared:
                 return None
         return cached
     query: dict = {"upload_id": upload_id}
     if user_id is not None:
-        # On accepte aussi les datasets legacy sans user_id (rétro-compatibilité)
-        query = {"upload_id": upload_id, "$or": [{"user_id": user_id}, {"user_id": {"$exists": False}}]}
+        # On accepte aussi les datasets legacy sans user_id ET les datasets
+        # partagés avec l'utilisateur.
+        query = {"upload_id": upload_id, "$or": [
+            {"user_id": user_id},
+            {"shared_with": user_id},
+            {"user_id": {"$exists": False}},
+        ]}
     doc = await db.datasets.find_one(query, {"_id": 0})
     if not doc:
         return None
@@ -338,6 +346,8 @@ async def load_dataset(upload_id: str, user_id: Optional[str] = None) -> Optiona
             payload[fld] = doc[fld]
     if "user_id" in doc:
         payload["user_id"] = doc["user_id"]
+    if "shared_with" in doc:
+        payload["shared_with"] = doc["shared_with"]
     DATASTORE[upload_id] = payload
     return payload
 
@@ -1669,9 +1679,26 @@ async def list_datasets(current_user: dict = Depends(get_current_user)):
         _owner_filter(user_id),
         {"_id": 0, "upload_id": 1, "filename": 1, "uploaded_at": 1,
          "row_count": 1, "size_bytes": 1, "compressed_bytes": 1,
-         "label": 1, "share_enabled": 1, "share_token": 1, "user_id": 1},
+         "label": 1, "share_enabled": 1, "share_token": 1, "user_id": 1,
+         "shared_with": 1},
     ).sort("uploaded_at", -1)
     items = await cursor.to_list(length=500)
+    # Marque les datasets qui appartiennent à quelqu'un d'autre (partagés
+    # avec l'utilisateur courant) et enrichit avec l'email du propriétaire.
+    if user_id is not None:
+        shared_owner_ids = list({it.get("user_id") for it in items
+                                  if it.get("user_id") and it.get("user_id") != user_id})
+        if shared_owner_ids:
+            owners_cursor = db.users.find(
+                {"_id": {"$in": [ObjectId(oid) for oid in shared_owner_ids if ObjectId.is_valid(oid)]}},
+                {"email": 1, "name": 1},
+            )
+            owner_map = {str(u["_id"]): u.get("email") or ""
+                         async for u in owners_cursor}
+            for it in items:
+                if it.get("user_id") and it["user_id"] != user_id:
+                    it["shared_from_email"] = owner_map.get(it["user_id"], "")
+                    it["is_shared_with_me"] = True
     # Pour le superadmin (créateur de l'outil) : ajouter l'email du propriétaire à chaque dataset
     if user_id is None and items:
         owner_ids = list({it.get("user_id") for it in items if it.get("user_id")})
@@ -1687,6 +1714,129 @@ async def list_datasets(current_user: dict = Depends(get_current_user)):
                 it["owner_email"] = info.get("email") or ""
                 it["owner_name"] = info.get("name") or ""
     return {"datasets": items}
+
+
+
+# ---------------------------------------------------------------------------
+# Partage de session entre utilisateurs (par email)
+# ---------------------------------------------------------------------------
+
+class ShareRequest(BaseModel):
+    email: str
+
+
+async def _get_dataset_for_share(upload_id: str, current_user: dict) -> dict:
+    """Charge le dataset et vérifie que l'utilisateur courant en est le
+    propriétaire (ou superadmin). Retourne le doc Mongo brut (avec user_id
+    + shared_with). Sinon HTTPException."""
+    doc = await db.datasets.find_one(
+        {"upload_id": upload_id},
+        {"_id": 0, "upload_id": 1, "user_id": 1, "shared_with": 1, "filename": 1},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    is_super = current_user.get("role") == "superadmin"
+    if not is_super and doc.get("user_id") != str(current_user["_id"]):
+        raise HTTPException(status_code=403,
+                            detail="Seul le propriétaire peut gérer les partages")
+    return doc
+
+
+@api_router.get("/dataset/{upload_id}/user-shares")
+async def list_dataset_shares(upload_id: str,
+                               current_user: dict = Depends(get_current_user)):
+    """Liste les emails avec lesquels la session est partagée. Propriétaire
+    (ou superadmin) uniquement."""
+    doc = await _get_dataset_for_share(upload_id, current_user)
+    ids = doc.get("shared_with") or []
+    if not ids:
+        return {"upload_id": upload_id, "shares": []}
+    users = await db.users.find(
+        {"_id": {"$in": [ObjectId(uid) for uid in ids if ObjectId.is_valid(uid)]}},
+        {"email": 1, "name": 1},
+    ).to_list(length=100)
+    return {
+        "upload_id": upload_id,
+        "shares": [{"user_id": str(u["_id"]), "email": u.get("email") or "",
+                    "name": u.get("name") or ""} for u in users],
+    }
+
+
+@api_router.post("/dataset/{upload_id}/share-with-user")
+async def share_dataset(upload_id: str, payload: ShareRequest,
+                         current_user: dict = Depends(get_current_user)):
+    """Partage la session avec un utilisateur identifié par son email.
+    L'utilisateur cible doit exister. Édition complète."""
+    doc = await _get_dataset_for_share(upload_id, current_user)
+    email = (payload.email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email requis")
+    target = await db.users.find_one({"email": email}, {"email": 1, "name": 1})
+    if not target:
+        raise HTTPException(status_code=404,
+                            detail=f"Aucun utilisateur trouvé avec l'email {email}")
+    target_id = str(target["_id"])
+    if target_id == doc.get("user_id"):
+        raise HTTPException(status_code=400,
+                            detail="Vous êtes déjà le propriétaire de cette session")
+    existing = set(doc.get("shared_with") or [])
+    if target_id in existing:
+        raise HTTPException(status_code=409,
+                            detail=f"Cette session est déjà partagée avec {email}")
+    await db.datasets.update_one(
+        {"upload_id": upload_id},
+        {"$addToSet": {"shared_with": target_id}},
+    )
+    # Invalide le cache mémoire pour que le partage soit visible immédiatement.
+    if upload_id in DATASTORE:
+        DATASTORE[upload_id]["shared_with"] = list(existing | {target_id})
+    return {
+        "upload_id": upload_id,
+        "shared_with": {"user_id": target_id, "email": target.get("email") or "",
+                        "name": target.get("name") or ""},
+    }
+
+
+@api_router.delete("/dataset/{upload_id}/share-with-user")
+async def unshare_dataset(upload_id: str, email: str,
+                           current_user: dict = Depends(get_current_user)):
+    """Retire un utilisateur de la liste des partages. Autorisé pour :
+    - le propriétaire (retire n'importe qui)
+    - l'utilisateur partagé lui-même (se retire de sa propre liste)."""
+    email = (email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email requis")
+    doc = await db.datasets.find_one(
+        {"upload_id": upload_id},
+        {"_id": 0, "user_id": 1, "shared_with": 1},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    target = await db.users.find_one({"email": email}, {"_id": 1})
+    if not target:
+        raise HTTPException(status_code=404,
+                            detail=f"Aucun utilisateur trouvé avec l'email {email}")
+    target_id = str(target["_id"])
+    caller_id = str(current_user["_id"])
+    is_super = current_user.get("role") == "superadmin"
+    is_owner = doc.get("user_id") == caller_id
+    is_self_removal = target_id == caller_id
+    if not (is_super or is_owner or is_self_removal):
+        raise HTTPException(status_code=403,
+                            detail="Vous ne pouvez pas retirer ce partage")
+    if target_id not in (doc.get("shared_with") or []):
+        raise HTTPException(status_code=404,
+                            detail=f"{email} n'a pas accès à cette session")
+    await db.datasets.update_one(
+        {"upload_id": upload_id},
+        {"$pull": {"shared_with": target_id}},
+    )
+    # Invalide le cache
+    if upload_id in DATASTORE:
+        cur = DATASTORE[upload_id].get("shared_with") or []
+        DATASTORE[upload_id]["shared_with"] = [x for x in cur if x != target_id]
+    return {"upload_id": upload_id, "removed": {"user_id": target_id, "email": email}}
+
 
 
 @api_router.get("/dataset/{upload_id}")

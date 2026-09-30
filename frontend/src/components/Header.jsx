@@ -69,6 +69,7 @@ export default function Header({
                 </a>
                 <SessionsMenu
                     currentUploadId={dataset?.upload_id}
+                    currentUserEmail={user?.email || ""}
                     onOpen={onOpenSession}
                     onDeleted={onDeletedSession}
                 />
